@@ -399,11 +399,12 @@ fun CameraScreen(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 16.dp)
-                // CAMBIO: Aumentado el alto del contenedor para ocupar más pantalla verticalmente
-                .height(500.dp) 
+                // CAMBIO: Contenedor más compacto (280dp)
+                .height(280.dp) 
                 .width(50.dp)
                 .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-                .padding(vertical = 12.dp),
+                // CAMBIO: Padding vertical mínimo para que el slider llegue a los bordes
+                .padding(vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -418,7 +419,7 @@ fun CameraScreen(
                     color = Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 4.dp)
                 )
 
                 // Slider Rotado
@@ -436,8 +437,8 @@ fun CameraScreen(
                         onValueChange = { valz ->
                             camera?.cameraControl?.setLinearZoom(valz)
                         },
-                        // CAMBIO: Slider mucho más largo (ancho antes de rotar) para llenar el contenedor
-                        modifier = Modifier.width(450.dp),
+                        // CAMBIO: Slider ancho (alto tras rotar) para llenar el contenedor de 280dp
+                        modifier = Modifier.width(260.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
                             activeTrackColor = Color(0xFF006D3E), // Primary green
