@@ -1,7 +1,13 @@
 package com.geosigpac.cirserv.ui
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.Uri
+import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.Toast
@@ -16,22 +22,22 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.util.concurrent.Executor
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 @Composable
 fun CameraScreen(
@@ -44,6 +50,51 @@ fun CameraScreen(
     
     var previewUseCase by remember { mutableStateOf<Preview?>(null) }
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
+    
+    // Estado para mostrar las coordenadas
+    var locationInfo by remember { mutableStateOf<String?>(null) }
+
+    // --- OBTENCIÓN DE UBICACIÓN ---
+    DisposableEffect(Unit) {
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        
+        // Listener para actualizaciones
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                locationInfo = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
+            }
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        }
+
+        // Permisos y solicitud de updates
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            try {
+                // 1. Intentar obtener última ubicación conocida para mostrar algo rápido
+                val lastKnownGPS = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                val lastKnownNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                val lastKnown = lastKnownGPS ?: lastKnownNet
+                
+                if (lastKnown != null) {
+                    locationInfo = "Lat: ${String.format("%.6f", lastKnown.latitude)}\nLng: ${String.format("%.6f", lastKnown.longitude)}"
+                }
+
+                // 2. Solicitar actualizaciones en tiempo real (mínimo 1s o 1 metro)
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 1f, listener)
+            } catch (e: Exception) {
+                Log.e("CameraScreen", "Error accediendo al GPS", e)
+            }
+        }
+
+        onDispose {
+            // Limpiar listener al cerrar la cámara
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                locationManager.removeUpdates(listener)
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
@@ -62,10 +113,8 @@ fun CameraScreen(
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
                     
-                    // Unbind previous use cases
                     cameraProvider.unbindAll()
 
-                    // Build Use Cases
                     val preview = Preview.Builder().build()
                     val imageCapture = ImageCapture.Builder()
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
@@ -89,7 +138,27 @@ fun CameraScreen(
             }
         )
 
-        // Overlay Controls
+        // --- OVERLAY: COORDENADAS GPS ---
+        if (locationInfo != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 32.dp, end = 16.dp) // Espacio para status bar
+                    .background(Color.Gray.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = locationInfo!!,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+
+        // --- CONTROLES DE CÁMARA ---
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -102,8 +171,7 @@ fun CameraScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Cancel Button
-                // In a real app use an Icon, simulating one here or text
+                // Cancelar
                 Box(
                     modifier = Modifier
                         .size(50.dp)
@@ -111,11 +179,10 @@ fun CameraScreen(
                         .clickable { onClose() },
                     contentAlignment = Alignment.Center
                 ) {
-                   // Simple X using pure CSS-like compose or text
-                   androidx.compose.material3.Text("X", color = Color.White)
+                   Text("X", color = Color.White, fontWeight = FontWeight.Bold)
                 }
 
-                // Shutter Button
+                // Disparador
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -132,7 +199,7 @@ fun CameraScreen(
                         }
                 )
                 
-                // Placeholder for balancing layout
+                // Espaciador para equilibrar layout
                 Box(modifier = Modifier.size(50.dp))
             }
         }
@@ -147,8 +214,6 @@ private fun takePhoto(
 ) {
     val imageCapture = imageCapture ?: return
 
-    // Create file in Cache so we can access it via file:// in WebView easily 
-    // without needing complex ContentProviders for this specific demo scenario
     val photoFile = File(
         context.cacheDir,
         "SIGPAC_${System.currentTimeMillis()}.jpg"
