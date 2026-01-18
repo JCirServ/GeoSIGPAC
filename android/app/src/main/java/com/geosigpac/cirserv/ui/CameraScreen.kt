@@ -38,6 +38,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
@@ -59,11 +60,12 @@ fun CameraScreen(
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
     
     // Estado para mostrar información
-    var locationText by remember { mutableStateOf("Sin cobertura GPS") }
+    var locationText by remember { mutableStateOf("Obteniendo ubicación...") }
     
     // Estado para datos SIGPAC
     var sigpacRef by remember { mutableStateOf<String?>(null) }
     var sigpacUso by remember { mutableStateOf<String?>(null) }
+    var isLoadingSigpac by remember { mutableStateOf(false) }
     
     // Estado para controlar la ubicación y peticiones API
     var currentLocation by remember { mutableStateOf<Location?>(null) }
@@ -79,15 +81,16 @@ fun CameraScreen(
         
         if (shouldFetch) {
             lastApiLocation = loc
+            isLoadingSigpac = true
             try {
-                // Indicador visual opcional (podría ponerse "Cargando..." si se desea)
                 val (ref, uso) = fetchRealSigpacData(loc.latitude, loc.longitude)
-                if (ref != null) {
-                    sigpacRef = ref
-                    sigpacUso = uso
-                }
+                // Actualizamos siempre, incluso si es null (para limpiar si salimos de parcela válida)
+                sigpacRef = ref
+                sigpacUso = uso
             } catch (e: Exception) {
                 Log.e("CameraScreen", "Error API SIGPAC", e)
+            } finally {
+                isLoadingSigpac = false
             }
         }
     }
@@ -96,30 +99,20 @@ fun CameraScreen(
     DisposableEffect(Unit) {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         
-        // Listener para actualizaciones
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                // 1. Actualizar texto de coordenadas (UI inmediata)
                 locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
-                // 2. Actualizar estado para triggerear LaunchedEffect de la API
                 currentLocation = location
             }
-            
             override fun onProviderEnabled(provider: String) {}
-            
             override fun onProviderDisabled(provider: String) {
-                locationText = "Sin cobertura GPS"
-                // No limpiamos sigpacRef inmediatamente para no parpadear, 
-                // pero si se pierde señal mucho tiempo, se mantendrá la última conocida.
+                locationText = "Sin señal GPS"
             }
-            
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         }
 
-        // Permisos y solicitud de updates
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
-                // 1. Intentar obtener última ubicación conocida
                 val lastKnownGPS = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                 val lastKnownNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
                 val lastKnown = lastKnownGPS ?: lastKnownNet
@@ -129,12 +122,11 @@ fun CameraScreen(
                     currentLocation = lastKnown
                 }
 
-                // 2. Solicitar actualizaciones en tiempo real
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
-                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 1f, listener)
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, listener)
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 5f, listener)
             } catch (e: Exception) {
                 Log.e("CameraScreen", "Error accediendo al GPS", e)
-                locationText = "Sin cobertura GPS"
+                locationText = "Error GPS"
             }
         } else {
             locationText = "Sin permisos GPS"
@@ -192,40 +184,52 @@ fun CameraScreen(
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 32.dp, end = 16.dp)
-                .background(Color.Gray.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                .padding(top = 40.dp, end = 16.dp)
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Column(horizontalAlignment = Alignment.End) {
-                // Coordenadas
                 Text(
                     text = locationText,
                     color = Color.White,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    lineHeight = 16.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.End
                 )
 
-                // Referencia SIGPAC
-                if (sigpacRef != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (isLoadingSigpac) {
+                    Text(
+                        text = "Consultando SIGPAC...",
+                        color = Color.LightGray,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                } else if (sigpacRef != null) {
                     Text(
                         text = "Ref: $sigpacRef",
-                        color = Color(0xFFFFFF00), // Amarillo
+                        color = Color(0xFFFFFF00),
                         fontSize = 13.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = androidx.compose.ui.text.style.TextAlign.End
                     )
                     Text(
-                        text = "Uso: $sigpacUso",
+                        text = "Uso: ${sigpacUso ?: "N/D"}",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Normal,
                         textAlign = androidx.compose.ui.text.style.TextAlign.End
+                    )
+                } else if (currentLocation != null) {
+                    // Tenemos ubicación pero no datos SIGPAC (fuera de zona o error)
+                    Text(
+                        text = "Sin datos SIGPAC",
+                        color = Color(0xFFFFAAAA),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
                     )
                 }
             }
@@ -244,6 +248,7 @@ fun CameraScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Cancelar
                 Box(
                     modifier = Modifier
                         .size(50.dp)
@@ -254,6 +259,7 @@ fun CameraScreen(
                    Text("X", color = Color.White, fontWeight = FontWeight.Bold)
                 }
 
+                // Disparador
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -276,19 +282,17 @@ fun CameraScreen(
     }
 }
 
-/**
- * Consulta la API real de SIGPAC para obtener la referencia catastral.
- * URL: https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/[x]/[y].json
- */
 private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?, String?> = withContext(Dispatchers.IO) {
     try {
-        // x = Longitude, y = Latitude. EPSG:4258 (ETRS89, compatible con WGS84 para estos fines)
+        // Formato URL: [x]/[y].json -> Longitude/Latitude
         val urlString = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/$lng/$lat.json"
+        
+        Log.d("SigpacAPI", "Requesting: $urlString")
         
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = 5000 // 5s timeout
-        connection.readTimeout = 5000
+        connection.connectTimeout = 8000
+        connection.readTimeout = 8000
         connection.requestMethod = "GET"
         connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
 
@@ -303,23 +307,53 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
             reader.close()
             connection.disconnect()
             
-            val jsonResponse = response.toString()
-            val json = JSONObject(jsonResponse)
-            
-            // La API suele devolver un objeto JSON plano o GeoJSON.
-            // Buscamos las propiedades directamente.
-            
-            val prov = json.optString("provincia")
-            val mun = json.optString("municipio")
-            val pol = json.optString("poligono")
-            val parc = json.optString("parcela")
-            val rec = json.optString("recinto")
-            val uso = json.optString("uso_sigpac")
-            
-            // Verificamos que al menos provincia y municipio existan para considerar válida la respuesta
-            if (prov.isNotEmpty() && mun.isNotEmpty()) {
-                val ref = "$prov-$mun-$pol-$parc-$rec"
-                return@withContext Pair(ref, uso)
+            val jsonResponse = response.toString().trim()
+            Log.d("SigpacAPI", "Response: $jsonResponse")
+
+            // Parsing robusto: Puede ser Object (GeoJSON Feature) o Array
+            var targetJson: JSONObject? = null
+
+            if (jsonResponse.startsWith("[")) {
+                val jsonArray = JSONArray(jsonResponse)
+                if (jsonArray.length() > 0) {
+                    targetJson = jsonArray.getJSONObject(0)
+                }
+            } else if (jsonResponse.startsWith("{")) {
+                targetJson = JSONObject(jsonResponse)
+            }
+
+            if (targetJson != null) {
+                // Helper para buscar propiedad en root, 'properties' o 'features'
+                fun findKey(key: String): String {
+                    // 1. Directo
+                    if (targetJson!!.has(key)) return targetJson!!.optString(key)
+                    
+                    // 2. Dentro de 'properties' (Estructura GeoJSON Feature)
+                    val props = targetJson!!.optJSONObject("properties")
+                    if (props != null && props.has(key)) return props.optString(key)
+                    
+                    // 3. Dentro de 'features' (Estructura GeoJSON FeatureCollection)
+                    val features = targetJson!!.optJSONArray("features")
+                    if (features != null && features.length() > 0) {
+                        val firstFeature = features.getJSONObject(0)
+                        val featProps = firstFeature.optJSONObject("properties")
+                        if (featProps != null && featProps.has(key)) return featProps.optString(key)
+                    }
+                    
+                    return ""
+                }
+
+                val prov = findKey("provincia")
+                val mun = findKey("municipio")
+                val pol = findKey("poligono")
+                val parc = findKey("parcela")
+                val rec = findKey("recinto")
+                val uso = findKey("uso_sigpac")
+
+                if (prov.isNotEmpty() && mun.isNotEmpty()) {
+                    val ref = "$prov-$mun-$pol-$parc-$rec"
+                    return@withContext Pair(ref, uso)
+                }
             }
         } else {
             Log.w("SigpacAPI", "HTTP Error: ${connection.responseCode}")
