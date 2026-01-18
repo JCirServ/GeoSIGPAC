@@ -14,12 +14,14 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,12 +30,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -45,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -58,6 +62,7 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executor
 
 @Composable
 fun CameraScreen(
@@ -71,9 +76,18 @@ fun CameraScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
+    // --- ESTADOS DE CONFIGURACIÓN DE CÁMARA ---
+    var aspectRatio by remember { mutableIntStateOf(AspectRatio.RATIO_4_3) }
+    var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) }
+    var showGrid by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+
     var previewUseCase by remember { mutableStateOf<Preview?>(null) }
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
     
+    // Vista previa persistente para reutilizar en recomposiciones
+    val previewView = remember { PreviewView(context) }
+
     // Estado para mostrar información
     var locationText by remember { mutableStateOf("Obteniendo ubicación...") }
     
@@ -126,6 +140,45 @@ fun CameraScreen(
                 close()
             }
         }.build()
+    }
+
+    // --- EFECTO DE VINCULACIÓN DE CÁMARA (REACTIVO A CONFIGURACIÓN) ---
+    LaunchedEffect(aspectRatio, flashMode) {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            
+            // 1. Desvincular todo antes de reconfigurar
+            cameraProvider.unbindAll()
+
+            // 2. Configurar Preview con el nuevo Aspect Ratio
+            val preview = Preview.Builder()
+                .setTargetAspectRatio(aspectRatio)
+                .build()
+
+            preview.setSurfaceProvider(previewView.surfaceProvider)
+
+            // 3. Configurar ImageCapture con Aspect Ratio y Flash
+            val imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setTargetAspectRatio(aspectRatio)
+                .setFlashMode(flashMode)
+                .build()
+
+            // 4. Vincular
+            try {
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    imageCapture
+                )
+                previewUseCase = preview
+                imageCaptureUseCase = imageCapture
+            } catch (exc: Exception) {
+                Log.e("CameraScreen", "Binding failed", exc)
+            }
+        }, ContextCompat.getMainExecutor(context))
     }
 
     // --- BUCLE HÍBRIDO: DISTANCIA (>3m) O TIEMPO (>5s) ---
@@ -214,66 +267,98 @@ fun CameraScreen(
         }
     }
 
+    // --- UI PRINCIPAL ---
     Box(modifier = Modifier.fillMaxSize()) {
+        
+        // 1. Vista de Cámara (AndroidView)
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                PreviewView(ctx).apply {
+            factory = {
+                previewView.apply {
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                     scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
-            },
-            update = { previewView ->
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-                cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
-                    cameraProvider.unbindAll()
-
-                    val preview = Preview.Builder().build()
-                    val imageCapture = ImageCapture.Builder()
-                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                        .build()
-
-                    preview.setSurfaceProvider(previewView.surfaceProvider)
-
-                    try {
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            CameraSelector.DEFAULT_BACK_CAMERA,
-                            preview,
-                            imageCapture
-                        )
-                        previewUseCase = preview
-                        imageCaptureUseCase = imageCapture
-                    } catch (exc: Exception) {
-                        Log.e("CameraScreen", "Use case binding failed", exc)
-                    }
-                }, ContextCompat.getMainExecutor(context))
             }
         )
         
-        // --- BOTÓN IR A PROYECTOS (TOP-LEFT) ---
-        Box(
+        // 2. Overlay de Cuadrícula (Opcional)
+        if (showGrid) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val width = size.width
+                val height = size.height
+                
+                // Líneas verticales
+                drawLine(
+                    color = Color.White.copy(alpha = 0.3f),
+                    start = Offset(width / 3, 0f),
+                    end = Offset(width / 3, height),
+                    strokeWidth = 2f
+                )
+                drawLine(
+                    color = Color.White.copy(alpha = 0.3f),
+                    start = Offset(2 * width / 3, 0f),
+                    end = Offset(2 * width / 3, height),
+                    strokeWidth = 2f
+                )
+                // Líneas horizontales
+                drawLine(
+                    color = Color.White.copy(alpha = 0.3f),
+                    start = Offset(0f, height / 3),
+                    end = Offset(width, height / 3),
+                    strokeWidth = 2f
+                )
+                drawLine(
+                    color = Color.White.copy(alpha = 0.3f),
+                    start = Offset(0f, 2 * height / 3),
+                    end = Offset(width, 2 * height / 3),
+                    strokeWidth = 2f
+                )
+            }
+        }
+
+        // --- BOTONES SUPERIORES IZQUIERDA ---
+        Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(top = 40.dp, start = 16.dp)
-                .size(50.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.5f))
-                .clickable { 
-                    onGoToProjects() 
-                },
-            contentAlignment = Alignment.Center
+                .padding(top = 40.dp, start = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.List,
-                contentDescription = "Ir a Proyectos",
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
-            )
+            // Botón Volver a Lista
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { onGoToProjects() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.List,
+                    contentDescription = "Ir a Proyectos",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            
+            // Botón Configuración
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { showSettingsDialog = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Configuración",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
 
         // --- OVERLAY: INFO GEOSIGPAC (TOP-RIGHT) ---
@@ -391,6 +476,84 @@ fun CameraScreen(
                     )
                 }
             }
+        }
+        
+        // --- DIÁLOGO DE CONFIGURACIÓN ---
+        if (showSettingsDialog) {
+            AlertDialog(
+                onDismissRequest = { showSettingsDialog = false },
+                title = { Text("Configuración de Cámara") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        
+                        // 1. Ratio
+                        Text("Resolución (Aspect Ratio)", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = aspectRatio == AspectRatio.RATIO_4_3,
+                                onClick = { aspectRatio = AspectRatio.RATIO_4_3 }
+                            )
+                            Text("4:3 (Estándar)")
+                            Spacer(Modifier.width(16.dp))
+                            RadioButton(
+                                selected = aspectRatio == AspectRatio.RATIO_16_9,
+                                onClick = { aspectRatio = AspectRatio.RATIO_16_9 }
+                            )
+                            Text("16:9 (Panorámico)")
+                        }
+
+                        Divider()
+
+                        // 2. Flash
+                        Text("Flash", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(
+                                        selected = flashMode == ImageCapture.FLASH_MODE_AUTO,
+                                        onClick = { flashMode = ImageCapture.FLASH_MODE_AUTO }
+                                    )
+                                    Text("Auto")
+                                }
+                            }
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(
+                                        selected = flashMode == ImageCapture.FLASH_MODE_ON,
+                                        onClick = { flashMode = ImageCapture.FLASH_MODE_ON }
+                                    )
+                                    Text("On")
+                                }
+                            }
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(
+                                        selected = flashMode == ImageCapture.FLASH_MODE_OFF,
+                                        onClick = { flashMode = ImageCapture.FLASH_MODE_OFF }
+                                    )
+                                    Text("Off")
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        // 3. Grid
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { showGrid = !showGrid }
+                        ) {
+                            Checkbox(checked = showGrid, onCheckedChange = { showGrid = it })
+                            Text("Mostrar Cuadrícula")
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showSettingsDialog = false }) {
+                        Text("Cerrar")
+                    }
+                }
+            )
         }
     }
 }
