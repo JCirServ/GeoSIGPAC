@@ -396,63 +396,37 @@ fun CameraScreen(
         }
 
         // --- CONTROL DE ZOOM (DISEÑO CÁPSULA ESTILIZADA) ---
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 24.dp)
-                // CAMBIO: Ancho reducido a 30dp (mitad de 60)
-                .height(300.dp)
-                .width(30.dp)
-                // CAMBIO: Esquinas ajustadas a la mitad (15dp)
-                .clip(RoundedCornerShape(15.dp))
-                .background(Color.Black.copy(alpha = 0.5f))
-                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .padding(vertical = 16.dp)
-            ) {
-                // CAMBIO: Texto eliminado
-                
-                // Slider Vertical
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Slider(
-                        value = currentLinearZoom,
-                        onValueChange = { valz ->
-                            camera?.cameraControl?.setLinearZoom(valz)
-                        },
-                        modifier = Modifier
-                            .graphicsLayer {
-                                rotationZ = 270f
-                                transformOrigin = TransformOrigin(0.5f, 0.5f)
-                            }
-                            .requiredWidth(220.dp),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = Color(0xFFFFD700), // Oro
-                            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                        )
-                    )
-                }
-                
-                // Icono decorativo Zoom (Lupa)
-                Icon(
-                    imageVector = Icons.Default.ZoomIn,
-                    contentDescription = "Zoom",
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(20.dp)
-                )
+Box(
+    modifier = Modifier
+        .align(Alignment.CenterStart)
+        .padding(start = 24.dp)
+        .height(300.dp)
+        .width(30.dp)
+        .clip(RoundedCornerShape(15.dp))
+        .background(Color.Black.copy(alpha = 0.5f))
+        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp)),
+    contentAlignment = Alignment.Center // Esto centra el slider rotado perfectamente
+) {
+    Slider(
+        value = currentLinearZoom,
+        onValueChange = { valz ->
+            camera?.cameraControl?.setLinearZoom(valz)
+        },
+        modifier = Modifier
+            .graphicsLayer {
+                rotationZ = 270f
+                transformOrigin = TransformOrigin.Center
             }
-        }
+            // CAMBIO: Aumentado a 260dp para llenar mejor el contenedor de 300dp
+            // (Deja 20dp arriba y abajo de margen visual)
+            .requiredWidth(260.dp), 
+        colors = SliderDefaults.colors(
+            thumbColor = Color.White,
+            activeTrackColor = Color(0xFFFFD700), // Oro
+            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+        )
+    )
+}
 
         // --- CONTROLES INFERIORES ---
         Column(
