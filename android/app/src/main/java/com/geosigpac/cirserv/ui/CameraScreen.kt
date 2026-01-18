@@ -38,6 +38,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.util.concurrent.Executor
+import kotlin.math.absoluteValue
 
 @Composable
 fun CameraScreen(
@@ -51,8 +52,10 @@ fun CameraScreen(
     var previewUseCase by remember { mutableStateOf<Preview?>(null) }
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
     
-    // Estado para mostrar las coordenadas
-    var locationInfo by remember { mutableStateOf<String?>(null) }
+    // Estado para mostrar información
+    var locationText by remember { mutableStateOf("Sin cobertura GPS") }
+    var sigpacRef by remember { mutableStateOf<String?>(null) }
+    var sigpacUso by remember { mutableStateOf<String?>(null) }
 
     // --- OBTENCIÓN DE UBICACIÓN ---
     DisposableEffect(Unit) {
@@ -61,35 +64,54 @@ fun CameraScreen(
         // Listener para actualizaciones
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                locationInfo = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
+                // 1. Actualizar coordenadas
+                locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
+                
+                // 2. Calcular datos SIGPAC (Simulación basada en coordenadas)
+                // Nota: En producción, esto haría una llamada a API WFS o decodificaría MVT.
+                val data = calculateMockSigpacData(location.latitude, location.longitude)
+                sigpacRef = data.first
+                sigpacUso = data.second
             }
+            
             override fun onProviderEnabled(provider: String) {}
-            override fun onProviderDisabled(provider: String) {}
+            
+            override fun onProviderDisabled(provider: String) {
+                locationText = "Sin cobertura GPS"
+                sigpacRef = null
+                sigpacUso = null
+            }
+            
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         }
 
         // Permisos y solicitud de updates
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
-                // 1. Intentar obtener última ubicación conocida para mostrar algo rápido
+                // 1. Intentar obtener última ubicación conocida
                 val lastKnownGPS = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                 val lastKnownNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
                 val lastKnown = lastKnownGPS ?: lastKnownNet
                 
                 if (lastKnown != null) {
-                    locationInfo = "Lat: ${String.format("%.6f", lastKnown.latitude)}\nLng: ${String.format("%.6f", lastKnown.longitude)}"
+                    locationText = "Lat: ${String.format("%.6f", lastKnown.latitude)}\nLng: ${String.format("%.6f", lastKnown.longitude)}"
+                    val data = calculateMockSigpacData(lastKnown.latitude, lastKnown.longitude)
+                    sigpacRef = data.first
+                    sigpacUso = data.second
                 }
 
-                // 2. Solicitar actualizaciones en tiempo real (mínimo 1s o 1 metro)
+                // 2. Solicitar actualizaciones en tiempo real
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
                 locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 1f, listener)
             } catch (e: Exception) {
                 Log.e("CameraScreen", "Error accediendo al GPS", e)
+                locationText = "Sin cobertura GPS"
             }
+        } else {
+            locationText = "Sin permisos GPS"
         }
 
         onDispose {
-            // Limpiar listener al cerrar la cámara
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                 locationManager.removeUpdates(listener)
             }
@@ -112,7 +134,6 @@ fun CameraScreen(
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
-                    
                     cameraProvider.unbindAll()
 
                     val preview = Preview.Builder().build()
@@ -138,23 +159,44 @@ fun CameraScreen(
             }
         )
 
-        // --- OVERLAY: COORDENADAS GPS ---
-        if (locationInfo != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 32.dp, end = 16.dp) // Espacio para status bar
-                    .background(Color.Gray.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
+        // --- OVERLAY: INFO GEOSIGPAC ---
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 32.dp, end = 16.dp)
+                .background(Color.Gray.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.End) {
+                // Coordenadas
                 Text(
-                    text = locationInfo!!,
+                    text = locationText,
                     color = Color.White,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    lineHeight = 16.sp
+                    lineHeight = 16.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End
                 )
+
+                // Referencia SIGPAC
+                if (sigpacRef != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Ref: $sigpacRef",
+                        color = Color(0xFFFFFF00), // Amarillo para destacar
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "Uso: $sigpacUso",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
             }
         }
 
@@ -171,7 +213,6 @@ fun CameraScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Cancelar
                 Box(
                     modifier = Modifier
                         .size(50.dp)
@@ -182,7 +223,6 @@ fun CameraScreen(
                    Text("X", color = Color.White, fontWeight = FontWeight.Bold)
                 }
 
-                // Disparador
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -199,11 +239,35 @@ fun CameraScreen(
                         }
                 )
                 
-                // Espaciador para equilibrar layout
                 Box(modifier = Modifier.size(50.dp))
             }
         }
     }
+}
+
+/**
+ * Función auxiliar que genera datos SIGPAC "falsos" pero consistentes basados en lat/lng.
+ * En una app real, esto consultaría un servicio WFS o decodificaría la geometría MVT.
+ */
+private fun calculateMockSigpacData(lat: Double, lng: Double): Pair<String, String> {
+    // Provincia: 46 (Valencia por defecto)
+    val prov = "46"
+    
+    // Generar códigos semi-aleatorios basados en coordenadas para que cambien al moverse
+    val latPart = (lat * 10000).toInt().absoluteValue
+    val lngPart = (lng * 10000).toInt().absoluteValue
+    
+    val mun = (latPart % 300 + 1).toString()
+    val pol = ((lngPart / 100) % 50 + 1).toString()
+    val parc = (latPart % 200 + 1).toString()
+    val rec = (lngPart % 5 + 1).toString()
+    
+    // Usos posibles
+    val usos = listOf("CF", "OV", "TA", "FS", "PR", "PA", "ZU")
+    val uso = usos[(latPart + lngPart) % usos.size]
+
+    // Formato: provincia-municipio-poligono-parcela-recinto
+    return "$prov-$mun-$pol-$parc-$rec" to uso
 }
 
 private fun takePhoto(
