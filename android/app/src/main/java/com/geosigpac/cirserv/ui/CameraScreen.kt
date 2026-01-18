@@ -397,12 +397,12 @@ fun CameraScreen(
         // --- CONTROL DE ZOOM (Slider Vertical a la IZQUIERDA) ---
         Box(
             modifier = Modifier
-                .align(Alignment.CenterStart) // CAMBIO: CenterStart (Izquierda)
-                .padding(start = 16.dp)       // CAMBIO: Padding start
-                .height(200.dp)
+                .align(Alignment.CenterStart)
+                .padding(start = 16.dp)
+                .height(320.dp) // INCREASED HEIGHT
                 .width(50.dp)
                 .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-                .padding(vertical = 8.dp),
+                .padding(vertical = 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -410,7 +410,6 @@ fun CameraScreen(
                 verticalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxHeight()
             ) {
-                // CAMBIO: Se han eliminado los iconos de lupa ZoomIn y ZoomOut
                 
                 // Texto del ratio actual
                 Text(
@@ -436,7 +435,7 @@ fun CameraScreen(
                         onValueChange = { valz ->
                             camera?.cameraControl?.setLinearZoom(valz)
                         },
-                        modifier = Modifier.width(140.dp), // Este width se convierte en height al rotar
+                        modifier = Modifier.width(260.dp), // INCREASED WIDTH (rotated height)
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
                             activeTrackColor = Color(0xFF006D3E), // Primary green
