@@ -297,7 +297,15 @@ private fun loadMapStyle(
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
-                val cultivoSource = VectorSource(SOURCE_CULTIVO, TileSet("pbf", cultivoUrl))
+                val tileSetCultivo = TileSet("pbf", cultivoUrl)
+                
+                // CRUCIAL: Permitir Overzoom. 
+                // El servidor da tiles hasta el nivel 15. Si el usuario hace zoom a 16, 17, 18,
+                // usamos los tiles del nivel 15 estirados.
+                tileSetCultivo.minZoom = 5f
+                tileSetCultivo.maxZoom = 15f
+                
+                val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
@@ -317,7 +325,13 @@ private fun loadMapStyle(
         if (showRecinto) {
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
-                val recintoSource = VectorSource(SOURCE_RECINTO, TileSet("pbf", recintoUrl))
+                val tileSetRecinto = TileSet("pbf", recintoUrl)
+                
+                // CRUCIAL: Permitir Overzoom también aquí.
+                tileSetRecinto.minZoom = 5f
+                tileSetRecinto.maxZoom = 15f
+
+                val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
                 val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
@@ -333,7 +347,6 @@ private fun loadMapStyle(
         }
 
         // 3. Restaurar configuración de ubicación
-        // Pasamos shouldCenterUser para decidir si movemos la cámara o no
         if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
         }
