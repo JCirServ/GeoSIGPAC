@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,8 +40,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +63,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.location.LocationComponentActivationOptions
 import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
@@ -125,6 +132,7 @@ fun NativeMap(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     
     // --- ESTADO ---
@@ -135,6 +143,11 @@ fun NativeMap(
     var showLayerMenu by remember { mutableStateOf(false) }
 
     var initialLocationSet by remember { mutableStateOf(false) }
+
+    // Estado Búsqueda
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
+    var searchActive by remember { mutableStateOf(false) } // Si hay un resultado activo
 
     // Estado de datos SIGPAC
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
@@ -176,16 +189,86 @@ fun NativeMap(
         }
     }
 
+    // --- FUNCIÓN DE BÚSQUEDA ---
+    fun performSearch() {
+        if (searchQuery.isBlank()) return
+        focusManager.clearFocus()
+        isSearching = true
+        searchActive = true
+        
+        // Formato: PROV:MUN:POL:PARC[:REC]
+        val parts = searchQuery.split(":").map { it.trim() }
+        if (parts.size < 4) {
+            Toast.makeText(context, "Formato incorrecto. Use: Prov:Mun:Pol:Parcela", Toast.LENGTH_LONG).show()
+            isSearching = false
+            return
+        }
+
+        val prov = parts[0]
+        val mun = parts[1]
+        val pol = parts[2]
+        val parc = parts[3]
+        val rec = parts.getOrNull(4)
+
+        scope.launch {
+            val map = mapInstance
+            if (map != null && map.style != null) {
+                // 1. Aplicar Filtro Visual (Highlight)
+                val filterList = mutableListOf<Expression>(
+                    Expression.eq(Expression.get("provincia"), Expression.literal(prov)),
+                    Expression.eq(Expression.get("municipio"), Expression.literal(mun)),
+                    Expression.eq(Expression.get("poligono"), Expression.literal(pol)),
+                    Expression.eq(Expression.get("parcela"), Expression.literal(parc))
+                )
+                if (rec != null) {
+                    filterList.add(Expression.eq(Expression.get("recinto"), Expression.literal(rec)))
+                }
+
+                val filter = Expression.all(*filterList.toTypedArray())
+
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { layer ->
+                    (layer as FillLayer).setFilter(filter)
+                    layer.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+                }
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { layer ->
+                    (layer as LineLayer).setFilter(filter)
+                    layer.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+                }
+            }
+
+            // 2. Buscar Geometría y Mover Cámara (WFS)
+            val bbox = searchParcelLocation(prov, mun, pol, parc, rec)
+            
+            if (bbox != null) {
+                mapInstance?.animateCamera(
+                    CameraUpdateFactory.newLatLngBounds(bbox, 100), // Padding
+                    1500
+                )
+            } else {
+                Toast.makeText(context, "Parcela no encontrada o error de conexión", Toast.LENGTH_SHORT).show()
+            }
+            
+            isSearching = false
+        }
+    }
+
+    fun clearSearch() {
+        searchQuery = ""
+        searchActive = false
+        lastHighlightedId = null
+        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
+        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
+    }
+
     // --- LÓGICA DE PROCESAMIENTO DE MAPA ---
     fun updateMapState(map: MapLibreMap, isIdle: Boolean) {
+        // Si hay una búsqueda activa, NO sobrescribimos el resaltado con la cruz central
+        if (searchActive) return
+
         val center = map.cameraPosition.target ?: return
         
-        // Solo procesamos si hay suficiente zoom
         if (map.cameraPosition.zoom < 13) {
-            recintoData = null
-            cultivoData = null
-            lastHighlightedId = null
-            // Limpiar resaltado
+            recintoData = null; cultivoData = null; lastHighlightedId = null
             val style = map.style
             style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
             style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
@@ -201,23 +284,19 @@ fun NativeMap(
             val props = feature.properties()
             
             if (props != null) {
-                // Claves comunes en tiles SIGPAC
                 val prov = props.get("provincia")?.asString ?: ""
                 val mun = props.get("municipio")?.asString ?: ""
                 val pol = props.get("poligono")?.asString ?: ""
                 val parc = props.get("parcela")?.asString ?: ""
                 val rec = props.get("recinto")?.asString ?: ""
                 
-                // ID único compuesto para el control de cambios
                 val uniqueId = "$prov-$mun-$pol-$parc-$rec"
                 
                 if (uniqueId != lastHighlightedId) {
                     lastHighlightedId = uniqueId
                     
-                    // A. RESALTAR EN EL MAPA (Highlight)
                     val style = map.style
                     if (style != null) {
-                        // Filtro: Coincidir todas las propiedades clave
                         val filter = Expression.all(
                             Expression.eq(Expression.get("provincia"), Expression.literal(prov)),
                             Expression.eq(Expression.get("municipio"), Expression.literal(mun)),
@@ -225,90 +304,61 @@ fun NativeMap(
                             Expression.eq(Expression.get("parcela"), Expression.literal(parc)),
                             Expression.eq(Expression.get("recinto"), Expression.literal(rec))
                         )
-                        
                         val fillLayer = style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer
                         val lineLayer = style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer
                         
                         fillLayer?.setFilter(filter)
                         fillLayer?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
-                        
                         lineLayer?.setFilter(filter)
                         lineLayer?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                     }
 
-                    // B. ACTUALIZAR UI CON DATOS LOCALES (Rápido)
-                    // Rellenamos el mapa con lo que tenemos en el vector tile
-                    // Manteniendo las claves compatibles con la API
                     recintoData = mapOf(
-                        "provincia" to prov,
-                        "municipio" to mun,
-                        "poligono" to pol,
-                        "parcela" to parc,
-                        "recinto" to rec,
+                        "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
                         "agregado" to (props.get("agregado")?.asString ?: "0"),
                         "zona" to (props.get("zona")?.asString ?: "0"),
-                        "superficie" to (props.get("superficie")?.toString() ?: "0"), // Puede ser number o string
-                        // Campos pendientes de API (placeholders)
-                        "uso_sigpac" to "Cargando...", 
-                        "pendiente_media" to "-",
-                        "altitud" to "-",
-                        "region" to "-",
-                        "coef_regadio" to "-",
-                        "subvencionabilidad" to "-",
-                        "incidencias" to ""
+                        "superficie" to (props.get("superficie")?.toString() ?: "0"),
+                        "uso_sigpac" to "Cargando...", "pendiente_media" to "-", "altitud" to "-", "region" to "-",
+                        "coef_regadio" to "-", "subvencionabilidad" to "-", "incidencias" to ""
                     )
                 }
             }
         } else {
-            // No hay feature bajo la cruz
             if (lastHighlightedId != null) {
                 lastHighlightedId = null
-                // Ocultar resaltado
                 val style = map.style
                 style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
                 style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
             }
         }
 
-        // 2. DETECTAR CULTIVO (Para el tab secundario)
+        // 2. DETECTAR CULTIVO
         val cultFeatures = map.queryRenderedFeatures(screenPoint, LAYER_CULTIVO_FILL)
         if (cultFeatures.isNotEmpty()) {
              val props = cultFeatures[0].properties()
              if (props != null) {
                 val mapProps = mutableMapOf<String, String>()
-                props.entrySet().forEach { 
-                    mapProps[it.key] = it.value.toString().replace("\"", "") 
-                }
+                props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
                 cultivoData = mapProps
             }
         } else {
             cultivoData = null
         }
         
-        // 3. LLAMADA A API (Solo si está IDLE / Parado)
+        // 3. API
         if (isIdle) {
             isLoadingData = true
             isPanelExpanded = false
-            
-            // Cancelar trabajo anterior
             apiJob?.cancel()
-            
-            // Si tenemos datos visuales válidos, completarlos con la API
             if (lastHighlightedId != null) {
                 apiJob = scope.launch {
-                    delay(200) // Pequeño debounce para asegurar quietud
+                    delay(200) 
                     val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
-                    if (fullData != null) {
-                        // Fusionar o reemplazar datos locales
-                        recintoData = fullData
-                    }
+                    if (fullData != null) recintoData = fullData
                     isLoadingData = false
                 }
-            } else {
-                isLoadingData = false
-            }
+            } else { isLoadingData = false }
         } else {
-            // Si nos estamos moviendo, cancelamos cualquier petición de red pendiente
             apiJob?.cancel()
             isLoadingData = false
         }
@@ -329,17 +379,8 @@ fun NativeMap(
                     .build()
             }
 
-            // LISTENER: MOVIMIENTO CONTINUO
-            map.addOnCameraMoveListener {
-                // Actualiza el resaltado y los datos básicos instantáneamente
-                updateMapState(map, isIdle = false)
-            }
-
-            // LISTENER: PARADA
-            map.addOnCameraIdleListener {
-                // Trigger de la API para datos completos
-                updateMapState(map, isIdle = true)
-            }
+            map.addOnCameraMoveListener { updateMapState(map, isIdle = false) }
+            map.addOnCameraIdleListener { updateMapState(map, isIdle = true) }
 
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
@@ -374,7 +415,7 @@ fun NativeMap(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Cruz central
+        // Cruz central (Solo visible si no estamos buscando activamente, opcional)
         Box(
             modifier = Modifier.align(Alignment.Center),
             contentAlignment = Alignment.Center
@@ -383,9 +424,51 @@ fun NativeMap(
             Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
         }
 
-        // Botones laterales
+        // --- BUSCADOR (TOP LEFT) ---
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 16.dp, start = 16.dp, end = 16.dp)
+                .fillMaxWidth(0.65f) // Ocupa 65% del ancho
+        ) {
+            TextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 12.sp) },
+                singleLine = true,
+                maxLines = 1,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { performSearch() }),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
+                    unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
+                    focusedIndicatorColor = FieldGreen,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = FieldGreen
+                ),
+                shape = RoundedCornerShape(8.dp),
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { clearSearch() }) {
+                            Icon(Icons.Default.Close, "Borrar", tint = Color.Gray)
+                        }
+                    } else {
+                        IconButton(onClick = { performSearch() }) {
+                            Icon(Icons.Default.Search, "Buscar", tint = FieldGreen)
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            )
+        }
+
+        // --- BOTONES (TOP END) ---
+        // Desplazados hacia abajo para no chocar con el buscador
         Column(
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 90.dp, end = 16.dp),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -451,8 +534,8 @@ fun NativeMap(
             ) { Icon(Icons.Default.MyLocation, "Ubicación") }
         }
 
-        // Loading (solo aparece brevemente al soltar si la API tarda)
-        if (isLoadingData) {
+        // Loading
+        if (isLoadingData || isSearching) {
             Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
                 CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
             }
@@ -487,24 +570,13 @@ fun NativeMap(
                     elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        
-                        // Drag Handle
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp, bottom = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(40.dp)
-                                    .height(5.dp)
-                                    .clip(RoundedCornerShape(2.5.dp))
-                                    .background(Color.White.copy(alpha = 0.3f))
-                            )
+                            Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
                         }
 
-                        // CABECERA
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -519,68 +591,29 @@ fun NativeMap(
                                     color = FieldGreen 
                                 )
                             }
-                            IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false }, modifier = Modifier.size(24.dp)) {
+                            IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) {
                                 Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite)
                             }
                         }
                         
                         Divider(color = FieldDivider)
 
-                        // PESTAÑAS
                         val hasCultivo = cultivoData != null
-                        
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(FieldSurface)
-                                .padding(4.dp), 
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).background(FieldSurface).padding(4.dp), 
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(if (selectedTab == 0) FieldGreen else Color.Transparent)
-                                    .clickable { 
-                                        selectedTab = 0 
-                                        isPanelExpanded = true 
-                                    }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                                 Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
                             }
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(if (selectedTab == 1) FieldGreen else Color.Transparent)
-                                    .clickable(enabled = hasCultivo) { 
-                                        if (hasCultivo) {
-                                            selectedTab = 1
-                                            isPanelExpanded = true 
-                                        }
-                                    }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                                 Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
                             }
                         }
                         
-                        // CONTENIDO EXPANDIBLE
                         if (isPanelExpanded) {
                             Divider(color = FieldDivider)
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 400.dp) 
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(16.dp)
-                            ) {
+                            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
                                 if (selectedTab == 0) {
                                     if (recintoData != null) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -607,25 +640,12 @@ fun NativeMap(
                                     if (cultivoData != null) {
                                         val c = cultivoData!!
                                         Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                        Row(Modifier.fillMaxWidth()) {
-                                            AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f))
-                                            AttributeItem("Año", c["exp_ano"], Modifier.weight(1f))
-                                        }
+                                        Row(Modifier.fillMaxWidth()) { AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f)); AttributeItem("Año", c["exp_ano"], Modifier.weight(1f)) }
                                         Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
                                         Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                        Row(Modifier.fillMaxWidth()) {
-                                            AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
-                                            val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0
-                                            val supCultHa = supCultRaw / 10000.0
-                                            AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f))
-                                        }
+                                        Row(Modifier.fillMaxWidth()) { AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f)); val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0; val supCultHa = supCultRaw / 10000.0; AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f)) }
                                         Spacer(Modifier.height(8.dp))
-                                        Row(Modifier.fillMaxWidth()) {
-                                            val sist = c["parc_sistexp"]
-                                            val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }
-                                            AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f))
-                                            AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f))
-                                        }
+                                        Row(Modifier.fillMaxWidth()) { val sist = c["parc_sistexp"]; val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }; AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f)); AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f)) }
                                         Spacer(Modifier.height(8.dp))
                                         AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
                                         Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
@@ -635,10 +655,7 @@ fun NativeMap(
                                         AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
                                         Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
                                         Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                        Row(Modifier.fillMaxWidth()) {
-                                            AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f))
-                                            AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f))
-                                        }
+                                        Row(Modifier.fillMaxWidth()) { AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f)) }
                                     }
                                 }
                             }
@@ -663,16 +680,36 @@ fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) 
     }
 }
 
-// --- FUNCIÓN DE API ---
-private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? = withContext(Dispatchers.IO) {
+// --- FUNCIONES API (WFS & INFO) ---
+
+// Busca ubicación usando el WFS nacional (Mapama)
+private suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): LatLngBounds? = withContext(Dispatchers.IO) {
     try {
-        val urlString = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
+        // Construcción de consulta WFS (Estándar OGC)
+        // Usamos el servicio del Ministerio (WMS/WFS SIGPAC)
+        val baseUrl = "https://wms.mapama.gob.es/sigpac/wfs"
+        
+        // El filtro CQL depende de si buscamos PARCELA o RECINTO
+        // Nota: El servicio suele tener capas 'SIGPAC:PARCELA' o 'SIGPAC:RECINTO'
+        val typeName = if (rec != null) "SIGPAC:RECINTO" else "SIGPAC:PARCELA"
+        
+        // Filtro CQL estandarizado
+        var cql = "PROVINCIA='$prov' AND MUNICIPIO='$mun' AND POLIGONO='$pol' AND PARCELA='$parc'"
+        if (rec != null) {
+            cql += " AND RECINTO='$rec'"
+        }
+        
+        // URL completa
+        val encodedCql = java.net.URLEncoder.encode(cql, "UTF-8")
+        val urlString = "$baseUrl?service=WFS&request=GetFeature&version=2.0.0&typeNames=$typeName&outputFormat=application/json&cql_filter=$encodedCql"
+        
+        Log.d("SEARCH_WFS", "Query: $urlString")
+        
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = 5000
-        connection.readTimeout = 5000
+        connection.connectTimeout = 8000
+        connection.readTimeout = 8000
         connection.requestMethod = "GET"
-        connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
         
         if (connection.responseCode == 200) {
             val reader = BufferedReader(InputStreamReader(connection.inputStream))
@@ -682,15 +719,49 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
             reader.close()
             connection.disconnect()
             
+            val json = JSONObject(response.toString())
+            val features = json.optJSONArray("features")
+            if (features != null && features.length() > 0) {
+                // Obtenemos el Bounding Box (bbox) del GeoJSON
+                val feature = features.getJSONObject(0)
+                val bbox = feature.optJSONArray("bbox") // [minLon, minLat, maxLon, maxLat]
+                
+                if (bbox != null && bbox.length() == 4) {
+                    return@withContext LatLngBounds.from(
+                        bbox.getDouble(3), // North
+                        bbox.getDouble(2), // East
+                        bbox.getDouble(1), // South
+                        bbox.getDouble(0)  // West
+                    )
+                }
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return@withContext null
+}
+
+private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? = withContext(Dispatchers.IO) {
+    try {
+        val urlString = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
+        val url = URL(urlString)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 5000; connection.readTimeout = 5000
+        connection.requestMethod = "GET"
+        connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
+        
+        if (connection.responseCode == 200) {
+            val reader = BufferedReader(InputStreamReader(connection.inputStream))
+            val response = StringBuilder(); var line: String?
+            while (reader.readLine().also { line = it } != null) response.append(line)
+            reader.close(); connection.disconnect()
             val jsonResponse = response.toString().trim()
             var targetJson: JSONObject? = null
-            
             if (jsonResponse.startsWith("[")) {
                 val jsonArray = JSONArray(jsonResponse)
                 if (jsonArray.length() > 0) targetJson = jsonArray.getJSONObject(0)
-            } else if (jsonResponse.startsWith("{")) {
-                targetJson = JSONObject(jsonResponse)
-            }
+            } else if (jsonResponse.startsWith("{")) targetJson = JSONObject(jsonResponse)
 
             if (targetJson != null) {
                 fun getProp(key: String): String {
@@ -704,32 +775,18 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                     }
                     return ""
                 }
-
-                val prov = getProp("provincia")
-                val mun = getProp("municipio")
-                val pol = getProp("poligono")
-                
+                val prov = getProp("provincia"); val mun = getProp("municipio"); val pol = getProp("poligono")
                 if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext null
 
                 val superficieRaw = getProp("superficie")
-                var altitudVal = getProp("altitud")
-                if (altitudVal.isEmpty()) { altitudVal = getProp("altitud_media") }
+                var altitudVal = getProp("altitud"); if (altitudVal.isEmpty()) { altitudVal = getProp("altitud_media") }
 
                 return@withContext mapOf(
-                    "provincia" to prov,
-                    "municipio" to mun,
-                    "agregado" to getProp("agregado"),
-                    "zona" to getProp("zona"),
-                    "poligono" to pol,
-                    "parcela" to getProp("parcela"),
-                    "recinto" to getProp("recinto"),
-                    "superficie" to superficieRaw,
-                    "pendiente_media" to getProp("pendiente_media"),
-                    "altitud" to altitudVal,
-                    "uso_sigpac" to getProp("uso_sigpac"),
-                    "subvencionabilidad" to getProp("coef_admisibilidad_pastos"),
-                    "coef_regadio" to getProp("coef_regadio"),
-                    "incidencias" to getProp("incidencias").replace("[", "").replace("]", "").replace("\"", ""),
+                    "provincia" to prov, "municipio" to mun, "agregado" to getProp("agregado"),
+                    "zona" to getProp("zona"), "poligono" to pol, "parcela" to getProp("parcela"), "recinto" to getProp("recinto"),
+                    "superficie" to superficieRaw, "pendiente_media" to getProp("pendiente_media"), "altitud" to altitudVal,
+                    "uso_sigpac" to getProp("uso_sigpac"), "subvencionabilidad" to getProp("coef_admisibilidad_pastos"),
+                    "coef_regadio" to getProp("coef_regadio"), "incidencias" to getProp("incidencias").replace("[", "").replace("]", "").replace("\"", ""),
                     "region" to getProp("region")
                 )
             }
