@@ -384,8 +384,9 @@ fun NativeMap(
                         ) {
                             Column {
                                 Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                // CAMBIO: Separador : en lugar de /
                                 Text(
-                                    text = "${data["provincia"]}/${data["municipio"]}/${data["agregado"]}/${data["zona"]}/${data["poligono"]}/${data["parcela"]}/${data["recinto"]}",
+                                    text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
@@ -396,51 +397,71 @@ fun NativeMap(
                             }
                         }
                         
-                        Divider()
+                        Divider(color = Color.LightGray.copy(alpha=0.4f))
 
-                        // 2. PESTAÑAS (Siempre visibles) - CLICAR EXPANDE
-                        Row(modifier = Modifier.fillMaxWidth()) {
+                        // 2. PESTAÑAS (Estilo Cápsula/Pill)
+                        val hasCultivo = cultivoData != null
+                        
+                        // Contenedor de fondo para las pestañas
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(50)) // Forma redondeada general
+                                .background(Color(0xFFF0F0F0)) // Fondo gris claro
+                                .padding(4.dp), // Padding interno para las "pills"
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Pestaña RECINTO
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Transparent)
                                     .clickable { 
                                         selectedTab = 0 
-                                        isPanelExpanded = true // Tocar expande el panel
+                                        isPanelExpanded = true 
                                     }
-                                    .background(if (selectedTab == 0) MaterialTheme.colorScheme.surface else Color(0xFFEEEEEE))
-                                    .padding(vertical = 12.dp),
+                                    .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("Recinto", fontWeight = if(selectedTab == 0) FontWeight.Bold else FontWeight.Normal, color = if(selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Gray)
-                                if (selectedTab == 0) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.primary))
+                                Text(
+                                    "Recinto", 
+                                    fontWeight = FontWeight.SemiBold, 
+                                    color = if(selectedTab == 0) Color.White else Color.Gray
+                                )
                             }
 
-                            val hasCultivo = cultivoData != null
+                            // Pestaña CULTIVO
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (selectedTab == 1) MaterialTheme.colorScheme.primary else Color.Transparent)
                                     .clickable(enabled = hasCultivo) { 
                                         if (hasCultivo) {
                                             selectedTab = 1
-                                            isPanelExpanded = true // Tocar expande el panel
+                                            isPanelExpanded = true
                                         }
                                     }
-                                    .background(if (selectedTab == 1) MaterialTheme.colorScheme.surface else Color(0xFFEEEEEE))
-                                    .padding(vertical = 12.dp),
+                                    .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("Cultivo", fontWeight = if(selectedTab == 1) FontWeight.Bold else FontWeight.Normal, color = if (selectedTab == 1) MaterialTheme.colorScheme.primary else if (hasCultivo) Color.DarkGray else Color.LightGray.copy(alpha=0.6f))
-                                if (selectedTab == 1) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.primary))
+                                Text(
+                                    "Cultivo", 
+                                    fontWeight = FontWeight.SemiBold, 
+                                    color = if (selectedTab == 1) Color.White else if (hasCultivo) Color.Gray else Color.LightGray
+                                )
                             }
                         }
                         
                         // 3. CONTENIDO (Solo visible si está expandido)
                         if (isPanelExpanded) {
-                            Divider()
+                            Divider(color = Color.LightGray.copy(alpha=0.4f))
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 400.dp) // Limitar altura para scroll si es muy largo
+                                    .heightIn(max = 400.dp) 
                                     .verticalScroll(rememberScrollState())
                                     .padding(16.dp)
                             ) {
@@ -449,8 +470,8 @@ fun NativeMap(
                                     if (recintoData != null) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
-                                            // NO TOCAR: Superficie en Áreas (sin dividir)
-                                            AttributeItem("Superficie", "${recintoData!!["superficie"]} áreas", Modifier.weight(1f))
+                                            // CAMBIO: Valor original pero unidad 'ha'
+                                            AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f))
                                         }
                                         Spacer(Modifier.height(12.dp))
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -475,12 +496,7 @@ fun NativeMap(
                                     if (cultivoData != null) {
                                         val c = cultivoData!!
                                         
-                                        // 1. Identificación SIGPAC (Desde capa cultivo)
-                                        Text("Identificación (Capa Cultivo)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                        val refString = "${c["provincia"]}/${c["municipio"]}/${c["agregado"]}/${c["zona"]}/${c["poligono"]}/${c["parcela"]}/${c["recinto"]}"
-                                        Text(refString, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom=8.dp))
-                                        
-                                        Divider(Modifier.padding(vertical=6.dp))
+                                        // CAMBIO: Eliminada sección de Identificación
 
                                         // 2. Expediente
                                         Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
@@ -502,7 +518,7 @@ fun NativeMap(
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
                                             
-                                            // SI TOCAR: Dividir entre 10000 (Hectáreas)
+                                            // Cultivo: Dividir entre 10000 (Hectáreas) - Se mantiene como estaba
                                             val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0
                                             val supCultHa = supCultRaw / 10000.0
                                             AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f))
