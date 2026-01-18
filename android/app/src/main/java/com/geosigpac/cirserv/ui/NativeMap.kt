@@ -176,8 +176,8 @@ fun NativeMap(
             // LISTENER: Al detenerse, buscamos qué hay debajo de la cruz
             map.addOnCameraIdleListener {
                 val center = map.cameraPosition.target
-                // Solo buscamos si el zoom es suficiente para ver parcelas
-                if (map.cameraPosition.zoom > 13) {
+                // Solo buscamos si el zoom es suficiente para ver parcelas y si center no es nulo
+                if (center != null && map.cameraPosition.zoom > 13) {
                     isLoadingData = true
                     apiJob?.cancel()
                     apiJob = scope.launch {
