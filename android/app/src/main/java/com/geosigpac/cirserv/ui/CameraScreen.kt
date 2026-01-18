@@ -421,35 +421,35 @@ fun CameraScreen(
         }
 
         // --- CONTROL DE ZOOM (DISEÑO CÁPSULA ESTILIZADA) ---
-Box(
-    modifier = Modifier
-        .align(Alignment.CenterStart)
-        .padding(start = 24.dp)
-        .height(300.dp)
-        .width(30.dp)
-        .clip(RoundedCornerShape(15.dp))
-        .background(Color.Black.copy(alpha = 0.5f))
-        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp)),
-    contentAlignment = Alignment.Center // Esto centra el slider rotado perfectamente
-) {
-    Slider(
-        value = currentLinearZoom,
-        onValueChange = { valz ->
-            camera?.cameraControl?.setLinearZoom(valz)
-        },
-        modifier = Modifier
-            .graphicsLayer {
-                rotationZ = 270f
-                transformOrigin = TransformOrigin.Center
-            }
-            .requiredWidth(260.dp), 
-        colors = SliderDefaults.colors(
-            thumbColor = Color.White,
-            activeTrackColor = Color(0xFFFFD700), // Oro
-            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-        )
-    )
-}
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 24.dp)
+                .height(300.dp)
+                .width(30.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(Color.Black.copy(alpha = 0.5f))
+                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Slider(
+                value = currentLinearZoom,
+                onValueChange = { valz ->
+                    camera?.cameraControl?.setLinearZoom(valz)
+                },
+                modifier = Modifier
+                    .graphicsLayer {
+                        rotationZ = 270f
+                        transformOrigin = TransformOrigin.Center
+                    }
+                    .requiredWidth(260.dp), 
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color(0xFFFFD700), // Oro
+                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                )
+            )
+        }
 
         // --- CONTROLES INFERIORES ---
         Column(
@@ -464,14 +464,14 @@ Box(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // CAMBIO: Previsualización de Foto (reemplaza a la X)
+                // CAMBIO: Previsualización de Foto (REDIMENSIONADA A 80dp)
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
-                        .clip(RoundedCornerShape(12.dp)) // Forma cuadrada redondeada
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(24.dp)) // Mismo radio que el botón del mapa
                         .background(Color.Black.copy(0.5f))
-                        .border(1.dp, Color.White, RoundedCornerShape(12.dp))
-                        .clickable { onClose() }, // Mantenemos la función de salir/cerrar
+                        .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
+                        .clickable { onClose() }, 
                     contentAlignment = Alignment.Center
                 ) { 
                     if (capturedBitmap != null) {
@@ -486,7 +486,8 @@ Box(
                         Icon(
                             imageVector = Icons.Default.Image,
                             contentDescription = "Sin Foto",
-                            tint = Color.White
+                            tint = Color.White,
+                            modifier = Modifier.size(36.dp) // Mismo tamaño que icono interno del mapa
                         )
                     }
                 }
@@ -501,9 +502,7 @@ Box(
                         .clickable {
                             takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
                                 onImageCaptured = { uri ->
-                                    // Guardar localmente para previsualización
                                     lastCapturedUri = uri
-                                    // Notificar al padre
                                     onImageCaptured(uri)
                                 }, 
                                 onError

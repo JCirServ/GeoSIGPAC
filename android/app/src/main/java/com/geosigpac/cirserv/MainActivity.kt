@@ -132,16 +132,18 @@ fun GeoSigpacApp() {
             CameraScreen(
                 projectId = currentProjectId, // Pasamos el ID del proyecto para la estructura de carpetas
                 onImageCaptured = { uri ->
-                    isCameraOpen = false
+                    // CAMBIO: Ya NO cerramos la cámara aquí
+                    // isCameraOpen = false 
+                    
                     val pid = currentProjectId
                     if (pid != null) {
                         scope.launch {
                             val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
                             webViewRef?.evaluateJavascript(jsCode, null)
                         }
-                    } else {
-                        Toast.makeText(context, "Foto capturada (Sin proyecto asociado)", Toast.LENGTH_SHORT).show()
-                    }
+                    } 
+                    // Feedback visual para el usuario
+                    Toast.makeText(context, "Foto guardada", Toast.LENGTH_SHORT).show()
                 },
                 onError = { exc ->
                     Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
