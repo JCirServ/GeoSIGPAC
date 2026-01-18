@@ -89,7 +89,7 @@ fun CameraScreen(
                 sigpacRef = ref
                 sigpacUso = uso
             } catch (e: Exception) {
-                Log.e("CameraScreen", "Error API SIGPAC", e)
+                Log.e("CameraScreen", "Error API SIGPAC Catch UI", e)
             } finally {
                 isLoadingSigpac = false
             }
@@ -286,19 +286,23 @@ fun CameraScreen(
 private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?, String?> = withContext(Dispatchers.IO) {
     try {
         // Formato URL: [x]/[y].json -> Longitude/Latitude
-        // Usamos Locale.US para asegurar que los decimales sean puntos (.)
+        // Locale.US asegura que los decimales sean puntos (.)
         val urlString = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
         
-        Log.d("SigpacAPI", "Requesting: $urlString")
+        Log.e("SigpacDebug", ">>> INICIO PETICIÓN <<<")
+        Log.e("SigpacDebug", "URL SOLICITADA: $urlString")
         
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = 8000
-        connection.readTimeout = 8000
+        connection.connectTimeout = 10000 // 10s
+        connection.readTimeout = 10000
         connection.requestMethod = "GET"
         connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
 
-        if (connection.responseCode == 200) {
+        val responseCode = connection.responseCode
+        Log.e("SigpacDebug", "HTTP STATUS: $responseCode")
+
+        if (responseCode == 200) {
             val stream = connection.inputStream
             val reader = BufferedReader(InputStreamReader(stream))
             val response = StringBuilder()
@@ -310,18 +314,24 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
             connection.disconnect()
             
             val jsonResponse = response.toString().trim()
-            Log.d("SigpacAPI", "Response: $jsonResponse")
+            Log.e("SigpacDebug", "RESPUESTA JSON RAW: $jsonResponse")
 
             // Parsing robusto: Puede ser Object (GeoJSON Feature) o Array
             var targetJson: JSONObject? = null
 
             if (jsonResponse.startsWith("[")) {
+                Log.e("SigpacDebug", "Parsing: Detectado ARRAY")
                 val jsonArray = JSONArray(jsonResponse)
                 if (jsonArray.length() > 0) {
                     targetJson = jsonArray.getJSONObject(0)
+                } else {
+                    Log.e("SigpacDebug", "Parsing: Array vacío (sin parcelas encontradas)")
                 }
             } else if (jsonResponse.startsWith("{")) {
+                Log.e("SigpacDebug", "Parsing: Detectado OBJETO")
                 targetJson = JSONObject(jsonResponse)
+            } else {
+                Log.e("SigpacDebug", "Parsing: Formato desconocido")
             }
 
             if (targetJson != null) {
@@ -352,16 +362,30 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
                 val rec = findKey("recinto")
                 val uso = findKey("uso_sigpac")
 
+                Log.e("SigpacDebug", "DATOS EXTRAÍDOS -> Prov:$prov Mun:$mun Pol:$pol Parc:$parc Rec:$rec Uso:$uso")
+
                 if (prov.isNotEmpty() && mun.isNotEmpty()) {
                     val ref = "$prov-$mun-$pol-$parc-$rec"
                     return@withContext Pair(ref, uso)
+                } else {
+                     Log.e("SigpacDebug", "DATOS INCOMPLETOS: Faltan provincia o municipio")
                 }
             }
         } else {
-            Log.w("SigpacAPI", "HTTP Error: ${connection.responseCode}")
+            Log.e("SigpacDebug", "ERROR HTTP: El servidor devolvió código $responseCode")
+            // Leer error stream si existe
+            try {
+                val errorStream = connection.errorStream
+                if(errorStream != null) {
+                     val reader = BufferedReader(InputStreamReader(errorStream))
+                     val errorResponse = reader.readText()
+                     Log.e("SigpacDebug", "BODY ERROR: $errorResponse")
+                }
+            } catch(ex: Exception) { Log.e("SigpacDebug", "No se pudo leer error stream") }
         }
     } catch (e: Exception) {
-        Log.e("SigpacAPI", "Error fetching data", e)
+        Log.e("SigpacDebug", "EXCEPCIÓN CRÍTICA AL OBTENER DATOS", e)
+        e.printStackTrace()
     }
     return@withContext Pair(null, null)
 }
