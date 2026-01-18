@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -255,8 +256,33 @@ fun CameraScreen(
                 }, ContextCompat.getMainExecutor(context))
             }
         )
+        
+        // --- BOTÓN PROYECTO (TOP-LEFT) ---
+        // Se activa cuando hay datos SIGPAC cargados (simulando "Carga de Proyecto")
+        val isProjectDataReady = sigpacRef != null
+        val projectButtonColor = if (isProjectDataReady) Color(0xFF006D3E) else Color.Gray.copy(alpha = 0.5f)
+        
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 40.dp, start = 16.dp)
+                .size(50.dp)
+                .clip(CircleShape)
+                .background(projectButtonColor)
+                .clickable(enabled = isProjectDataReady) { 
+                    onClose() // Vuelve a la vista de proyecto
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Home,
+                contentDescription = "Ir al Proyecto",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
 
-        // --- OVERLAY: INFO GEOSIGPAC ---
+        // --- OVERLAY: INFO GEOSIGPAC (TOP-RIGHT) ---
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -310,7 +336,7 @@ fun CameraScreen(
             }
         }
 
-        // --- CONTROLES DE CÁMARA ---
+        // --- CONTROLES DE CÁMARA (BOTTOM) ---
         Column(
             modifier = Modifier
                 .fillMaxSize()
