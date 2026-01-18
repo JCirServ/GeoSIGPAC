@@ -2,6 +2,7 @@ package com.geosigpac.cirserv
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebView
 import android.widget.Toast
@@ -67,11 +68,15 @@ fun GeoSigpacApp() {
     }
 
     // --- ESTADO DE LA APLICACIÓN ---
-    // CAMBIO: Si tenemos permisos, abrimos la cámara por defecto al iniciar
     var isCameraOpen by remember { mutableStateOf(hasPermissions) }
     var currentProjectId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    
+    // --- ESTADO DE SESIÓN DE FOTOS (Persistencia) ---
+    // Elevamos el estado aquí para que no se pierda al cambiar de pestaña
+    var sessionLastUri by remember { mutableStateOf<Uri?>(null) }
+    var sessionPhotoCount by remember { mutableIntStateOf(0) }
     
     // Control de Pestañas (0 = Web, 1 = Mapa)
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -81,7 +86,7 @@ fun GeoSigpacApp() {
         onResult = { perms ->
             val cameraGranted = perms[Manifest.permission.CAMERA] == true
             hasPermissions = cameraGranted
-            // CAMBIO: Si se conceden los permisos ahora, abrir la cámara automáticamente
+            // Si se conceden los permisos ahora, abrir la cámara automáticamente
             if (cameraGranted) {
                 isCameraOpen = true
             }
@@ -131,9 +136,12 @@ fun GeoSigpacApp() {
             // PANTALLA CÁMARA (Modal Pantalla Completa)
             CameraScreen(
                 projectId = currentProjectId, // Pasamos el ID del proyecto para la estructura de carpetas
+                lastCapturedUri = sessionLastUri, // Pasamos el estado persistente
+                photoCount = sessionPhotoCount,   // Pasamos el contador
                 onImageCaptured = { uri ->
-                    // CAMBIO: Ya NO cerramos la cámara aquí
-                    // isCameraOpen = false 
+                    // Actualizamos estado persistente en MainActivity
+                    sessionLastUri = uri
+                    sessionPhotoCount++
                     
                     val pid = currentProjectId
                     if (pid != null) {

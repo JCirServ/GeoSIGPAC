@@ -83,6 +83,8 @@ import androidx.compose.ui.graphics.TransformOrigin
 @Composable
 fun CameraScreen(
     projectId: String?,
+    lastCapturedUri: Uri?,
+    photoCount: Int,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit,
     onClose: () -> Unit,
@@ -116,11 +118,10 @@ fun CameraScreen(
     var focusRingPosition by remember { mutableStateOf<Offset?>(null) }
     var showFocusRing by remember { mutableStateOf(false) }
 
-    // --- ESTADO PREVISUALIZACIÓN FOTO ---
-    var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
+    // --- ESTADO PREVISUALIZACIÓN FOTO (Carga de Bitmap) ---
     var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
-    // Efecto para cargar el bitmap cuando cambia la URI
+    // Efecto para cargar el bitmap cuando cambia la URI (que viene de fuera ahora)
     LaunchedEffect(lastCapturedUri) {
         lastCapturedUri?.let { uri ->
             withContext(Dispatchers.IO) {
@@ -464,31 +465,53 @@ fun CameraScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // CAMBIO: Previsualización de Foto (REDIMENSIONADA A 80dp)
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(RoundedCornerShape(24.dp)) // Mismo radio que el botón del mapa
-                        .background(Color.Black.copy(0.5f))
-                        .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
-                        .clickable { onClose() }, 
-                    contentAlignment = Alignment.Center
-                ) { 
-                    if (capturedBitmap != null) {
-                        Image(
-                            bitmap = capturedBitmap!!,
-                            contentDescription = "Preview",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        // Icono por defecto si no hay foto
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = "Sin Foto",
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp) // Mismo tamaño que icono interno del mapa
-                        )
+                // CAMBIO: Previsualización de Foto + Badge (Budget/Contador)
+                Box(contentAlignment = Alignment.TopEnd) { // Box padre para posicionar el badge
+                    
+                    // El botón de previsualización
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(RoundedCornerShape(24.dp)) 
+                            .background(Color.Black.copy(0.5f))
+                            .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
+                            .clickable { onClose() }, 
+                        contentAlignment = Alignment.Center
+                    ) { 
+                        if (capturedBitmap != null) {
+                            Image(
+                                bitmap = capturedBitmap!!,
+                                contentDescription = "Preview",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = "Sin Foto",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp) 
+                            )
+                        }
+                    }
+
+                    // EL CONTADOR / BADGE
+                    if (photoCount > 0) {
+                        Box(
+                            modifier = Modifier
+                                .offset(x = 8.dp, y = (-8).dp) // Desplazado ligeramente fuera
+                                .size(28.dp)
+                                .background(Color.Red, CircleShape)
+                                .border(2.dp, Color.White, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = photoCount.toString(),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
@@ -502,7 +525,7 @@ fun CameraScreen(
                         .clickable {
                             takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
                                 onImageCaptured = { uri ->
-                                    lastCapturedUri = uri
+                                    // Eliminamos manejo de estado local, delegamos al callback
                                     onImageCaptured(uri)
                                 }, 
                                 onError
