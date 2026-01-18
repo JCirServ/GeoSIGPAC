@@ -496,7 +496,11 @@ fun NativeMap(
                                     Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
                                     Row(Modifier.fillMaxWidth()) {
                                         AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
-                                        AttributeItem("Superficie", "${c["parc_supcult"]} áreas", Modifier.weight(1f))
+                                        
+                                        // CORRECCIÓN SOLICITADA: Dividir entre 10000
+                                        val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0
+                                        val supCultHa = supCultRaw / 10000.0
+                                        AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f))
                                     }
                                     Spacer(Modifier.height(8.dp))
                                     Row(Modifier.fillMaxWidth()) {
