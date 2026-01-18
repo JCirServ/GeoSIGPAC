@@ -11,15 +11,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -90,6 +91,83 @@ fun NativeMap(
 
     // Controla si ya hemos centrado la cámara en el usuario al inicio
     var initialLocationSet by remember { mutableStateOf(false) }
+
+    // --- ICONOS MANUALES (Para evitar dependencias extra) ---
+    val CameraAltIcon = remember {
+        ImageVector.Builder(
+            name = "CameraAlt",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(9.0f, 2.0f)
+                lineTo(7.17f, 4.0f)
+                lineTo(4.0f, 4.0f)
+                curveTo(2.9f, 4.0f, 2.0f, 4.9f, 2.0f, 6.0f)
+                verticalLineTo(18.0f)
+                curveTo(2.0f, 19.1f, 2.9f, 20.0f, 4.0f, 20.0f)
+                horizontalLineTo(20.0f)
+                curveTo(21.1f, 20.0f, 22.0f, 19.1f, 22.0f, 18.0f)
+                verticalLineTo(6.0f)
+                curveTo(22.0f, 4.9f, 21.1f, 4.0f, 20.0f, 4.0f)
+                lineTo(16.83f, 4.0f)
+                lineTo(15.0f, 2.0f)
+                lineTo(9.0f, 2.0f)
+                close()
+                moveTo(12.0f, 17.0f)
+                curveTo(9.24f, 17.0f, 7.0f, 14.76f, 7.0f, 12.0f)
+                curveTo(7.0f, 9.24f, 9.24f, 7.0f, 12.0f, 7.0f)
+                curveTo(14.76f, 7.0f, 17.0f, 9.24f, 17.0f, 12.0f)
+                curveTo(17.0f, 14.76f, 14.76f, 17.0f, 12.0f, 17.0f)
+                close()
+            }
+        }.build()
+    }
+
+    val MyLocationIcon = remember {
+        ImageVector.Builder(
+            name = "MyLocation",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(fill = SolidColor(Color.White)) {
+                moveTo(12.0f, 8.0f)
+                curveTo(9.79f, 8.0f, 8.0f, 9.79f, 8.0f, 12.0f)
+                curveTo(8.0f, 14.21f, 9.79f, 16.0f, 12.0f, 16.0f)
+                curveTo(14.21f, 16.0f, 16.0f, 14.21f, 16.0f, 12.0f)
+                curveTo(16.0f, 9.79f, 14.21f, 8.0f, 12.0f, 8.0f)
+                close()
+                moveTo(20.94f, 11.0f)
+                curveTo(20.48f, 6.83f, 17.17f, 3.52f, 13.0f, 3.06f)
+                verticalLineTo(1.0f)
+                horizontalLineTo(11.0f)
+                verticalLineTo(3.06f)
+                curveTo(6.83f, 3.52f, 3.52f, 6.83f, 3.06f, 11.0f)
+                horizontalLineTo(1.0f)
+                verticalLineTo(13.0f)
+                horizontalLineTo(3.06f)
+                curveTo(3.52f, 17.17f, 6.83f, 20.48f, 11.0f, 20.94f)
+                verticalLineTo(23.0f)
+                horizontalLineTo(13.0f)
+                verticalLineTo(20.94f)
+                curveTo(17.17f, 20.48f, 20.48f, 17.17f, 20.94f, 13.0f)
+                horizontalLineTo(23.0f)
+                verticalLineTo(11.0f)
+                horizontalLineTo(20.94f)
+                close()
+                moveTo(12.0f, 19.0f)
+                curveTo(8.13f, 19.0f, 5.0f, 15.87f, 5.0f, 12.0f)
+                curveTo(5.0f, 8.13f, 8.13f, 5.0f, 12.0f, 5.0f)
+                curveTo(15.87f, 5.0f, 19.0f, 8.13f, 19.0f, 12.0f)
+                curveTo(19.0f, 15.87f, 15.87f, 19.0f, 12.0f, 19.0f)
+                close()
+            }
+        }.build()
+    }
 
     // Inicializar MapLibre
     remember { MapLibre.getInstance(context) }
@@ -271,7 +349,8 @@ fun NativeMap(
                 contentColor = Color(0xFF006D3E),
                 shape = CircleShape
             ) {
-                Icon(Icons.Default.CameraAlt, contentDescription = "Cámara")
+                // USAMOS EL ICONO MANUALMENTE DEFINIDO
+                Icon(CameraAltIcon, contentDescription = "Cámara")
             }
         }
 
@@ -288,8 +367,8 @@ fun NativeMap(
             contentColor = Color.White,
             shape = CircleShape
         ) {
-            // Icono cambiado a "Center View" (Diana)
-            Icon(Icons.Default.MyLocation, contentDescription = "Centrar Ubicación")
+            // USAMOS EL ICONO MANUALMENTE DEFINIDO
+            Icon(MyLocationIcon, contentDescription = "Centrar Ubicación")
         }
     }
 }
