@@ -75,6 +75,7 @@ private const val LAYER_BASE = "base-layer"
 // Capas SIGPAC (MVT)
 private const val SOURCE_RECINTO = "recinto-source"
 private const val LAYER_RECINTO_LINE = "recinto-layer-line"
+private const val LAYER_RECINTO_FILL = "recinto-layer-fill" // Nueva capa invisible para detección
 private const val SOURCE_LAYER_ID_RECINTO = "recinto"
 
 private const val SOURCE_CULTIVO = "cultivo-source"
@@ -193,7 +194,8 @@ fun NativeMap(
                     } else {
                         features.forEachIndexed { index, feature ->
                             // En Android SDK, Feature es GeoJSON puro y no contiene layerId ni sourceId directamente
-                            Log.i("MVT_INSPECTOR", "Feature #$index") 
+                            // Pero podemos deducir la capa si hemos configurado el mapa, o inspeccionar propiedades únicas
+                            Log.i("MVT_INSPECTOR", "Feature #$index detectada") 
                             val props = feature.properties()
                             if (props != null) {
                                 props.entrySet().forEach { entry ->
@@ -584,7 +586,7 @@ private fun loadMapStyle(
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // --- RECINTO (Líneas) ---
+        // --- RECINTO (Líneas y Relleno Invisible para detección) ---
         if (showRecinto) {
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
@@ -594,6 +596,16 @@ private fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
+                // 1. Capa Invisible (Fill) para detectar clics en el centro del recinto
+                val fillLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
+                fillLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                fillLayer.setProperties(
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOpacity(0.01f) // Debe ser >0 para que reciba eventos de renderizado
+                )
+                style.addLayer(fillLayer)
+
+                // 2. Capa Visible (Línea) para ver los bordes
                 val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 lineLayer.setProperties(
