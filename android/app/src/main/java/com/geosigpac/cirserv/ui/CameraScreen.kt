@@ -395,42 +395,67 @@ fun CameraScreen(
             }
         }
 
-        // --- CONTROL DE ZOOM (Slider Vertical a la IZQUIERDA) ---
+        // --- CONTROL DE ZOOM (DISEÑO CÁPSULA ESTILIZADA) ---
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = 16.dp)
-                // CAMBIO: Ancho reducido a 32dp
-                .height(240.dp)
-                .width(32.dp)
-                .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-                .padding(vertical = 4.dp),
+                .padding(start = 24.dp)
+                // Aumentamos altura y ancho para el look "Cápsula HUD"
+                .height(300.dp)
+                .width(60.dp)
+                .clip(RoundedCornerShape(30.dp))
+                .background(Color.Black.copy(alpha = 0.5f))
+                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(30.dp)),
             contentAlignment = Alignment.Center
         ) {
-            // CAMBIO: Eliminada la columna y el texto "x.x". Ahora es solo el slider centrado.
-            Box(
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier
                     .fillMaxHeight()
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
+                    .padding(vertical = 16.dp)
             ) {
-                Slider(
-                    value = currentLinearZoom,
-                    onValueChange = { valz ->
-                        camera?.cameraControl?.setLinearZoom(valz)
-                    },
+                // Indicador Texto (Recuperado y estilizado)
+                Text(
+                    text = "${String.format("%.1f", currentZoomRatio)}x",
+                    color = Color(0xFFFFD700), // Oro para destacar
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                // Slider Vertical
+                Box(
                     modifier = Modifier
-                        .graphicsLayer {
-                            rotationZ = 270f
-                            transformOrigin = TransformOrigin(0.5f, 0.5f)
-                        }
-                        .requiredWidth(200.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        // CAMBIO: Active track transparente para quitar "la línea que se desplaza"
-                        activeTrackColor = Color.Transparent,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Slider(
+                        value = currentLinearZoom,
+                        onValueChange = { valz ->
+                            camera?.cameraControl?.setLinearZoom(valz)
+                        },
+                        modifier = Modifier
+                            .graphicsLayer {
+                                rotationZ = 270f
+                                transformOrigin = TransformOrigin(0.5f, 0.5f)
+                            }
+                            .requiredWidth(220.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = Color(0xFFFFD700), // A juego con el texto
+                            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                        )
                     )
+                }
+                
+                // Icono decorativo Zoom (Lupa)
+                Icon(
+                    imageVector = Icons.Default.ZoomIn,
+                    contentDescription = "Zoom",
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
