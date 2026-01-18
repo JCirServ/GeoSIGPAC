@@ -23,6 +23,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,7 +56,8 @@ import java.util.concurrent.Executor
 fun CameraScreen(
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onGoToMap: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -106,21 +110,18 @@ fun CameraScreen(
                             showNoDataMessage = false
                         } else {
                             // FALLO O SIN DATOS:
-                            // 1. Limpiamos datos antiguos para no confundir
                             sigpacRef = null
                             sigpacUso = null
                             
-                            // 2. NO mostramos el error inmediatamente. Esperamos 2 segundos.
-                            // Durante este tiempo se mostrará "Analizando zona..." (ver UI abajo)
+                            // Esperamos 2 segundos antes de mostrar error
                             delay(2000)
                             
-                            // 3. Si después de esperar seguimos sin referencia, mostramos el error
                             if (sigpacRef == null) {
                                 showNoDataMessage = true
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("CameraScreen", "Error en bucle API SIGPAC", e)
+                        // Log silencioso si falla
                     } finally {
                         isLoadingSigpac = false
                     }
@@ -160,7 +161,6 @@ fun CameraScreen(
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, listener)
                 locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 5f, listener)
             } catch (e: Exception) {
-                Log.e("CameraScreen", "Error accediendo al GPS", e)
                 locationText = "Error GPS"
             }
         } else {
@@ -235,7 +235,6 @@ fun CameraScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // LÓGICA DE VISUALIZACIÓN MEJORADA (Sin parpadeos)
                 if (sigpacRef != null) {
                     Text(
                         text = "Ref: $sigpacRef",
@@ -253,7 +252,6 @@ fun CameraScreen(
                         textAlign = androidx.compose.ui.text.style.TextAlign.End
                     )
                 } else if (showNoDataMessage) {
-                    // Solo mostramos esto si han pasado 2 segundos sin éxito
                     Text(
                         text = "Sin datos SIGPAC",
                         color = Color(0xFFFFAAAA),
@@ -261,7 +259,6 @@ fun CameraScreen(
                         fontFamily = FontFamily.Monospace
                     )
                 } else {
-                    // Estado intermedio: Estamos cargando o esperando el debounce
                     Text(
                         text = "Analizando zona...",
                         color = Color.LightGray,
@@ -285,7 +282,7 @@ fun CameraScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Cancelar
+                // Cancelar (Círculo)
                 Box(
                     modifier = Modifier
                         .size(50.dp)
@@ -313,7 +310,20 @@ fun CameraScreen(
                         }
                 )
                 
-                Box(modifier = Modifier.size(50.dp))
+                // Botón Mapa (Cuadrado)
+                Box(
+                    modifier = Modifier
+                        .size(50.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .clickable { onGoToMap() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = "Ir al Mapa",
+                        tint = Color.White
+                    )
+                }
             }
         }
     }
@@ -321,12 +331,7 @@ fun CameraScreen(
 
 private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?, String?> = withContext(Dispatchers.IO) {
     try {
-        // Formato URL: [x]/[y].json -> Longitude/Latitude
-        // Locale.US asegura que los decimales sean puntos (.)
         val urlString = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
-        
-        Log.e("SigpacDebug", ">>> INICIO PETICIÓN <<<")
-        Log.e("SigpacDebug", "URL SOLICITADA: $urlString")
         
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
@@ -336,7 +341,6 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
         connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
 
         val responseCode = connection.responseCode
-        Log.e("SigpacDebug", "HTTP STATUS: $responseCode")
 
         if (responseCode == 200) {
             val stream = connection.inputStream
@@ -350,44 +354,29 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
             connection.disconnect()
             
             val jsonResponse = response.toString().trim()
-            Log.e("SigpacDebug", "RESPUESTA JSON RAW: $jsonResponse")
 
-            // Parsing robusto: Puede ser Object (GeoJSON Feature) o Array
             var targetJson: JSONObject? = null
 
             if (jsonResponse.startsWith("[")) {
-                Log.e("SigpacDebug", "Parsing: Detectado ARRAY")
                 val jsonArray = JSONArray(jsonResponse)
                 if (jsonArray.length() > 0) {
                     targetJson = jsonArray.getJSONObject(0)
-                } else {
-                    Log.e("SigpacDebug", "Parsing: Array vacío (sin parcelas encontradas)")
                 }
             } else if (jsonResponse.startsWith("{")) {
-                Log.e("SigpacDebug", "Parsing: Detectado OBJETO")
                 targetJson = JSONObject(jsonResponse)
-            } else {
-                Log.e("SigpacDebug", "Parsing: Formato desconocido")
             }
 
             if (targetJson != null) {
-                // Helper para buscar propiedad en root, 'properties' o 'features'
                 fun findKey(key: String): String {
-                    // 1. Directo
                     if (targetJson!!.has(key)) return targetJson!!.optString(key)
-                    
-                    // 2. Dentro de 'properties' (Estructura GeoJSON Feature)
                     val props = targetJson!!.optJSONObject("properties")
                     if (props != null && props.has(key)) return props.optString(key)
-                    
-                    // 3. Dentro de 'features' (Estructura GeoJSON FeatureCollection)
                     val features = targetJson!!.optJSONArray("features")
                     if (features != null && features.length() > 0) {
                         val firstFeature = features.getJSONObject(0)
                         val featProps = firstFeature.optJSONObject("properties")
                         if (featProps != null && featProps.has(key)) return featProps.optString(key)
                     }
-                    
                     return ""
                 }
 
@@ -398,31 +387,14 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
                 val rec = findKey("recinto")
                 val uso = findKey("uso_sigpac")
 
-                Log.e("SigpacDebug", "DATOS EXTRAÍDOS -> Prov:$prov Mun:$mun Pol:$pol Parc:$parc Rec:$rec Uso:$uso")
-
                 if (prov.isNotEmpty() && mun.isNotEmpty()) {
-                    // CAMBIO: Separador cambiado a ':'
                     val ref = "$prov:$mun:$pol:$parc:$rec"
                     return@withContext Pair(ref, uso)
-                } else {
-                     Log.e("SigpacDebug", "DATOS INCOMPLETOS: Faltan provincia o municipio")
                 }
             }
-        } else {
-            Log.e("SigpacDebug", "ERROR HTTP: El servidor devolvió código $responseCode")
-            // Leer error stream si existe
-            try {
-                val errorStream = connection.errorStream
-                if(errorStream != null) {
-                     val reader = BufferedReader(InputStreamReader(errorStream))
-                     val errorResponse = reader.readText()
-                     Log.e("SigpacDebug", "BODY ERROR: $errorResponse")
-                }
-            } catch(ex: Exception) { Log.e("SigpacDebug", "No se pudo leer error stream") }
         }
     } catch (e: Exception) {
-        Log.e("SigpacDebug", "EXCEPCIÓN CRÍTICA AL OBTENER DATOS", e)
-        e.printStackTrace()
+        // Logs eliminados por solicitud del usuario
     }
     return@withContext Pair(null, null)
 }
@@ -447,13 +419,11 @@ private fun takePhoto(
         ContextCompat.getMainExecutor(context),
         object : ImageCapture.OnImageSavedCallback {
             override fun onError(exc: ImageCaptureException) {
-                Log.e("CameraScreen", "Photo capture failed: ${exc.message}", exc)
                 onError(exc)
             }
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 val savedUri = Uri.fromFile(photoFile)
-                Log.d("CameraScreen", "Photo capture succeeded: $savedUri")
                 onImageCaptured(savedUri)
             }
         }

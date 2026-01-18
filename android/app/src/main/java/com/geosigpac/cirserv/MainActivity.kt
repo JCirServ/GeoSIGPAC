@@ -142,7 +142,12 @@ fun GeoSigpacApp() {
                 Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
                 isCameraOpen = false
             },
-            onClose = { isCameraOpen = false }
+            onClose = { isCameraOpen = false },
+            onGoToMap = {
+                // Cerrar cámara y navegar al mapa
+                isCameraOpen = false
+                selectedTab = 1
+            }
         )
     } else {
         // PANTALLA PRINCIPAL CON PESTAÑAS
@@ -170,9 +175,6 @@ fun GeoSigpacApp() {
                     .padding(innerPadding) // Respetar el espacio de la barra inferior
             ) {
                 // Renderizado Condicional de Vistas
-                // Nota: Al cambiar de pestaña, Compose puede recomponer. 
-                // WebProjectManager recargará la UI, pero pedirá los datos frescos a Android (Single Source of Truth),
-                // manteniendo la consistencia de los datos.
                 when (selectedTab) {
                     0 -> WebProjectManager(
                         webAppInterface = webAppInterface,
