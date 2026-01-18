@@ -25,7 +25,7 @@ android {
         }
     }
     
-    // Configuración para Java 21
+    // Configuración para Java 21 (Requerido para Kotlin 2.0+ en configuraciones modernas)
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -41,31 +41,36 @@ android {
 }
 
 dependencies {
-    // Android Core & Lifecycle
+    // --- Android Core & Lifecycle ---
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     
-    // Compose BOM & UI
+    // --- Jetpack Compose ---
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     
-    // Funcionalidades Específicas (WebView, Mapas, Cámara)
+    // --- Funcionalidades Híbridas ---
+    
+    // WebView
     implementation(libs.androidx.webkit)
+    
+    // Mapas (MapLibre)
     implementation(libs.maplibre.android.sdk)
     
+    // Cámara (CameraX)
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     
-    // JSON Parsing (Gson)
+    // JSON Parsing (Necesario para WebAppInterface)
     implementation("com.google.code.gson:gson:2.10.1")
 
-    // Testing
+    // --- Testing ---
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
