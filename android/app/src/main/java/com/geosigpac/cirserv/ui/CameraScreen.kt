@@ -400,53 +400,38 @@ fun CameraScreen(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 16.dp)
-                // CAMBIO: Contenedor más corto (240dp) y más estrecho (40dp)
+                // CAMBIO: Ancho reducido a 32dp
                 .height(240.dp)
-                .width(40.dp)
+                .width(32.dp)
                 .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                 .padding(vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxHeight()
+            // CAMBIO: Eliminada la columna y el texto "x.x". Ahora es solo el slider centrado.
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
             ) {
-                
-                Text(
-                    text = "${String.format("%.1f", currentZoomRatio)}x",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-
-                Box(
+                Slider(
+                    value = currentLinearZoom,
+                    onValueChange = { valz ->
+                        camera?.cameraControl?.setLinearZoom(valz)
+                    },
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Slider(
-                        value = currentLinearZoom,
-                        onValueChange = { valz ->
-                            camera?.cameraControl?.setLinearZoom(valz)
-                        },
-                        modifier = Modifier
-                            .graphicsLayer {
-                                rotationZ = 270f
-                                transformOrigin = TransformOrigin(0.5f, 0.5f)
-                            }
-                            // CAMBIO: Slider más corto (200dp)
-                            .requiredWidth(200.dp),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            // CAMBIO: Track activo en Blanco
-                            activeTrackColor = Color.White,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                        )
+                        .graphicsLayer {
+                            rotationZ = 270f
+                            transformOrigin = TransformOrigin(0.5f, 0.5f)
+                        }
+                        .requiredWidth(200.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.White,
+                        // CAMBIO: Active track transparente para quitar "la línea que se desplaza"
+                        activeTrackColor = Color.Transparent,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.3f)
                     )
-                }
+                )
             }
         }
 
