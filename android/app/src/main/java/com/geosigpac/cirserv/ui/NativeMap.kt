@@ -63,6 +63,7 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
@@ -83,7 +84,9 @@ private const val LAYER_BASE = "base-layer"
 // Capas SIGPAC (MVT)
 private const val SOURCE_RECINTO = "recinto-source"
 private const val LAYER_RECINTO_LINE = "recinto-layer-line"
-private const val LAYER_RECINTO_FILL = "recinto-layer-fill" // Nueva capa invisible para detección
+private const val LAYER_RECINTO_FILL = "recinto-layer-fill" // Capa invisible para detección
+private const val LAYER_RECINTO_HIGHLIGHT_FILL = "recinto-layer-highlight-fill" // Capa iluminada relleno
+private const val LAYER_RECINTO_HIGHLIGHT_LINE = "recinto-layer-highlight-line" // Capa iluminada borde
 private const val SOURCE_LAYER_ID_RECINTO = "recinto"
 
 private const val SOURCE_CULTIVO = "cultivo-source"
@@ -97,12 +100,15 @@ private val DEFAULT_ZOOM = 16.0
 private val USER_TRACKING_ZOOM = 16.0
 
 // --- COLORES TEMA CAMPO (ALTO CONTRASTE) ---
-private val FieldBackground = Color(0xFF121212) // Negro casi puro para reducir reflejos
-private val FieldSurface = Color(0xFF252525) // Gris muy oscuro
-private val FieldGreen = Color(0xFF66BB6A) // Verde brillante (Material Green 400) - Alta visibilidad
-private val HighContrastWhite = Color(0xFFFFFFFF) // Blanco puro
-private val FieldGray = Color(0xFFB0B0B0) // Gris claro para etiquetas
+private val FieldBackground = Color(0xFF121212)
+private val FieldSurface = Color(0xFF252525)
+private val FieldGreen = Color(0xFF66BB6A)
+private val HighContrastWhite = Color(0xFFFFFFFF)
+private val FieldGray = Color(0xFFB0B0B0)
 private val FieldDivider = Color(0xFF424242)
+
+// Color de resaltado dinámico (Cian Neón para máxima visibilidad en fondo oscuro)
+private val HighlightColor = Color(0xFF00E5FF) 
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
@@ -128,23 +134,23 @@ fun NativeMap(
     var showCultivo by remember { mutableStateOf(true) }
     var showLayerMenu by remember { mutableStateOf(false) }
 
-    // Controla si ya hemos centrado la cámara en el usuario al inicio
     var initialLocationSet by remember { mutableStateOf(false) }
 
-    // Estado de datos SIGPAC (Panel Inferior)
+    // Estado de datos SIGPAC
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
     var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
     
-    // Estado de expansión del panel inferior
+    // Control para evitar actualizaciones redundantes del estilo
+    var lastHighlightedId by remember { mutableStateOf<String?>(null) }
+    
+    // Estado de expansión del panel
     var isPanelExpanded by remember { mutableStateOf(false) }
     
     var isLoadingData by remember { mutableStateOf(false) }
     var apiJob by remember { mutableStateOf<Job?>(null) }
 
-    // Estado UI Panel
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Recinto, 1: Cultivo
+    var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Inicializar MapLibre
     remember { MapLibre.getInstance(context) }
 
     val mapView = remember {
@@ -153,7 +159,6 @@ fun NativeMap(
         }
     }
 
-    // --- CICLO DE VIDA ---
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -171,9 +176,144 @@ fun NativeMap(
         }
     }
 
-    // --- EFECTOS DE CONTROL ---
-    
-    // 1. Inicialización y Listeners
+    // --- LÓGICA DE PROCESAMIENTO DE MAPA ---
+    fun updateMapState(map: MapLibreMap, isIdle: Boolean) {
+        val center = map.cameraPosition.target ?: return
+        
+        // Solo procesamos si hay suficiente zoom
+        if (map.cameraPosition.zoom < 13) {
+            recintoData = null
+            cultivoData = null
+            lastHighlightedId = null
+            // Limpiar resaltado
+            val style = map.style
+            style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
+            style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
+            return
+        }
+
+        val screenPoint = map.projection.toScreenLocation(center)
+
+        // 1. Detectar RECINTO bajo la cruz
+        val features = map.queryRenderedFeatures(screenPoint, LAYER_RECINTO_FILL)
+        if (features.isNotEmpty()) {
+            val feature = features[0]
+            val props = feature.properties()
+            
+            if (props != null) {
+                // Claves comunes en tiles SIGPAC
+                val prov = props.get("provincia")?.asString ?: ""
+                val mun = props.get("municipio")?.asString ?: ""
+                val pol = props.get("poligono")?.asString ?: ""
+                val parc = props.get("parcela")?.asString ?: ""
+                val rec = props.get("recinto")?.asString ?: ""
+                
+                // ID único compuesto para el control de cambios
+                val uniqueId = "$prov-$mun-$pol-$parc-$rec"
+                
+                if (uniqueId != lastHighlightedId) {
+                    lastHighlightedId = uniqueId
+                    
+                    // A. RESALTAR EN EL MAPA (Highlight)
+                    val style = map.style
+                    if (style != null) {
+                        // Filtro: Coincidir todas las propiedades clave
+                        val filter = Expression.all(
+                            Expression.eq(Expression.get("provincia"), Expression.literal(prov)),
+                            Expression.eq(Expression.get("municipio"), Expression.literal(mun)),
+                            Expression.eq(Expression.get("poligono"), Expression.literal(pol)),
+                            Expression.eq(Expression.get("parcela"), Expression.literal(parc)),
+                            Expression.eq(Expression.get("recinto"), Expression.literal(rec))
+                        )
+                        
+                        val fillLayer = style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer
+                        val lineLayer = style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer
+                        
+                        fillLayer?.setFilter(filter)
+                        fillLayer?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+                        
+                        lineLayer?.setFilter(filter)
+                        lineLayer?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+                    }
+
+                    // B. ACTUALIZAR UI CON DATOS LOCALES (Rápido)
+                    // Rellenamos el mapa con lo que tenemos en el vector tile
+                    // Manteniendo las claves compatibles con la API
+                    recintoData = mapOf(
+                        "provincia" to prov,
+                        "municipio" to mun,
+                        "poligono" to pol,
+                        "parcela" to parc,
+                        "recinto" to rec,
+                        "agregado" to (props.get("agregado")?.asString ?: "0"),
+                        "zona" to (props.get("zona")?.asString ?: "0"),
+                        "superficie" to (props.get("superficie")?.toString() ?: "0"), // Puede ser number o string
+                        // Campos pendientes de API (placeholders)
+                        "uso_sigpac" to "Cargando...", 
+                        "pendiente_media" to "-",
+                        "altitud" to "-",
+                        "region" to "-",
+                        "coef_regadio" to "-",
+                        "subvencionabilidad" to "-",
+                        "incidencias" to ""
+                    )
+                }
+            }
+        } else {
+            // No hay feature bajo la cruz
+            if (lastHighlightedId != null) {
+                lastHighlightedId = null
+                // Ocultar resaltado
+                val style = map.style
+                style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
+                style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
+            }
+        }
+
+        // 2. DETECTAR CULTIVO (Para el tab secundario)
+        val cultFeatures = map.queryRenderedFeatures(screenPoint, LAYER_CULTIVO_FILL)
+        if (cultFeatures.isNotEmpty()) {
+             val props = cultFeatures[0].properties()
+             if (props != null) {
+                val mapProps = mutableMapOf<String, String>()
+                props.entrySet().forEach { 
+                    mapProps[it.key] = it.value.toString().replace("\"", "") 
+                }
+                cultivoData = mapProps
+            }
+        } else {
+            cultivoData = null
+        }
+        
+        // 3. LLAMADA A API (Solo si está IDLE / Parado)
+        if (isIdle) {
+            isLoadingData = true
+            isPanelExpanded = false
+            
+            // Cancelar trabajo anterior
+            apiJob?.cancel()
+            
+            // Si tenemos datos visuales válidos, completarlos con la API
+            if (lastHighlightedId != null) {
+                apiJob = scope.launch {
+                    delay(200) // Pequeño debounce para asegurar quietud
+                    val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
+                    if (fullData != null) {
+                        // Fusionar o reemplazar datos locales
+                        recintoData = fullData
+                    }
+                    isLoadingData = false
+                }
+            } else {
+                isLoadingData = false
+            }
+        } else {
+            // Si nos estamos moviendo, cancelamos cualquier petición de red pendiente
+            apiJob?.cancel()
+            isLoadingData = false
+        }
+    }
+
     LaunchedEffect(Unit) {
         mapView.getMapAsync { map ->
             mapInstance = map
@@ -182,7 +322,6 @@ fun NativeMap(
             map.uiSettings.isCompassEnabled = true
             map.uiSettings.isTiltGesturesEnabled = false
 
-            // Posición inicial por defecto
             if (!initialLocationSet) {
                 map.cameraPosition = CameraPosition.Builder()
                     .target(LatLng(VALENCIA_LAT, VALENCIA_LNG))
@@ -190,67 +329,24 @@ fun NativeMap(
                     .build()
             }
 
-            // LISTENER: Al empezar a mover
-            map.addOnCameraMoveStartedListener {
-                apiJob?.cancel()
-                isLoadingData = false
+            // LISTENER: MOVIMIENTO CONTINUO
+            map.addOnCameraMoveListener {
+                // Actualiza el resaltado y los datos básicos instantáneamente
+                updateMapState(map, isIdle = false)
             }
 
-            // LISTENER: Al detenerse
+            // LISTENER: PARADA
             map.addOnCameraIdleListener {
-                val center = map.cameraPosition.target
-                if (center != null && map.cameraPosition.zoom > 13) {
-                    
-                    val screenPoint = map.projection.toScreenLocation(center)
-                    
-                    isLoadingData = true
-                    // Al iniciar nueva carga, colapsamos el panel para que "emerja" de nuevo si es necesario
-                    isPanelExpanded = false
-                    
-                    // 1. EXTRAER DATOS DE CULTIVO (MVT) - Síncrono
-                    val cultFeatures = map.queryRenderedFeatures(screenPoint, LAYER_CULTIVO_FILL)
-                    if (cultFeatures.isNotEmpty()) {
-                        val props = cultFeatures[0].properties()
-                        if (props != null) {
-                            val mapProps = mutableMapOf<String, String>()
-                            props.entrySet().forEach { 
-                                mapProps[it.key] = it.value.toString().replace("\"", "") 
-                            }
-                            cultivoData = mapProps
-                        } else {
-                            cultivoData = null
-                        }
-                    } else {
-                        cultivoData = null
-                    }
-                    
-                    // Resetear tab si no hay cultivo
-                    if (cultivoData == null && selectedTab == 1) {
-                        selectedTab = 0
-                    }
-
-                    // 2. EXTRAER DATOS DE RECINTO (API) - Asíncrono
-                    apiJob?.cancel()
-                    apiJob = scope.launch {
-                        delay(300) 
-                        val data = fetchFullSigpacInfo(center.latitude, center.longitude)
-                        recintoData = data
-                        isLoadingData = false
-                    }
-                } else {
-                    recintoData = null
-                    cultivoData = null
-                }
+                // Trigger de la API para datos completos
+                updateMapState(map, isIdle = true)
             }
 
-            // Cargar estilo
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
             }
         }
     }
 
-    // 2. Mover cámara (desde Web)
     LaunchedEffect(targetLat, targetLng) {
         if (targetLat != null && targetLng != null) {
             mapInstance?.animateCamera(
@@ -265,12 +361,9 @@ fun NativeMap(
         }
     }
 
-    // 3. Reaccionar a cambios de capas
     LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
         mapInstance?.let { map ->
-            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) {
-                // No action needed
-            }
+            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) { }
         }
     }
 
@@ -281,7 +374,7 @@ fun NativeMap(
             modifier = Modifier.fillMaxSize()
         )
 
-        // --- CRUZ CENTRAL ---
+        // Cruz central
         Box(
             modifier = Modifier.align(Alignment.Center),
             contentAlignment = Alignment.Center
@@ -290,7 +383,7 @@ fun NativeMap(
             Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
         }
 
-        // --- COLUMNA DE CONTROLES ---
+        // Botones laterales
         Column(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp),
             horizontalAlignment = Alignment.End,
@@ -358,14 +451,14 @@ fun NativeMap(
             ) { Icon(Icons.Default.MyLocation, "Ubicación") }
         }
 
-        // --- LOADING ---
+        // Loading (solo aparece brevemente al soltar si la API tarda)
         if (isLoadingData) {
             Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
                 CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
             }
         }
 
-        // --- PANEL DE DATOS INFERIOR (BOTTOM SHEET) ---
+        // BOTTOM SHEET
         AnimatedVisibility(
             visible = recintoData != null || (cultivoData != null && showCultivo),
             enter = slideInVertically(initialOffsetY = { it }),
@@ -389,14 +482,13 @@ fun NativeMap(
                                 }
                             }
                         },
-                    // CAMBIO TEMA: Fondo oscuro campo
                     colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
                     shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         
-                        // INDICADOR VISUAL DE ARRASTRE (Drag Handle)
+                        // Drag Handle
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -412,7 +504,7 @@ fun NativeMap(
                             )
                         }
 
-                        // 1. CABECERA (Siempre visible)
+                        // CABECERA
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -424,7 +516,6 @@ fun NativeMap(
                                     text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    // CAMBIO: Verde brillante en vez de morado/primary
                                     color = FieldGreen 
                                 )
                             }
@@ -435,20 +526,18 @@ fun NativeMap(
                         
                         Divider(color = FieldDivider)
 
-                        // 2. PESTAÑAS (Estilo Cápsula/Pill)
+                        // PESTAÑAS
                         val hasCultivo = cultivoData != null
                         
-                        // Contenedor de fondo para las pestañas
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .clip(RoundedCornerShape(50))
-                                .background(FieldSurface) // Gris oscuro
+                                .background(FieldSurface)
                                 .padding(4.dp), 
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // Pestaña RECINTO
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -461,14 +550,9 @@ fun NativeMap(
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    "Recinto", 
-                                    fontWeight = FontWeight.Bold, // Texto más grueso para sol
-                                    color = if(selectedTab == 0) Color.White else FieldGray
-                                )
+                                Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
                             }
 
-                            // Pestaña CULTIVO
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -483,15 +567,11 @@ fun NativeMap(
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    "Cultivo", 
-                                    fontWeight = FontWeight.Bold, 
-                                    color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f)
-                                )
+                                Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
                             }
                         }
                         
-                        // 3. CONTENIDO (Solo visible si está expandido)
+                        // CONTENIDO EXPANDIBLE
                         if (isPanelExpanded) {
                             Divider(color = FieldDivider)
                             Column(
@@ -502,7 +582,6 @@ fun NativeMap(
                                     .padding(16.dp)
                             ) {
                                 if (selectedTab == 0) {
-                                    // --- VISTA RECINTO ---
                                     if (recintoData != null) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
@@ -523,29 +602,19 @@ fun NativeMap(
                                             AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
                                             AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
                                         }
-                                    } else {
-                                        Text("Cargando datos de recinto...", style = MaterialTheme.typography.bodyMedium, color = FieldGray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                                     }
                                 } else {
-                                    // --- VISTA CULTIVO (EXPANDIDA) ---
                                     if (cultivoData != null) {
                                         val c = cultivoData!!
-                                        
-                                        // 2. Expediente
                                         Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                        
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f))
                                             AttributeItem("Año", c["exp_ano"], Modifier.weight(1f))
                                         }
-                                        
                                         Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-
-                                        // 3. Datos Cultivo
                                         Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
-                                            
                                             val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0
                                             val supCultHa = supCultRaw / 10000.0
                                             AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f))
@@ -559,18 +628,12 @@ fun NativeMap(
                                         }
                                         Spacer(Modifier.height(8.dp))
                                         AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
-
                                         Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                        
-                                        // 4. Ayudas
                                         Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
                                         AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
                                         Spacer(Modifier.height(4.dp))
                                         AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
-
                                         Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-
-                                        // 5. Cultivo Secundario
                                         Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f))
@@ -590,13 +653,11 @@ fun NativeMap(
 @Composable
 fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
-        // CAMBIO TEMA: Etiquetas grises claras
         Text(label, style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
-        // CAMBIO TEMA: Valores en BLANCO PURO para máximo contraste en exteriores
         Text(
             text = if (value.isNullOrEmpty() || value == "null" || value == "0") "-" else value, 
             style = MaterialTheme.typography.bodyMedium, 
-            fontWeight = FontWeight.Bold, // Más grosor para mejor lectura al sol
+            fontWeight = FontWeight.Bold, 
             color = HighContrastWhite
         )
     }
@@ -622,8 +683,6 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
             connection.disconnect()
             
             val jsonResponse = response.toString().trim()
-            Log.d("API_SIGPAC", "Respuesta JSON: $jsonResponse")
-
             var targetJson: JSONObject? = null
             
             if (jsonResponse.startsWith("[")) {
@@ -652,15 +711,9 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                 
                 if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext null
 
-                // --- CORRECCIÓN SUPERFICIE ---
-                // CAMBIO: No dividimos por 10000. Se trata como "áreas".
                 val superficieRaw = getProp("superficie")
-                
-                // --- CORRECCIÓN ALTITUD ---
                 var altitudVal = getProp("altitud")
-                if (altitudVal.isEmpty()) {
-                    altitudVal = getProp("altitud_media")
-                }
+                if (altitudVal.isEmpty()) { altitudVal = getProp("altitud_media") }
 
                 return@withContext mapOf(
                     "provincia" to prov,
@@ -670,7 +723,7 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                     "poligono" to pol,
                     "parcela" to getProp("parcela"),
                     "recinto" to getProp("recinto"),
-                    "superficie" to superficieRaw, // Raw value
+                    "superficie" to superficieRaw,
                     "pendiente_media" to getProp("pendiente_media"),
                     "altitud" to altitudVal,
                     "uso_sigpac" to getProp("uso_sigpac"),
@@ -681,15 +734,10 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                 )
             }
         }
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
+    } catch (e: Exception) { e.printStackTrace() }
     return@withContext null
 }
 
-/**
- * Reconstruye el estilo del mapa.
- */
 private fun loadMapStyle(
     map: MapLibreMap,
     baseMap: BaseMap,
@@ -744,14 +792,35 @@ private fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                val fillLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
-                fillLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                fillLayer.setProperties(
+                // 1. Capa para Detección (Invisible)
+                val detectionLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
+                detectionLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                detectionLayer.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOpacity(0.01f)
+                    PropertyFactory.fillOpacity(0.01f) // Mínimo para que sea "queryable"
                 )
-                style.addLayer(fillLayer)
+                style.addLayer(detectionLayer)
 
+                // 2. Capa de Resaltado (Highlight) - Inicialmente oculta
+                val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
+                highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightFill.setProperties(
+                    PropertyFactory.fillColor(HighlightColor.toArgb()),
+                    PropertyFactory.fillOpacity(0.3f), // Semitransparente
+                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE)
+                )
+                style.addLayer(highlightFill)
+
+                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightLine.setProperties(
+                    PropertyFactory.lineColor(HighlightColor.toArgb()),
+                    PropertyFactory.lineWidth(3f), // Borde grueso
+                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE)
+                )
+                style.addLayer(highlightLine)
+
+                // 3. Capa de Líneas Generales (Visible siempre)
                 val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 lineLayer.setProperties(
