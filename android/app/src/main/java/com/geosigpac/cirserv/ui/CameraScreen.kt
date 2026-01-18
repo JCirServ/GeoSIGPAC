@@ -26,10 +26,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -282,7 +284,7 @@ fun CameraScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Cancelar (Círculo)
+                // Cancelar (Círculo Pequeño)
                 Box(
                     modifier = Modifier
                         .size(50.dp)
@@ -293,7 +295,7 @@ fun CameraScreen(
                    Text("X", color = Color.White, fontWeight = FontWeight.Bold)
                 }
 
-                // Disparador
+                // Disparador (Círculo Grande 80dp)
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -310,18 +312,21 @@ fun CameraScreen(
                         }
                 )
                 
-                // Botón Mapa (Cuadrado)
+                // Botón Mapa (Cuadrado Redondeado 80dp - Estilo Material3/Glass)
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .size(80.dp) // Mismo tamaño que el disparador para simetría
+                        .clip(RoundedCornerShape(24.dp)) // "Squircle" moderno
+                        .background(Color.Black.copy(alpha = 0.5f)) // Fondo translúcido
+                        .border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(24.dp)) // Borde fino elegante
                         .clickable { onGoToMap() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = "Ir al Mapa",
-                        tint = Color.White
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
                     )
                 }
             }
@@ -394,7 +399,7 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
             }
         }
     } catch (e: Exception) {
-        // Logs eliminados por solicitud del usuario
+        // Logs eliminados
     }
     return@withContext Pair(null, null)
 }
