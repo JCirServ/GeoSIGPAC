@@ -59,8 +59,8 @@ private const val SOURCE_LAYER_ID_CULTIVO = "cultivo_declarado"
 // --- COORDENADAS POR DEFECTO (Comunidad Valenciana) ---
 private val VALENCIA_LAT = 39.4699
 private val VALENCIA_LNG = -0.3763
-private val DEFAULT_ZOOM = 8.0
-private val USER_TRACKING_ZOOM = 18.0
+private val DEFAULT_ZOOM = 16.0
+private val USER_TRACKING_ZOOM = 16.0
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
@@ -147,7 +147,7 @@ fun NativeMap(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
                         .target(LatLng(targetLat, targetLng))
-                        .zoom(18.0)
+                        .zoom(16.0)
                         .tilt(0.0)
                         .build()
                 ), 1500
