@@ -261,8 +261,8 @@ private fun loadMapStyle(
         // Construimos un estilo "vacío" y añadimos la fuente raster manualmente
         // URL Template del PNOA (España)
         val pnoaUrl = "https://tms-pnoa-ma.ign.es/1.0.0/pnoa-ma/{z}/{x}/{y}.jpeg"
-        val tileSet = TileSet("tiles", pnoaUrl)
-        tileSet.tileSize = 256
+        val tileSet = TileSet("2.1.0", pnoaUrl)
+        // La propiedad 'tileSize' no existe en TileSet, se pasa en el constructor de RasterSource
         
         styleBuilder.withSource(RasterSource(SOURCE_PNOA, tileSet, 256))
         styleBuilder.withLayer(RasterLayer(LAYER_PNOA, SOURCE_PNOA))
