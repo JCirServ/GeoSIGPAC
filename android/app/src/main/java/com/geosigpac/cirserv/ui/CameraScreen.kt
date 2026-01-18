@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
@@ -85,6 +87,42 @@ fun CameraScreen(
     // Estado para lógica de refresco (Distancia y Tiempo)
     var lastApiLocation by remember { mutableStateOf<Location?>(null) }
     var lastApiTimestamp by remember { mutableStateOf(0L) }
+    
+    // --- ICONO MAPA MANUAL (Para evitar dependencia material-icons-extended) ---
+    val MapIcon = remember {
+        ImageVector.Builder(
+            name = "Map",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(fill = SolidColor(Color.White)) {
+                moveTo(20.5f, 3.0f)
+                lineTo(20.34f, 3.03f)
+                lineTo(15.0f, 5.1f)
+                lineTo(9.0f, 3.0f)
+                lineTo(3.36f, 4.9f)
+                curveTo(3.15f, 4.97f, 3.0f, 5.15f, 3.0f, 5.38f)
+                verticalLineTo(20.5f)
+                curveTo(3.0f, 20.78f, 3.22f, 21.0f, 3.5f, 21.0f)
+                lineTo(3.66f, 20.97f)
+                lineTo(9.0f, 18.9f)
+                lineTo(15.0f, 21.0f)
+                lineTo(20.64f, 19.1f)
+                curveTo(20.85f, 19.03f, 21.0f, 18.85f, 21.0f, 18.62f)
+                verticalLineTo(3.5f)
+                curveTo(21.0f, 3.22f, 20.78f, 3.0f, 20.5f, 3.0f)
+                close()
+                moveTo(15.0f, 19.0f)
+                lineTo(9.0f, 16.89f)
+                verticalLineTo(5.0f)
+                lineTo(15.0f, 7.11f)
+                verticalLineTo(19.0f)
+                close()
+            }
+        }.build()
+    }
 
     // --- BUCLE HÍBRIDO: DISTANCIA (>3m) O TIEMPO (>5s) ---
     LaunchedEffect(Unit) {
@@ -324,7 +362,7 @@ fun CameraScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Map,
+                        imageVector = MapIcon,
                         contentDescription = "Ir al Mapa",
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
