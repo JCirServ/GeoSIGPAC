@@ -454,7 +454,10 @@ fun NativeMap(
                                     .weight(1f)
                                     .clip(RoundedCornerShape(50))
                                     .background(if (selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                    .clickable { selectedTab = 0 }
+                                    .clickable { 
+                                        selectedTab = 0 
+                                        isPanelExpanded = true // CAMBIO: Vuelve a expandir al tocar
+                                    }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -472,7 +475,12 @@ fun NativeMap(
                                     .weight(1f)
                                     .clip(RoundedCornerShape(50))
                                     .background(if (selectedTab == 1) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                    .clickable(enabled = hasCultivo) { if (hasCultivo) selectedTab = 1 }
+                                    .clickable(enabled = hasCultivo) { 
+                                        if (hasCultivo) {
+                                            selectedTab = 1
+                                            isPanelExpanded = true // CAMBIO: Vuelve a expandir al tocar
+                                        }
+                                    }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -527,15 +535,11 @@ fun NativeMap(
                                         
                                         // 2. Expediente
                                         Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        
+                                        // CAMBIO: Eliminados Prov. Exp y CA Exp
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f))
                                             AttributeItem("Año", c["exp_ano"], Modifier.weight(1f))
-                                            AttributeItem("Prov. Exp", c["exp_provincia"], Modifier.weight(1f))
-                                        }
-                                        Spacer(Modifier.height(8.dp))
-                                        Row(Modifier.fillMaxWidth()) {
-                                            AttributeItem("CA Exp", c["exp_ca"], Modifier.weight(1f))
-                                            Spacer(Modifier.weight(2f)) 
                                         }
                                         
                                         Divider(Modifier.padding(vertical=6.dp), color = DividerColor)
