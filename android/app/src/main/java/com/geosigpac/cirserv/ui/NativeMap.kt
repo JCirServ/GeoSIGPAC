@@ -92,6 +92,8 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import kotlin.math.max
+import kotlin.math.min
 
 // --- CONSTANTES DE CAPAS ---
 private const val SOURCE_BASE = "base-source"
@@ -229,7 +231,7 @@ fun NativeMap(
                 // LOGCAT: Depuración del filtro
                 Log.d("SIGPAC_FILTER", "Buscando: Prov='$prov', Mun='$mun', Pol='$pol', Parc='$parc', Rec='$rec'")
 
-                // 1. Aplicar Filtro Visual (Highlight)
+                // 1. Aplicar Filtro Visual (Highlight) - ESTO USA MVT (Visual)
                 val filterList = mutableListOf<Expression>(
                     Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
                     Expression.eq(Expression.toString(Expression.get("municipio")), Expression.literal(mun)),
@@ -252,17 +254,18 @@ fun NativeMap(
                 }
             }
 
-            // 2. Buscar Geometría y Mover Cámara (WFS)
+            // 2. Buscar Geometría y Mover Cámara (API REST CENTROIDE)
             val bbox = searchParcelLocation(prov, mun, pol, parc, rec)
             
             if (bbox != null) {
+                Log.d("SIGPAC_MAP", "Moviendo cámara a BBox centrado: $bbox")
                 // Mover cámara al Bounding Box encontrado con padding
                 mapInstance?.animateCamera(
-                    CameraUpdateFactory.newLatLngBounds(bbox, 150),
-                    2000
+                    CameraUpdateFactory.newLatLngBounds(bbox, 100), 
+                    1500 
                 )
             } else {
-                Toast.makeText(context, "Parcela no encontrada o error de conexión", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Ubicación no encontrada", Toast.LENGTH_SHORT).show()
             }
             
             isSearching = false
@@ -805,30 +808,27 @@ fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) 
 // --- FUNCIONES API (WFS & INFO) ---
 private suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): LatLngBounds? = withContext(Dispatchers.IO) {
     try {
-        val baseUrl = "https://wms.mapama.gob.es/sigpac/wfs"
-        
-        // SIEMPRE buscamos recintos. Si el usuario no especificó recinto, traeremos todos los de esa parcela.
-        // Esto facilita el "zoom a todo" que pidió el usuario.
-        val typeName = "SIGPAC:RECINTO"
-        
-        var cql = "PROVINCIA='$prov' AND MUNICIPIO='$mun' AND POLIGONO='$pol' AND PARCELA='$parc'"
-        if (rec != null) {
-            cql += " AND RECINTO='$rec'"
-        }
-        
-        val encodedCql = java.net.URLEncoder.encode(cql, "UTF-8")
-        
-        // IMPORTANTE: srsName=EPSG:4326 para asegurar coordenadas en Lat/Lng decimales
-        val urlString = "$baseUrl?service=WFS&request=GetFeature&version=2.0.0&typeNames=$typeName&outputFormat=application/json&cql_filter=$encodedCql&srsName=EPSG:4326"
-        
-        Log.d("SEARCH_WFS", "URL: $urlString")
+        // Valores por defecto para Agregado y Zona (Casi siempre 0)
+        val ag = "0"
+        val zo = "0"
+        // Si no se especifica recinto, usamos el 1 para obtener una ubicación válida dentro de la parcela y no fallar
+        val targetRec = rec ?: "1"
+
+        // URL proporcionada: https://sigpac-hubcloud.es/servicioconsultassigpac/query/recincentroid/[pr]/[mu]/[ag]/[zo]/[po]/[pa]/[re].json
+        val urlString = String.format(
+            "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recincentroid/%s/%s/%s/%s/%s/%s/%s.json",
+            prov, mun, ag, zo, pol, parc, targetRec
+        )
+
+        Log.d("SEARCH_API", "Requesting: $urlString")
 
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 10000
         connection.readTimeout = 10000
         connection.requestMethod = "GET"
-        
+        connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
+
         if (connection.responseCode == 200) {
             val reader = BufferedReader(InputStreamReader(connection.inputStream))
             val response = StringBuilder()
@@ -836,49 +836,46 @@ private suspend fun searchParcelLocation(prov: String, mun: String, pol: String,
             while (reader.readLine().also { line = it } != null) response.append(line)
             reader.close()
             connection.disconnect()
-            
+
+            // La respuesta suele ser un GeoJSON Point o un objeto con coordenadas
+            // Ejemplo: {"type":"Point","coordinates":[-0.3763,39.4699]}
             val json = JSONObject(response.toString())
-            val features = json.optJSONArray("features")
             
-            if (features != null && features.length() > 0) {
-                // Calcular Unión de Bounding Boxes (Encuadrar TODOS los recintos encontrados)
-                var minLon = 180.0
-                var maxLon = -180.0
-                var minLat = 90.0
-                var maxLat = -90.0
-                var found = false
-
-                for (i in 0 until features.length()) {
-                    val feature = features.getJSONObject(i)
-                    val bbox = feature.optJSONArray("bbox") // [minLon, minLat, maxLon, maxLat]
-                    
-                    if (bbox != null && bbox.length() == 4) {
-                        val bMinLon = bbox.getDouble(0)
-                        val bMinLat = bbox.getDouble(1)
-                        val bMaxLon = bbox.getDouble(2)
-                        val bMaxLat = bbox.getDouble(3)
-
-                        if (bMinLon < minLon) minLon = bMinLon
-                        if (bMinLat < minLat) minLat = bMinLat
-                        if (bMaxLon > maxLon) maxLon = bMaxLon
-                        if (bMaxLat > maxLat) maxLat = bMaxLat
-                        found = true
-                    }
+            var coords: JSONArray? = null
+            if (json.has("coordinates")) {
+                coords = json.getJSONArray("coordinates")
+            } else if (json.has("geometry")) {
+                val geom = json.getJSONObject("geometry")
+                if (geom.has("coordinates")) {
+                    coords = geom.getJSONArray("coordinates")
                 }
+            }
 
-                if (found) {
-                    // MapLibre usa: LatLngBounds.from(north, east, south, west) -> (maxLat, maxLon, minLat, minLon)
-                    return@withContext LatLngBounds.from(maxLat, maxLon, minLat, minLon)
-                }
+            if (coords != null && coords.length() >= 2) {
+                val lon = coords.getDouble(0)
+                val lat = coords.getDouble(1)
+
+                Log.d("SEARCH_API", "Location Found: Lat=$lat, Lon=$lon")
+
+                // Creamos un BoundingBox pequeño alrededor del punto (margen aprox 250m)
+                // Esto asegura que el mapa haga zoom a un nivel adecuado (ej. 16-17)
+                // Offset 0.0025 grados es aprox 270 metros en latitudes medias
+                val offset = 0.0025 
+                return@withContext LatLngBounds.from(
+                    lat + offset, // North
+                    lon + offset, // East
+                    lat - offset, // South
+                    lon - offset  // West
+                )
             } else {
-                Log.e("SEARCH_WFS", "No features found in JSON")
+                Log.e("SEARCH_API", "No coordinates in response: $response")
             }
         } else {
-            Log.e("SEARCH_WFS", "Error Code: ${connection.responseCode}")
+            Log.e("SEARCH_API", "Error Code: ${connection.responseCode}")
         }
     } catch (e: Exception) {
         e.printStackTrace()
-        Log.e("SEARCH_WFS", "Exception: ${e.message}")
+        Log.e("SEARCH_API", "Exception: ${e.message}")
     }
     return@withContext null
 }
