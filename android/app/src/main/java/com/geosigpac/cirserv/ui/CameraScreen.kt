@@ -400,8 +400,9 @@ fun CameraScreen(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 16.dp)
-                .height(280.dp)
-                .width(50.dp)
+                // CAMBIO: Contenedor más corto (240dp) y más estrecho (40dp)
+                .height(240.dp)
+                .width(40.dp)
                 .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                 .padding(vertical = 4.dp),
             contentAlignment = Alignment.Center
@@ -423,7 +424,7 @@ fun CameraScreen(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(), // Asegura que el contenedor esté centrado
+                        .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
                     Slider(
@@ -436,11 +437,12 @@ fun CameraScreen(
                                 rotationZ = 270f
                                 transformOrigin = TransformOrigin(0.5f, 0.5f)
                             }
-                            // CAMBIO CLAVE: Usar requiredWidth en lugar de width
-                            .requiredWidth(240.dp), // Ajustado un poco menos que 280 para dar espacio al texto
+                            // CAMBIO: Slider más corto (200dp)
+                            .requiredWidth(200.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
-                            activeTrackColor = Color(0xFF006D3E),
+                            // CAMBIO: Track activo en Blanco
+                            activeTrackColor = Color.White,
                             inactiveTrackColor = Color.White.copy(alpha = 0.3f)
                         )
                     )
