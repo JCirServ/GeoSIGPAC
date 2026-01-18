@@ -12,8 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -160,13 +160,13 @@ fun NativeMap(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Botón Capas
+            // Botón Capas (Usamos Settings en lugar de Layers)
             FloatingActionButton(
                 onClick = { showLayerMenu = !showLayerMenu },
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Default.Layers, contentDescription = "Capas")
+                Icon(Icons.Default.Settings, contentDescription = "Capas y Configuración")
             }
 
             // Menú de Capas (Visible/Oculto)
@@ -224,7 +224,7 @@ fun NativeMap(
             }
         }
 
-        // Botón Mi Ubicación
+        // Botón Mi Ubicación (Usamos LocationOn en lugar de MyLocation)
         FloatingActionButton(
             onClick = {
                 enableLocation(mapInstance, context)
@@ -235,7 +235,7 @@ fun NativeMap(
             containerColor = MaterialTheme.colorScheme.secondary,
             contentColor = Color.White
         ) {
-            Icon(Icons.Default.MyLocation, contentDescription = "Mi Ubicación")
+            Icon(Icons.Default.LocationOn, contentDescription = "Mi Ubicación")
         }
     }
 }
