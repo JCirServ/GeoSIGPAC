@@ -96,12 +96,13 @@ private val VALENCIA_LNG = -0.3763
 private val DEFAULT_ZOOM = 16.0
 private val USER_TRACKING_ZOOM = 16.0
 
-// --- COLORES TEMA OSCURO ---
-private val DarkBackground = Color(0xFF1E1E1E)
-private val DarkSurface = Color(0xFF2C2C2C)
-private val TextPrimary = Color(0xFFE2E2E6)
-private val TextSecondary = Color(0xFFC4C6D0)
-private val DividerColor = Color(0xFF44474E)
+// --- COLORES TEMA CAMPO (ALTO CONTRASTE) ---
+private val FieldBackground = Color(0xFF121212) // Negro casi puro para reducir reflejos
+private val FieldSurface = Color(0xFF252525) // Gris muy oscuro
+private val FieldGreen = Color(0xFF66BB6A) // Verde brillante (Material Green 400) - Alta visibilidad
+private val HighContrastWhite = Color(0xFFFFFFFF) // Blanco puro
+private val FieldGray = Color(0xFFB0B0B0) // Gris claro para etiquetas
+private val FieldDivider = Color(0xFF424242)
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
@@ -360,7 +361,7 @@ fun NativeMap(
         // --- LOADING ---
         if (isLoadingData) {
             Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
+                CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
             }
         }
 
@@ -388,8 +389,8 @@ fun NativeMap(
                                 }
                             }
                         },
-                    // CAMBIO TEMA: Fondo oscuro para la tarjeta
-                    colors = CardDefaults.cardColors(containerColor = DarkBackground.copy(alpha = 0.98f)),
+                    // CAMBIO TEMA: Fondo oscuro campo
+                    colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
                     shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
                 ) {
@@ -407,8 +408,7 @@ fun NativeMap(
                                     .width(40.dp)
                                     .height(5.dp)
                                     .clip(RoundedCornerShape(2.5.dp))
-                                    // CAMBIO TEMA: Color más claro para el handle
-                                    .background(Color.White.copy(alpha = 0.2f))
+                                    .background(Color.White.copy(alpha = 0.3f))
                             )
                         }
 
@@ -419,21 +419,21 @@ fun NativeMap(
                             verticalAlignment = Alignment.Top
                         ) {
                             Column {
-                                // CAMBIO TEMA: Textos claros
-                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
                                 Text(
                                     text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary // Mantenemos el color primario (verde) que resalta bien sobre negro
+                                    // CAMBIO: Verde brillante en vez de morado/primary
+                                    color = FieldGreen 
                                 )
                             }
                             IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Close, "Cerrar", tint = TextPrimary) // Icono blanco
+                                Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite)
                             }
                         }
                         
-                        Divider(color = DividerColor)
+                        Divider(color = FieldDivider)
 
                         // 2. PESTAÑAS (Estilo Cápsula/Pill)
                         val hasCultivo = cultivoData != null
@@ -444,7 +444,7 @@ fun NativeMap(
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .clip(RoundedCornerShape(50))
-                                .background(DarkSurface) // Fondo oscuro para el contenedor de pestañas
+                                .background(FieldSurface) // Gris oscuro
                                 .padding(4.dp), 
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -453,19 +453,18 @@ fun NativeMap(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(50))
-                                    .background(if (selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                    .background(if (selectedTab == 0) FieldGreen else Color.Transparent)
                                     .clickable { 
                                         selectedTab = 0 
-                                        isPanelExpanded = true // CAMBIO: Vuelve a expandir al tocar
+                                        isPanelExpanded = true 
                                     }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     "Recinto", 
-                                    fontWeight = FontWeight.SemiBold, 
-                                    // Texto blanco si seleccionado, gris claro si no
-                                    color = if(selectedTab == 0) Color.White else TextSecondary
+                                    fontWeight = FontWeight.Bold, // Texto más grueso para sol
+                                    color = if(selectedTab == 0) Color.White else FieldGray
                                 )
                             }
 
@@ -474,11 +473,11 @@ fun NativeMap(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(50))
-                                    .background(if (selectedTab == 1) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                    .background(if (selectedTab == 1) FieldGreen else Color.Transparent)
                                     .clickable(enabled = hasCultivo) { 
                                         if (hasCultivo) {
                                             selectedTab = 1
-                                            isPanelExpanded = true // CAMBIO: Vuelve a expandir al tocar
+                                            isPanelExpanded = true 
                                         }
                                     }
                                     .padding(vertical = 8.dp),
@@ -486,16 +485,15 @@ fun NativeMap(
                             ) {
                                 Text(
                                     "Cultivo", 
-                                    fontWeight = FontWeight.SemiBold, 
-                                    // Texto blanco, gris claro o muy tenue si deshabilitado
-                                    color = if (selectedTab == 1) Color.White else if (hasCultivo) TextSecondary else Color.White.copy(alpha = 0.2f)
+                                    fontWeight = FontWeight.Bold, 
+                                    color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f)
                                 )
                             }
                         }
                         
                         // 3. CONTENIDO (Solo visible si está expandido)
                         if (isPanelExpanded) {
-                            Divider(color = DividerColor)
+                            Divider(color = FieldDivider)
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -526,7 +524,7 @@ fun NativeMap(
                                             AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
                                         }
                                     } else {
-                                        Text("Cargando datos de recinto...", style = MaterialTheme.typography.bodyMedium, color = TextSecondary, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                                        Text("Cargando datos de recinto...", style = MaterialTheme.typography.bodyMedium, color = FieldGray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                                     }
                                 } else {
                                     // --- VISTA CULTIVO (EXPANDIDA) ---
@@ -534,18 +532,17 @@ fun NativeMap(
                                         val c = cultivoData!!
                                         
                                         // 2. Expediente
-                                        Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
                                         
-                                        // CAMBIO: Eliminados Prov. Exp y CA Exp
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f))
                                             AttributeItem("Año", c["exp_ano"], Modifier.weight(1f))
                                         }
                                         
-                                        Divider(Modifier.padding(vertical=6.dp), color = DividerColor)
+                                        Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
 
                                         // 3. Datos Cultivo
-                                        Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
                                             
@@ -563,18 +560,18 @@ fun NativeMap(
                                         Spacer(Modifier.height(8.dp))
                                         AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
 
-                                        Divider(Modifier.padding(vertical=6.dp), color = DividerColor)
+                                        Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
                                         
                                         // 4. Ayudas
-                                        Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
                                         AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
                                         Spacer(Modifier.height(4.dp))
                                         AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
 
-                                        Divider(Modifier.padding(vertical=6.dp), color = DividerColor)
+                                        Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
 
                                         // 5. Cultivo Secundario
-                                        Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f))
                                             AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f))
@@ -594,13 +591,13 @@ fun NativeMap(
 fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
         // CAMBIO TEMA: Etiquetas grises claras
-        Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary, fontSize = 10.sp)
-        // CAMBIO TEMA: Valores en blanco (o casi blanco)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
+        // CAMBIO TEMA: Valores en BLANCO PURO para máximo contraste en exteriores
         Text(
             text = if (value.isNullOrEmpty() || value == "null" || value == "0") "-" else value, 
             style = MaterialTheme.typography.bodyMedium, 
-            fontWeight = FontWeight.SemiBold,
-            color = TextPrimary
+            fontWeight = FontWeight.Bold, // Más grosor para mejor lectura al sol
+            color = HighContrastWhite
         )
     }
 }
