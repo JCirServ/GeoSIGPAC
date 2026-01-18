@@ -83,6 +83,9 @@ fun NativeMap(
     var showCultivo by remember { mutableStateOf(true) }
     var showLayerMenu by remember { mutableStateOf(false) }
 
+    // Controla si ya hemos centrado la cámara en el usuario al inicio
+    var initialLocationSet by remember { mutableStateOf(false) }
+
     // Inicializar MapLibre
     remember { MapLibre.getInstance(context) }
 
@@ -120,14 +123,20 @@ fun NativeMap(
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isCompassEnabled = true
 
-            // Posición inicial por defecto
-            map.cameraPosition = CameraPosition.Builder()
-                .target(LatLng(VALENCIA_LAT, VALENCIA_LNG))
-                .zoom(DEFAULT_ZOOM)
-                .build()
+            // Posición inicial por defecto (Valencia)
+            // Solo si no se ha establecido ubicación previa
+            if (!initialLocationSet) {
+                map.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(VALENCIA_LAT, VALENCIA_LNG))
+                    .zoom(DEFAULT_ZOOM)
+                    .build()
+            }
 
-            // Cargar estilo
-            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context)
+            // Cargar estilo y configurar ubicación
+            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
+                // Callback: Se ha activado la ubicación correctamente
+                initialLocationSet = true
+            }
         }
     }
 
@@ -147,9 +156,12 @@ fun NativeMap(
     }
 
     // 3. Reaccionar a cambios de capas
+    // IMPORTANTE: Al cambiar capas, pasamos false a shouldCenterUser para NO mover la cámara
     LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
         mapInstance?.let { map ->
-            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context)
+            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) {
+                // No action needed on layer switch location update
+            }
         }
     }
 
@@ -226,10 +238,11 @@ fun NativeMap(
             }
         }
 
-        // Botón GPS
+        // Botón GPS (Forzar centrado manual)
         FloatingActionButton(
             onClick = {
-                enableLocation(mapInstance, context, forceZoom = true)
+                // Al pulsar el botón explícitamente, SÍ queremos centrar (true)
+                enableLocation(mapInstance, context, shouldCenter = true)
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -244,15 +257,15 @@ fun NativeMap(
 
 /**
  * Reconstruye el estilo del mapa.
- * Usamos un Builder vacío y añadimos el mapa base como RasterLayer.
- * Esto es más robusto que cargar JSONs remotos para PNOA/OSM básico.
  */
 private fun loadMapStyle(
     map: MapLibreMap,
     baseMap: BaseMap,
     showRecinto: Boolean,
     showCultivo: Boolean,
-    context: Context
+    context: Context,
+    shouldCenterUser: Boolean,
+    onLocationEnabled: () -> Unit
 ) {
     val styleBuilder = Style.Builder()
 
@@ -260,11 +273,11 @@ private fun loadMapStyle(
     val tileUrl = if (baseMap == BaseMap.OSM) {
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     } else {
-        // PNOA (España)
-        "https://tms-pnoa-ma.ign.es/1.0.0/pnoa-ma/{z}/{x}/{y}.jpeg"
+        // PNOA WMTS (IGN España) - Compatible Google Maps
+        // Usamos la capa "OI.OrthoimageCoverage" (Ortoimagen) con TileMatrixSet GoogleMapsCompatible
+        "https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&tilematrixset=GoogleMapsCompatible&tilematrix={z}&tilerow={y}&tilecol={x}"
     }
 
-    // Configurar fuente Raster estándar
     val tileSet = TileSet("2.2.0", tileUrl)
     if (baseMap == BaseMap.OSM) {
         tileSet.attribution = "© OpenStreetMap contributors"
@@ -278,7 +291,7 @@ private fun loadMapStyle(
 
     map.setStyle(styleBuilder) { style ->
         
-        // 2. CAPAS VECTORIALES (MVT) - Se añaden ENCIMA del base
+        // 2. CAPAS VECTORIALES (MVT)
         
         // --- CULTIVO (Relleno) ---
         if (showCultivo) {
@@ -294,7 +307,7 @@ private fun loadMapStyle(
                     PropertyFactory.fillOpacity(0.35f),
                     PropertyFactory.fillOutlineColor(Color.Yellow.toArgb())
                 )
-                style.addLayer(fillLayer) // Se añade encima por orden de ejecución
+                style.addLayer(fillLayer)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -319,14 +332,21 @@ private fun loadMapStyle(
             }
         }
 
-        // 3. Activar Ubicación
-        enableLocation(map, context, forceZoom = true)
+        // 3. Restaurar configuración de ubicación
+        // Pasamos shouldCenterUser para decidir si movemos la cámara o no
+        if (enableLocation(map, context, shouldCenterUser)) {
+            onLocationEnabled()
+        }
     }
 }
 
+/**
+ * Activa o restaura la ubicación.
+ * @return true si se activó con éxito (hay permisos).
+ */
 @SuppressLint("MissingPermission")
-private fun enableLocation(map: MapLibreMap?, context: Context, forceZoom: Boolean = false) {
-    if (map == null || map.style == null) return
+private fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): Boolean {
+    if (map == null || map.style == null) return false
 
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
         try {
@@ -337,19 +357,24 @@ private fun enableLocation(map: MapLibreMap?, context: Context, forceZoom: Boole
             
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
-            locationComponent.cameraMode = CameraMode.TRACKING
-            locationComponent.renderMode = RenderMode.COMPASS
             
-            if (forceZoom) {
+            locationComponent.renderMode = RenderMode.COMPASS
+
+            if (shouldCenter) {
+                // Solo movemos la cámara si se solicita explícitamente (inicio o botón click)
+                locationComponent.cameraMode = CameraMode.TRACKING
                 locationComponent.zoomWhileTracking(USER_TRACKING_ZOOM)
+            } else {
+                // Si solo estamos refrescando capas, NO movemos la cámara
+                // Usamos NONE para ver el punto azul pero mantener el control manual
+                locationComponent.cameraMode = CameraMode.NONE
             }
+            return true
         } catch (e: Exception) {
-            // Ignorar errores si el estilo no está listo
+            e.printStackTrace()
         }
-    } else {
-        // Fallback: Ir a Valencia si no hay GPS
-        map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(VALENCIA_LAT, VALENCIA_LNG), DEFAULT_ZOOM))
     }
+    return false
 }
 
 fun Color.toArgb(): Int {
