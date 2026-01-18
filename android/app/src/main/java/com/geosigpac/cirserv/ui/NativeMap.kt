@@ -536,6 +536,8 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
             connection.disconnect()
             
             val jsonResponse = response.toString().trim()
+            Log.d("API_SIGPAC", "Respuesta JSON: $jsonResponse")
+
             var targetJson: JSONObject? = null
             
             if (jsonResponse.startsWith("[")) {
@@ -570,6 +572,7 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                 val superficieRaw = getProp("superficie")
                 val superficieM2 = superficieRaw.toDoubleOrNull() ?: 0.0
                 val superficieHa = superficieM2 / 10000.0
+                Log.d("API_SIGPAC", "Superficie: Raw=$superficieRaw, M2=$superficieM2, Ha=$superficieHa")
                 
                 // --- CORRECCIÓN ALTITUD ---
                 // Buscamos 'altitud', si está vacío buscamos 'altitud_media'.
@@ -577,6 +580,7 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                 if (altitudVal.isEmpty()) {
                     altitudVal = getProp("altitud_media")
                 }
+                Log.d("API_SIGPAC", "Altitud encontrada: $altitudVal")
 
                 return@withContext mapOf(
                     "provincia" to prov,
