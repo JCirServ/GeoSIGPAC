@@ -2,7 +2,6 @@ package com.geosigpac.cirserv
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebView
 import android.widget.Toast
@@ -11,24 +10,32 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.geosigpac.cirserv.bridge.WebAppInterface
 import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.NativeMap
@@ -39,6 +46,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // --- MODO INMERSIVO (OCULTAR BARRAS) ---
+        // Oculta la barra de estado y la barra de navegación para una experiencia Full Screen
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
         
         setContent {
             MaterialTheme {
@@ -53,15 +66,14 @@ fun GeoSigpacApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // --- ESTADO DE LA APLICACIÓN (Single Source of Truth) ---
-    // Controla si mostramos la cámara a pantalla completa
+    // --- ESTADO DE LA APLICACIÓN ---
     var isCameraOpen by remember { mutableStateOf(false) }
-    // ID del proyecto que solicitó la foto
     var currentProjectId by remember { mutableStateOf<String?>(null) }
-    // Coordenadas para enfocar el mapa (null = sin acción)
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    // Referencia al WebView para ejecutar JS
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    
+    // Control de Pestañas (0 = Web, 1 = Mapa)
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     // --- PERMISOS ---
     var hasPermissions by remember {
@@ -104,66 +116,71 @@ fun GeoSigpacApp() {
                 }
             },
             onMapFocusRequested = { lat, lng ->
+                // 1. Actualizar coordenadas del mapa
                 mapTarget = lat to lng
+                // 2. Cambiar automáticamente a la pestaña del mapa
+                selectedTab = 1
             }
         )
     }
 
     // --- RENDERIZADO ---
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        
-        if (isCameraOpen) {
-            // PANTALLA CÁMARA (Nativa)
-            CameraScreen(
-                onImageCaptured = { uri ->
-                    isCameraOpen = false
-                    val pid = currentProjectId
-                    if (pid != null) {
-                        // Comunicación Android -> JS
-                        // Pasamos la URI del archivo local para que la WebView la muestre
-                        scope.launch {
-                            val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
-                            webViewRef?.evaluateJavascript(jsCode, null)
-                        }
+    if (isCameraOpen) {
+        // PANTALLA CÁMARA (Modal Pantalla Completa)
+        CameraScreen(
+            onImageCaptured = { uri ->
+                isCameraOpen = false
+                val pid = currentProjectId
+                if (pid != null) {
+                    scope.launch {
+                        val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
+                        webViewRef?.evaluateJavascript(jsCode, null)
                     }
-                },
-                onError = { exc ->
-                    Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
-                    isCameraOpen = false
-                },
-                onClose = {
-                    isCameraOpen = false
                 }
-            )
-        } else {
-            // PANTALLA PRINCIPAL (Split View)
-            Column(modifier = Modifier.fillMaxSize()) {
-                
-                // 1. MAPA NATIVO (Parte superior 35%)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.35f)
-                        .background(Color.LightGray)
-                ) {
-                    NativeMap(
-                        targetLat = mapTarget?.first, 
-                        targetLng = mapTarget?.second
+            },
+            onError = { exc ->
+                Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
+                isCameraOpen = false
+            },
+            onClose = { isCameraOpen = false }
+        )
+    } else {
+        // PANTALLA PRINCIPAL CON PESTAÑAS
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Filled.Home, contentDescription = "Proyectos") },
+                        label = { Text("Proyectos") },
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Filled.LocationOn, contentDescription = "Mapa") },
+                        label = { Text("Mapa") },
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 }
                     )
                 }
-
-                // 2. GESTOR WEB (Parte inferior 65%)
-                // La WebView carga la UI principal en HTML/React
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.65f)
-                ) {
-                    WebProjectManager(
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding) // Respetar el espacio de la barra inferior
+            ) {
+                // Renderizado Condicional de Vistas
+                // Nota: Al cambiar de pestaña, Compose puede recomponer. 
+                // WebProjectManager recargará la UI, pero pedirá los datos frescos a Android (Single Source of Truth),
+                // manteniendo la consistencia de los datos.
+                when (selectedTab) {
+                    0 -> WebProjectManager(
                         webAppInterface = webAppInterface,
-                        onWebViewCreated = { webView ->
-                            webViewRef = webView
-                        }
+                        onWebViewCreated = { webView -> webViewRef = webView }
+                    )
+                    1 -> NativeMap(
+                        targetLat = mapTarget?.first,
+                        targetLng = mapTarget?.second
                     )
                 }
             }
