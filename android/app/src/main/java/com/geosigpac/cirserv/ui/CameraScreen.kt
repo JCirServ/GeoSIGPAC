@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -25,6 +26,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +36,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ZoomIn
@@ -45,11 +48,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
@@ -109,6 +115,25 @@ fun CameraScreen(
     // --- ESTADO TAP TO FOCUS ---
     var focusRingPosition by remember { mutableStateOf<Offset?>(null) }
     var showFocusRing by remember { mutableStateOf(false) }
+
+    // --- ESTADO PREVISUALIZACIÓN FOTO ---
+    var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
+    var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+
+    // Efecto para cargar el bitmap cuando cambia la URI
+    LaunchedEffect(lastCapturedUri) {
+        lastCapturedUri?.let { uri ->
+            withContext(Dispatchers.IO) {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val bitmap = BitmapFactory.decodeStream(inputStream)
+                    capturedBitmap = bitmap?.asImageBitmap()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
 
     // Estado para información GPS y SIGPAC
     var locationText by remember { mutableStateOf("Obteniendo ubicación...") }
@@ -417,8 +442,6 @@ Box(
                 rotationZ = 270f
                 transformOrigin = TransformOrigin.Center
             }
-            // CAMBIO: Aumentado a 260dp para llenar mejor el contenedor de 300dp
-            // (Deja 20dp arriba y abajo de margen visual)
             .requiredWidth(260.dp), 
         colors = SliderDefaults.colors(
             thumbColor = Color.White,
@@ -441,14 +464,32 @@ Box(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Cerrar
+                // CAMBIO: Previsualización de Foto (reemplaza a la X)
                 Box(
                     modifier = Modifier
                         .size(50.dp)
-                        .background(Color.Black.copy(0.5f), CircleShape)
-                        .clickable { onClose() },
+                        .clip(RoundedCornerShape(12.dp)) // Forma cuadrada redondeada
+                        .background(Color.Black.copy(0.5f))
+                        .border(1.dp, Color.White, RoundedCornerShape(12.dp))
+                        .clickable { onClose() }, // Mantenemos la función de salir/cerrar
                     contentAlignment = Alignment.Center
-                ) { Text("X", color = Color.White, fontWeight = FontWeight.Bold) }
+                ) { 
+                    if (capturedBitmap != null) {
+                        Image(
+                            bitmap = capturedBitmap!!,
+                            contentDescription = "Preview",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        // Icono por defecto si no hay foto
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = "Sin Foto",
+                            tint = Color.White
+                        )
+                    }
+                }
 
                 // Disparador
                 Box(
@@ -458,7 +499,15 @@ Box(
                         .padding(6.dp)
                         .background(Color.White, CircleShape)
                         .clickable {
-                            takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, onImageCaptured, onError)
+                            takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
+                                onImageCaptured = { uri ->
+                                    // Guardar localmente para previsualización
+                                    lastCapturedUri = uri
+                                    // Notificar al padre
+                                    onImageCaptured(uri)
+                                }, 
+                                onError
+                            )
                         }
                 )
                 
