@@ -58,15 +58,6 @@ fun GeoSigpacApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // --- ESTADO DE LA APLICACIÓN ---
-    var isCameraOpen by remember { mutableStateOf(false) }
-    var currentProjectId by remember { mutableStateOf<String?>(null) }
-    var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    
-    // Control de Pestañas (0 = Web, 1 = Mapa)
-    var selectedTab by remember { mutableIntStateOf(0) }
-
     // --- PERMISOS ---
     var hasPermissions by remember {
         mutableStateOf(
@@ -75,10 +66,25 @@ fun GeoSigpacApp() {
         )
     }
 
+    // --- ESTADO DE LA APLICACIÓN ---
+    // CAMBIO: Si tenemos permisos, abrimos la cámara por defecto al iniciar
+    var isCameraOpen by remember { mutableStateOf(hasPermissions) }
+    var currentProjectId by remember { mutableStateOf<String?>(null) }
+    var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    
+    // Control de Pestañas (0 = Web, 1 = Mapa)
+    var selectedTab by remember { mutableIntStateOf(0) }
+
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { perms ->
-            hasPermissions = perms[Manifest.permission.CAMERA] == true
+            val cameraGranted = perms[Manifest.permission.CAMERA] == true
+            hasPermissions = cameraGranted
+            // CAMBIO: Si se conceden los permisos ahora, abrir la cámara automáticamente
+            if (cameraGranted) {
+                isCameraOpen = true
+            }
         }
     )
 

@@ -399,7 +399,8 @@ fun CameraScreen(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 16.dp)
-                .height(320.dp) // INCREASED HEIGHT
+                // CAMBIO: Aumentado el alto del contenedor para ocupar más pantalla verticalmente
+                .height(400.dp) 
                 .width(50.dp)
                 .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                 .padding(vertical = 12.dp),
@@ -435,7 +436,8 @@ fun CameraScreen(
                         onValueChange = { valz ->
                             camera?.cameraControl?.setLinearZoom(valz)
                         },
-                        modifier = Modifier.width(260.dp), // INCREASED WIDTH (rotated height)
+                        // CAMBIO: Slider mucho más largo (ancho antes de rotar) para maximizar la "linea verde"
+                        modifier = Modifier.width(340.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
                             activeTrackColor = Color(0xFF006D3E), // Primary green
