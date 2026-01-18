@@ -67,7 +67,10 @@ fun CameraScreen(
     // Estado para datos SIGPAC
     var sigpacRef by remember { mutableStateOf<String?>(null) }
     var sigpacUso by remember { mutableStateOf<String?>(null) }
-    var isLoadingSigpac by remember { mutableStateOf(false) }
+    
+    // Control de UI para errores (Debounce)
+    var showNoDataMessage by remember { mutableStateOf(false) }
+    var isLoadingSigpac by remember { mutableStateOf(false) } // Solo uso interno para lógica
     
     // Estado para controlar la ubicación
     var currentLocation by remember { mutableStateOf<Location?>(null) }
@@ -83,27 +86,39 @@ fun CameraScreen(
             val now = System.currentTimeMillis()
             
             if (loc != null) {
-                // Cálculo de disparadores
                 val distance = if (lastApiLocation != null) loc.distanceTo(lastApiLocation!!) else Float.MAX_VALUE
                 val timeElapsed = now - lastApiTimestamp
                 
-                // CONDICIONES:
-                // 1. Primera vez (lastApiLocation es null)
-                // 2. Distancia > 3 metros
-                // 3. Tiempo > 5000 ms (5 segundos)
                 val shouldFetch = lastApiLocation == null || distance > 3.0f || timeElapsed > 5000
                 
                 if (shouldFetch && !isLoadingSigpac) {
                     isLoadingSigpac = true
-                    
-                    // Actualizamos referencias ANTES de la llamada para evitar rebotes inmediatos
                     lastApiLocation = loc
                     lastApiTimestamp = now
                     
                     try {
                         val (ref, uso) = fetchRealSigpacData(loc.latitude, loc.longitude)
-                        sigpacRef = ref
-                        sigpacUso = uso
+                        
+                        if (ref != null) {
+                            // ÉXITO: Mostramos datos inmediatamente
+                            sigpacRef = ref
+                            sigpacUso = uso
+                            showNoDataMessage = false
+                        } else {
+                            // FALLO O SIN DATOS:
+                            // 1. Limpiamos datos antiguos para no confundir
+                            sigpacRef = null
+                            sigpacUso = null
+                            
+                            // 2. NO mostramos el error inmediatamente. Esperamos 2 segundos.
+                            // Durante este tiempo se mostrará "Analizando zona..." (ver UI abajo)
+                            delay(2000)
+                            
+                            // 3. Si después de esperar seguimos sin referencia, mostramos el error
+                            if (sigpacRef == null) {
+                                showNoDataMessage = true
+                            }
+                        }
                     } catch (e: Exception) {
                         Log.e("CameraScreen", "Error en bucle API SIGPAC", e)
                     } finally {
@@ -111,8 +126,6 @@ fun CameraScreen(
                     }
                 }
             }
-            
-            // Verificamos cada 500ms para responder rápido al movimiento
             delay(500)
         }
     }
@@ -222,14 +235,8 @@ fun CameraScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                if (isLoadingSigpac) {
-                    Text(
-                        text = "Consultando SIGPAC...",
-                        color = Color.LightGray,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                } else if (sigpacRef != null) {
+                // LÓGICA DE VISUALIZACIÓN MEJORADA (Sin parpadeos)
+                if (sigpacRef != null) {
                     Text(
                         text = "Ref: $sigpacRef",
                         color = Color(0xFFFFFF00),
@@ -245,11 +252,19 @@ fun CameraScreen(
                         fontFamily = FontFamily.Monospace,
                         textAlign = androidx.compose.ui.text.style.TextAlign.End
                     )
-                } else if (currentLocation != null) {
-                    // Tenemos ubicación pero no datos SIGPAC (fuera de zona o error)
+                } else if (showNoDataMessage) {
+                    // Solo mostramos esto si han pasado 2 segundos sin éxito
                     Text(
                         text = "Sin datos SIGPAC",
                         color = Color(0xFFFFAAAA),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                } else {
+                    // Estado intermedio: Estamos cargando o esperando el debounce
+                    Text(
+                        text = "Analizando zona...",
+                        color = Color.LightGray,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
                     )
