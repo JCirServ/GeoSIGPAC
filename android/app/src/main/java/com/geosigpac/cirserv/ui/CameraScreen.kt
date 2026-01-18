@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import android.location.Location
 import android.location.LocationListener
@@ -24,7 +25,6 @@ import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,8 +39,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -56,6 +54,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
@@ -94,6 +93,8 @@ fun CameraScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     
     // --- ESTADOS DE CONFIGURACIÓN DE CÁMARA ---
     var aspectRatio by remember { mutableIntStateOf(AspectRatio.RATIO_4_3) }
@@ -109,9 +110,7 @@ fun CameraScreen(
     val previewView = remember { PreviewView(context) }
 
     // --- ESTADO ZOOM ---
-    // Usamos LinearZoom (0.0 a 1.0) para el Slider porque es más suave
     var currentLinearZoom by remember { mutableFloatStateOf(0f) }
-    // Zoom Ratio real para mostrar en texto (ej: 1.0x, 2.5x)
     var currentZoomRatio by remember { mutableFloatStateOf(1f) }
 
     // --- ESTADO TAP TO FOCUS ---
@@ -121,7 +120,7 @@ fun CameraScreen(
     // --- ESTADO PREVISUALIZACIÓN FOTO (Carga de Bitmap) ---
     var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
-    // Efecto para cargar el bitmap cuando cambia la URI (que viene de fuera ahora)
+    // Efecto para cargar el bitmap
     LaunchedEffect(lastCapturedUri) {
         lastCapturedUri?.let { uri ->
             withContext(Dispatchers.IO) {
@@ -182,7 +181,7 @@ fun CameraScreen(
         }.build()
     }
 
-    // --- OBSERVADOR DE ESTADO DE ZOOM DE LA CÁMARA ---
+    // --- OBSERVADOR DE ESTADO DE ZOOM ---
     LaunchedEffect(camera) {
         val cam = camera ?: return@LaunchedEffect
         cam.cameraInfo.zoomState.observe(lifecycleOwner) { state ->
@@ -197,26 +196,16 @@ fun CameraScreen(
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
             cameraProvider.unbindAll()
-
-            val preview = Preview.Builder()
-                .setTargetAspectRatio(aspectRatio)
-                .build()
-
+            val preview = Preview.Builder().setTargetAspectRatio(aspectRatio).build()
             preview.setSurfaceProvider(previewView.surfaceProvider)
-
             val imageCapture = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .setTargetAspectRatio(aspectRatio)
                 .setFlashMode(flashMode)
                 .build()
-
             try {
-                // Guardamos la referencia a 'camera' para controlar zoom y foco
                 camera = cameraProvider.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    imageCapture
+                    lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture
                 )
                 imageCaptureUseCase = imageCapture
             } catch (exc: Exception) {
@@ -225,7 +214,7 @@ fun CameraScreen(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // --- BUCLE SIGPAC (Lógica existente) ---
+    // --- BUCLE SIGPAC Y GPS (Lógica igual que antes) ---
     LaunchedEffect(Unit) {
         while (true) {
             val loc = currentLocation
@@ -240,16 +229,8 @@ fun CameraScreen(
                     lastApiTimestamp = now
                     try {
                         val (ref, uso) = fetchRealSigpacData(loc.latitude, loc.longitude)
-                        if (ref != null) {
-                            sigpacRef = ref
-                            sigpacUso = uso
-                            showNoDataMessage = false
-                        } else {
-                            sigpacRef = null
-                            sigpacUso = null
-                            delay(2000)
-                            if (sigpacRef == null) showNoDataMessage = true
-                        }
+                        if (ref != null) { sigpacRef = ref; sigpacUso = uso; showNoDataMessage = false } 
+                        else { sigpacRef = null; sigpacUso = null; delay(2000); if (sigpacRef == null) showNoDataMessage = true }
                     } catch (e: Exception) { } finally { isLoadingSigpac = false }
                 }
             }
@@ -257,7 +238,6 @@ fun CameraScreen(
         }
     }
 
-    // --- GPS (Lógica existente) ---
     DisposableEffect(Unit) {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val listener = object : LocationListener {
@@ -282,130 +262,26 @@ fun CameraScreen(
         }
     }
 
-    // --- UI PRINCIPAL ---
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            // GESTOS: Tap-to-Focus y Pinch-to-Zoom
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    // Pinch to Zoom
-                    camera?.let { cam ->
-                        val currentRatio = cam.cameraInfo.zoomState.value?.zoomRatio ?: 1f
-                        val maxRatio = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
-                        val minRatio = cam.cameraInfo.zoomState.value?.minZoomRatio ?: 1f
-                        // Multiplicamos el ratio actual por el factor del gesto
-                        val newRatio = (currentRatio * zoom).coerceIn(minRatio, maxRatio)
-                        cam.cameraControl.setZoomRatio(newRatio)
-                    }
-                }
-            }
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    // Tap to Focus
-                    showFocusRing = true
-                    focusRingPosition = offset
-                    
-                    // Ocultar anillo después de 1 segundo
-                    scope.launch {
-                        delay(1000)
-                        showFocusRing = false
-                    }
-
-                    // Lógica CameraX
-                    camera?.let { cam ->
-                        val factory = SurfaceOrientedMeteringPointFactory(
-                            previewView.width.toFloat(),
-                            previewView.height.toFloat()
-                        )
-                        val point = factory.createPoint(offset.x, offset.y)
-                        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
-                            .setAutoCancelDuration(3, TimeUnit.SECONDS)
-                            .build()
-                        
-                        cam.cameraControl.startFocusAndMetering(action)
-                    }
-                }
-            }
-    ) {
-        
-        // 1. Vista de Cámara
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = {
-                previewView.apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    scaleType = PreviewView.ScaleType.FILL_CENTER
-                }
-            }
-        )
-        
-        // 2. Anillo de Enfoque (Visual Feedback)
-        if (showFocusRing && focusRingPosition != null) {
+    // --- COMPONENTES UI REUTILIZABLES ---
+    
+    // Botones Superiores (Config y Proyectos)
+    val TopLeftButtons = @Composable {
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Box(
-                modifier = Modifier
-                    .offset(
-                        x = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.x.toDp() - 25.dp },
-                        y = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.y.toDp() - 25.dp }
-                    )
-                    .size(50.dp)
-                    .border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape)
-            )
-        }
-
-        // 3. Grid (Opcional)
-        if (showGrid) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val width = size.width; val height = size.height
-                drawLine(Color.White.copy(0.3f), Offset(width / 3, 0f), Offset(width / 3, height), 2f)
-                drawLine(Color.White.copy(0.3f), Offset(2 * width / 3, 0f), Offset(2 * width / 3, height), 2f)
-                drawLine(Color.White.copy(0.3f), Offset(0f, height / 3), Offset(width, height / 3), 2f)
-                drawLine(Color.White.copy(0.3f), Offset(0f, 2 * height / 3), Offset(width, 2 * height / 3), 2f)
-            }
-        }
-
-        // --- UI SUPERIOR (Botones y Overlay Info) ---
-        
-        // Botones Izquierda
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 40.dp, start = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(0.5f))
-                    .clickable { onGoToProjects() },
+                modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { onGoToProjects() },
                 contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.List, "Proyectos", tint = Color.White)
-            }
+            ) { Icon(Icons.Default.List, "Proyectos", tint = Color.White) }
             Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(0.5f))
-                    .clickable { showSettingsDialog = true },
+                modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { showSettingsDialog = true },
                 contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Settings, "Configuración", tint = Color.White)
-            }
+            ) { Icon(Icons.Default.Settings, "Configuración", tint = Color.White) }
         }
+    }
 
-        // Info Derecha
+    // Cajetín de Información
+    val InfoBox = @Composable {
         Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 40.dp, end = 16.dp)
-                .background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+            modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Column(horizontalAlignment = Alignment.End) {
                 Text(locationText, color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
@@ -420,129 +296,229 @@ fun CameraScreen(
                 }
             }
         }
+    }
 
-        // --- CONTROL DE ZOOM (DISEÑO CÁPSULA ESTILIZADA) ---
+    // Botón Disparador
+    val ShutterButton = @Composable {
         Box(
             modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 24.dp)
+                .size(80.dp)
+                .border(4.dp, Color.White, CircleShape)
+                .padding(6.dp)
+                .background(Color.White, CircleShape)
+                .clickable {
+                    takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
+                        onImageCaptured = { uri -> onImageCaptured(uri) }, onError)
+                }
+        )
+    }
+
+    // Preview de Foto con Badge
+    val PreviewButton = @Composable {
+        Box(contentAlignment = Alignment.TopEnd) {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(24.dp)) 
+                    .background(Color.Black.copy(0.5f))
+                    .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
+                    .clickable { onClose() }, 
+                contentAlignment = Alignment.Center
+            ) { 
+                if (capturedBitmap != null) {
+                    Image(bitmap = capturedBitmap!!, contentDescription = "Preview", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Icon(imageVector = Icons.Default.Image, contentDescription = "Sin Foto", tint = Color.White, modifier = Modifier.size(36.dp))
+                }
+            }
+            if (photoCount > 0) {
+                Box(
+                    modifier = Modifier.offset(x = 8.dp, y = (-8).dp).size(28.dp).background(Color.Red, CircleShape).border(2.dp, Color.White, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = photoCount.toString(), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
+    // Botón Mapa
+    val MapButton = @Composable {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.Black.copy(0.5f))
+                .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
+                .clickable { onGoToMap() },
+            contentAlignment = Alignment.Center
+        ) { Icon(MapIcon, "Mapa", tint = Color.White, modifier = Modifier.size(36.dp)) }
+    }
+
+    // Slider Zoom (Vertical u Horizontal)
+    val ZoomControl = @Composable { isLandscapeMode: Boolean ->
+        val containerModifier = if (isLandscapeMode) {
+             // Horizontal y alargado
+             Modifier
+                .width(260.dp)
+                .height(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.Black.copy(alpha = 0.5f))
+                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
+        } else {
+            // Vertical (contenedor alto)
+            Modifier
                 .height(300.dp)
                 .width(30.dp)
                 .clip(RoundedCornerShape(15.dp))
                 .background(Color.Black.copy(alpha = 0.5f))
-                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp)),
+                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp))
+        }
+
+        Box(
+            modifier = containerModifier,
             contentAlignment = Alignment.Center
         ) {
             Slider(
                 value = currentLinearZoom,
-                onValueChange = { valz ->
-                    camera?.cameraControl?.setLinearZoom(valz)
-                },
-                modifier = Modifier
-                    .graphicsLayer {
-                        rotationZ = 270f
-                        transformOrigin = TransformOrigin.Center
-                    }
-                    .requiredWidth(260.dp), 
+                onValueChange = { valz -> camera?.cameraControl?.setLinearZoom(valz) },
+                modifier = if (isLandscapeMode) {
+                    Modifier.width(240.dp) // Slider horizontal normal
+                } else {
+                    Modifier
+                        .graphicsLayer {
+                            rotationZ = 270f
+                            transformOrigin = TransformOrigin.Center
+                        }
+                        .requiredWidth(260.dp) // Ancho rotado se convierte en alto visual
+                }, 
                 colors = SliderDefaults.colors(
                     thumbColor = Color.White,
-                    activeTrackColor = Color(0xFFFFD700), // Oro
+                    activeTrackColor = Color(0xFFFFD700),
                     inactiveTrackColor = Color.White.copy(alpha = 0.3f)
                 )
             )
         }
+    }
 
-        // --- CONTROLES INFERIORES ---
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.Bottom,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // CAMBIO: Previsualización de Foto + Badge (Budget/Contador)
-                Box(contentAlignment = Alignment.TopEnd) { // Box padre para posicionar el badge
-                    
-                    // El botón de previsualización
-                    Box(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(RoundedCornerShape(24.dp)) 
-                            .background(Color.Black.copy(0.5f))
-                            .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
-                            .clickable { onClose() }, 
-                        contentAlignment = Alignment.Center
-                    ) { 
-                        if (capturedBitmap != null) {
-                            Image(
-                                bitmap = capturedBitmap!!,
-                                contentDescription = "Preview",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = "Sin Foto",
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp) 
-                            )
-                        }
-                    }
-
-                    // EL CONTADOR / BADGE
-                    if (photoCount > 0) {
-                        Box(
-                            modifier = Modifier
-                                .offset(x = 8.dp, y = (-8).dp) // Desplazado ligeramente fuera
-                                .size(28.dp)
-                                .background(Color.Red, CircleShape)
-                                .border(2.dp, Color.White, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = photoCount.toString(),
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+    // --- UI LAYOUT PRINCIPAL ---
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTransformGestures { _, _, zoom, _ ->
+                    camera?.let { cam ->
+                        val currentRatio = cam.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+                        val newRatio = (currentRatio * zoom).coerceIn(cam.cameraInfo.zoomState.value?.minZoomRatio ?: 1f, cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f)
+                        cam.cameraControl.setZoomRatio(newRatio)
                     }
                 }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    showFocusRing = true; focusRingPosition = offset
+                    scope.launch { delay(1000); showFocusRing = false }
+                    camera?.let { cam ->
+                        val point = SurfaceOrientedMeteringPointFactory(previewView.width.toFloat(), previewView.height.toFloat()).createPoint(offset.x, offset.y)
+                        cam.cameraControl.startFocusAndMetering(FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF).setAutoCancelDuration(3, TimeUnit.SECONDS).build())
+                    }
+                }
+            }
+    ) {
+        
+        // 1. Vista de Cámara (Fondo)
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); scaleType = PreviewView.ScaleType.FILL_CENTER } }
+        )
+        
+        // 2. Anillo de Enfoque
+        if (showFocusRing && focusRingPosition != null) {
+            Box(modifier = Modifier.offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.x.toDp() - 25.dp }, y = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.y.toDp() - 25.dp }).size(50.dp).border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape))
+        }
 
-                // Disparador
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .border(4.dp, Color.White, CircleShape)
-                        .padding(6.dp)
-                        .background(Color.White, CircleShape)
-                        .clickable {
-                            takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
-                                onImageCaptured = { uri ->
-                                    // Eliminamos manejo de estado local, delegamos al callback
-                                    onImageCaptured(uri)
-                                }, 
-                                onError
-                            )
-                        }
-                )
-                
-                // Mapa
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.Black.copy(0.5f))
-                        .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
-                        .clickable { onGoToMap() },
-                    contentAlignment = Alignment.Center
-                ) { Icon(MapIcon, "Mapa", tint = Color.White, modifier = Modifier.size(36.dp)) }
+        // 3. Grid
+        if (showGrid) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width; val h = size.height
+                drawLine(Color.White.copy(0.3f), Offset(w/3, 0f), Offset(w/3, h), 2f)
+                drawLine(Color.White.copy(0.3f), Offset(2*w/3, 0f), Offset(2*w/3, h), 2f)
+                drawLine(Color.White.copy(0.3f), Offset(0f, h/3), Offset(w, h/3), 2f)
+                drawLine(Color.White.copy(0.3f), Offset(0f, 2*h/3), Offset(w, 2*h/3), 2f)
+            }
+        }
+
+        // --- CAPA DE INTERFAZ (Layout Responsivo) ---
+        
+        if (isLandscape) {
+            // ================= LANDSCAPE LAYOUT =================
+            
+            // Arriba Izquierda: Botones
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
+                TopLeftButtons()
+            }
+
+            // Arriba Derecha: Info
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
+                InfoBox()
+            }
+
+            // Centro Derecha: Disparador
+            Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) {
+                ShutterButton()
+            }
+
+            // Abajo Izquierda: Preview y Mapa (Horizontal)
+            Row(
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                PreviewButton()
+                MapButton()
+            }
+
+            // Abajo Derecha: Slider Horizontal
+            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 32.dp)) {
+                // Para que no se solape con el disparador si la pantalla es estrecha, 
+                // lo movemos un poco a la izquierda del borde derecho
+                ZoomControl(true)
+            }
+
+        } else {
+            // ================= PORTRAIT LAYOUT (Original) =================
+            
+            // Arriba Izquierda
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) {
+                TopLeftButtons()
+            }
+
+            // Arriba Derecha
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) {
+                InfoBox()
+            }
+
+            // Centro Izquierda: Zoom Vertical
+            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
+                ZoomControl(false)
+            }
+
+            // Abajo: Fila de controles (Preview - Disparador - Mapa)
+            Column(
+                modifier = Modifier.fillMaxSize().padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.Bottom,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PreviewButton()
+                    ShutterButton()
+                    MapButton()
+                }
             }
         }
         
@@ -555,11 +531,9 @@ fun CameraScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text("Resolución (Aspect Ratio)", style = MaterialTheme.typography.titleSmall)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_4_3, onClick = { aspectRatio = AspectRatio.RATIO_4_3 })
-                            Text("4:3")
+                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_4_3, onClick = { aspectRatio = AspectRatio.RATIO_4_3 }); Text("4:3")
                             Spacer(Modifier.width(16.dp))
-                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_16_9, onClick = { aspectRatio = AspectRatio.RATIO_16_9 })
-                            Text("16:9")
+                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_16_9, onClick = { aspectRatio = AspectRatio.RATIO_16_9 }); Text("16:9")
                         }
                         Divider()
                         Text("Flash", style = MaterialTheme.typography.titleSmall)
@@ -570,8 +544,7 @@ fun CameraScreen(
                         }
                         Divider()
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showGrid = !showGrid }) {
-                            Checkbox(checked = showGrid, onCheckedChange = { showGrid = it })
-                            Text("Mostrar Cuadrícula")
+                            Checkbox(checked = showGrid, onCheckedChange = { showGrid = it }); Text("Mostrar Cuadrícula")
                         }
                     }
                 },
@@ -580,8 +553,6 @@ fun CameraScreen(
         }
     }
 }
-
-// ... (Funciones auxiliares fetchRealSigpacData y takePhoto se mantienen igual, solo se vuelven a copiar para integridad del archivo) ...
 
 private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?, String?> = withContext(Dispatchers.IO) {
     try {
