@@ -400,12 +400,13 @@ fun CameraScreen(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 24.dp)
-                // Aumentamos altura y ancho para el look "Cápsula HUD"
+                // CAMBIO: Ancho reducido a 30dp (mitad de 60)
                 .height(300.dp)
-                .width(60.dp)
-                .clip(RoundedCornerShape(30.dp))
+                .width(30.dp)
+                // CAMBIO: Esquinas ajustadas a la mitad (15dp)
+                .clip(RoundedCornerShape(15.dp))
                 .background(Color.Black.copy(alpha = 0.5f))
-                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(30.dp)),
+                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp)),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -415,15 +416,8 @@ fun CameraScreen(
                     .fillMaxHeight()
                     .padding(vertical = 16.dp)
             ) {
-                // Indicador Texto (Recuperado y estilizado)
-                Text(
-                    text = "${String.format("%.1f", currentZoomRatio)}x",
-                    color = Color(0xFFFFD700), // Oro para destacar
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-
+                // CAMBIO: Texto eliminado
+                
                 // Slider Vertical
                 Box(
                     modifier = Modifier
@@ -444,7 +438,7 @@ fun CameraScreen(
                             .requiredWidth(220.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
-                            activeTrackColor = Color(0xFFFFD700), // A juego con el texto
+                            activeTrackColor = Color(0xFFFFD700), // Oro
                             inactiveTrackColor = Color.White.copy(alpha = 0.3f)
                         )
                     )
