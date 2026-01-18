@@ -36,9 +36,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.BufferedReader
 import java.io.File
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.Executor
-import kotlin.math.absoluteValue
 
 @Composable
 fun CameraScreen(
@@ -54,8 +60,37 @@ fun CameraScreen(
     
     // Estado para mostrar información
     var locationText by remember { mutableStateOf("Sin cobertura GPS") }
+    
+    // Estado para datos SIGPAC
     var sigpacRef by remember { mutableStateOf<String?>(null) }
     var sigpacUso by remember { mutableStateOf<String?>(null) }
+    
+    // Estado para controlar la ubicación y peticiones API
+    var currentLocation by remember { mutableStateOf<Location?>(null) }
+    var lastApiLocation by remember { mutableStateOf<Location?>(null) }
+
+    // --- EFECTO PARA LLAMADA API ---
+    LaunchedEffect(currentLocation) {
+        val loc = currentLocation ?: return@LaunchedEffect
+        
+        // Evitar llamadas excesivas: Solo actualizar si nos hemos movido > 10 metros
+        // o si no tenemos datos previos.
+        val shouldFetch = lastApiLocation == null || loc.distanceTo(lastApiLocation!!) > 10f
+        
+        if (shouldFetch) {
+            lastApiLocation = loc
+            try {
+                // Indicador visual opcional (podría ponerse "Cargando..." si se desea)
+                val (ref, uso) = fetchRealSigpacData(loc.latitude, loc.longitude)
+                if (ref != null) {
+                    sigpacRef = ref
+                    sigpacUso = uso
+                }
+            } catch (e: Exception) {
+                Log.e("CameraScreen", "Error API SIGPAC", e)
+            }
+        }
+    }
 
     // --- OBTENCIÓN DE UBICACIÓN ---
     DisposableEffect(Unit) {
@@ -64,22 +99,18 @@ fun CameraScreen(
         // Listener para actualizaciones
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                // 1. Actualizar coordenadas
+                // 1. Actualizar texto de coordenadas (UI inmediata)
                 locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
-                
-                // 2. Calcular datos SIGPAC (Simulación basada en coordenadas)
-                // Nota: En producción, esto haría una llamada a API WFS o decodificaría MVT.
-                val data = calculateMockSigpacData(location.latitude, location.longitude)
-                sigpacRef = data.first
-                sigpacUso = data.second
+                // 2. Actualizar estado para triggerear LaunchedEffect de la API
+                currentLocation = location
             }
             
             override fun onProviderEnabled(provider: String) {}
             
             override fun onProviderDisabled(provider: String) {
                 locationText = "Sin cobertura GPS"
-                sigpacRef = null
-                sigpacUso = null
+                // No limpiamos sigpacRef inmediatamente para no parpadear, 
+                // pero si se pierde señal mucho tiempo, se mantendrá la última conocida.
             }
             
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -95,9 +126,7 @@ fun CameraScreen(
                 
                 if (lastKnown != null) {
                     locationText = "Lat: ${String.format("%.6f", lastKnown.latitude)}\nLng: ${String.format("%.6f", lastKnown.longitude)}"
-                    val data = calculateMockSigpacData(lastKnown.latitude, lastKnown.longitude)
-                    sigpacRef = data.first
-                    sigpacUso = data.second
+                    currentLocation = lastKnown
                 }
 
                 // 2. Solicitar actualizaciones en tiempo real
@@ -184,17 +213,19 @@ fun CameraScreen(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = "Ref: $sigpacRef",
-                        color = Color(0xFFFFFF00), // Amarillo para destacar
+                        color = Color(0xFFFFFF00), // Amarillo
                         fontSize = 13.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End
                     )
                     Text(
                         text = "Uso: $sigpacUso",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Normal
+                        fontWeight = FontWeight.Normal,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End
                     )
                 }
             }
@@ -246,28 +277,57 @@ fun CameraScreen(
 }
 
 /**
- * Función auxiliar que genera datos SIGPAC "falsos" pero consistentes basados en lat/lng.
- * En una app real, esto consultaría un servicio WFS o decodificaría la geometría MVT.
+ * Consulta la API real de SIGPAC para obtener la referencia catastral.
+ * URL: https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/[x]/[y].json
  */
-private fun calculateMockSigpacData(lat: Double, lng: Double): Pair<String, String> {
-    // Provincia: 46 (Valencia por defecto)
-    val prov = "46"
-    
-    // Generar códigos semi-aleatorios basados en coordenadas para que cambien al moverse
-    val latPart = (lat * 10000).toInt().absoluteValue
-    val lngPart = (lng * 10000).toInt().absoluteValue
-    
-    val mun = (latPart % 300 + 1).toString()
-    val pol = ((lngPart / 100) % 50 + 1).toString()
-    val parc = (latPart % 200 + 1).toString()
-    val rec = (lngPart % 5 + 1).toString()
-    
-    // Usos posibles
-    val usos = listOf("CF", "OV", "TA", "FS", "PR", "PA", "ZU")
-    val uso = usos[(latPart + lngPart) % usos.size]
+private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?, String?> = withContext(Dispatchers.IO) {
+    try {
+        // x = Longitude, y = Latitude. EPSG:4258 (ETRS89, compatible con WGS84 para estos fines)
+        val urlString = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/$lng/$lat.json"
+        
+        val url = URL(urlString)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 5000 // 5s timeout
+        connection.readTimeout = 5000
+        connection.requestMethod = "GET"
+        connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
 
-    // Formato: provincia-municipio-poligono-parcela-recinto
-    return "$prov-$mun-$pol-$parc-$rec" to uso
+        if (connection.responseCode == 200) {
+            val stream = connection.inputStream
+            val reader = BufferedReader(InputStreamReader(stream))
+            val response = StringBuilder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                response.append(line)
+            }
+            reader.close()
+            connection.disconnect()
+            
+            val jsonResponse = response.toString()
+            val json = JSONObject(jsonResponse)
+            
+            // La API suele devolver un objeto JSON plano o GeoJSON.
+            // Buscamos las propiedades directamente.
+            
+            val prov = json.optString("provincia")
+            val mun = json.optString("municipio")
+            val pol = json.optString("poligono")
+            val parc = json.optString("parcela")
+            val rec = json.optString("recinto")
+            val uso = json.optString("uso_sigpac")
+            
+            // Verificamos que al menos provincia y municipio existan para considerar válida la respuesta
+            if (prov.isNotEmpty() && mun.isNotEmpty()) {
+                val ref = "$prov-$mun-$pol-$parc-$rec"
+                return@withContext Pair(ref, uso)
+            }
+        } else {
+            Log.w("SigpacAPI", "HTTP Error: ${connection.responseCode}")
+        }
+    } catch (e: Exception) {
+        Log.e("SigpacAPI", "Error fetching data", e)
+    }
+    return@withContext Pair(null, null)
 }
 
 private fun takePhoto(
