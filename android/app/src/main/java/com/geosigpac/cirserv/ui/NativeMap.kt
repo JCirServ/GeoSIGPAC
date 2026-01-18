@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -122,6 +125,9 @@ fun NativeMap(
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
     var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
     
+    // Estado de expansión del panel inferior
+    var isPanelExpanded by remember { mutableStateOf(false) }
+    
     var isLoadingData by remember { mutableStateOf(false) }
     var apiJob by remember { mutableStateOf<Job?>(null) }
 
@@ -187,27 +193,10 @@ fun NativeMap(
                     
                     val screenPoint = map.projection.toScreenLocation(center)
                     
-                    // --- DEBUG LOGS (MVT INSPECTOR) ---
-                    val features = map.queryRenderedFeatures(screenPoint)
-                    Log.i("MVT_INSPECTOR", "===========================================================")
-                    Log.i("MVT_INSPECTOR", "DATOS MVT EN CENTRO: Lat ${center.latitude}, Lng ${center.longitude}")
-                    if (features.isEmpty()) {
-                        Log.i("MVT_INSPECTOR", "No se encontraron features vectoriales aquí.")
-                    } else {
-                        features.forEachIndexed { index, feature ->
-                            Log.i("MVT_INSPECTOR", "Feature #$index detectada:")
-                            val props = feature.properties()
-                            if (props != null) {
-                                props.entrySet().forEach { entry ->
-                                    Log.d("MVT_INSPECTOR", "   > [${entry.key}] = ${entry.value}")
-                                }
-                            }
-                        }
-                    }
-                    Log.i("MVT_INSPECTOR", "===========================================================")
-                    // ----------------------------------
-
                     isLoadingData = true
+                    // Al iniciar nueva carga, colapsamos el panel para que "emerja" de nuevo si es necesario
+                    // Opcional: Si prefieres que se mantenga abierto si ya lo estaba, comenta la línea de abajo.
+                    isPanelExpanded = false
                     
                     // 1. EXTRAER DATOS DE CULTIVO (MVT) - Síncrono
                     val cultFeatures = map.queryRenderedFeatures(screenPoint, LAYER_CULTIVO_FILL)
@@ -367,7 +356,7 @@ fun NativeMap(
             }
         }
 
-        // --- PANEL DE DATOS INFERIOR ---
+        // --- PANEL DE DATOS INFERIOR (BOTTOM SHEET) ---
         AnimatedVisibility(
             visible = recintoData != null || (cultivoData != null && showCultivo),
             enter = slideInVertically(initialOffsetY = { it }),
@@ -378,16 +367,18 @@ fun NativeMap(
             displayData?.let { data ->
                 Card(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp)
-                        .heightIn(max = 500.dp), // Aumentamos altura máxima para mostrar todos los datos
+                        .fillMaxWidth() // Ocultar todo el ancho
+                        .padding(0.dp) // Sin padding externo
+                        .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)), // Animación suave al expandir
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                    // Esquinas superiores redondeadas, inferiores cuadradas
+                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        // CABECERA
+                        // 1. CABECERA (Siempre visible)
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.Top
                         ) {
@@ -400,19 +391,22 @@ fun NativeMap(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                            IconButton(onClick = { recintoData = null; cultivoData = null }, modifier = Modifier.size(24.dp)) {
+                            IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false }, modifier = Modifier.size(24.dp)) {
                                 Icon(Icons.Default.Close, "Cerrar")
                             }
                         }
                         
                         Divider()
 
-                        // PESTAÑAS
+                        // 2. PESTAÑAS (Siempre visibles) - CLICAR EXPANDE
                         Row(modifier = Modifier.fillMaxWidth()) {
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable { selectedTab = 0 }
+                                    .clickable { 
+                                        selectedTab = 0 
+                                        isPanelExpanded = true // Tocar expande el panel
+                                    }
                                     .background(if (selectedTab == 0) MaterialTheme.colorScheme.surface else Color(0xFFEEEEEE))
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
@@ -425,7 +419,12 @@ fun NativeMap(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable(enabled = hasCultivo) { if (hasCultivo) selectedTab = 1 }
+                                    .clickable(enabled = hasCultivo) { 
+                                        if (hasCultivo) {
+                                            selectedTab = 1
+                                            isPanelExpanded = true // Tocar expande el panel
+                                        }
+                                    }
                                     .background(if (selectedTab == 1) MaterialTheme.colorScheme.surface else Color(0xFFEEEEEE))
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
@@ -435,98 +434,105 @@ fun NativeMap(
                             }
                         }
                         
-                        Divider()
-
-                        // CONTENIDO
-                        Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-                            if (selectedTab == 0) {
-                                // --- VISTA RECINTO ---
-                                if (recintoData != null) {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
-                                        // CAMBIO: Se muestra en áreas, sin conversión a Ha
-                                        AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f))
-                                    }
-                                    Spacer(Modifier.height(12.dp))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f))
-                                        AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f))
-                                    }
-                                    Spacer(Modifier.height(12.dp))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f))
-                                        AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f))
-                                    }
-                                    Spacer(Modifier.height(12.dp))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
-                                        AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
+                        // 3. CONTENIDO (Solo visible si está expandido)
+                        if (isPanelExpanded) {
+                            Divider()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 400.dp) // Limitar altura para scroll si es muy largo
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(16.dp)
+                            ) {
+                                if (selectedTab == 0) {
+                                    // --- VISTA RECINTO ---
+                                    if (recintoData != null) {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
+                                            // NO TOCAR: Superficie en Áreas (sin dividir)
+                                            AttributeItem("Superficie", "${recintoData!!["superficie"]} áreas", Modifier.weight(1f))
+                                        }
+                                        Spacer(Modifier.height(12.dp))
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f))
+                                            AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f))
+                                        }
+                                        Spacer(Modifier.height(12.dp))
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f))
+                                            AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f))
+                                        }
+                                        Spacer(Modifier.height(12.dp))
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
+                                            AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
+                                        }
+                                    } else {
+                                        Text("Cargando datos de recinto...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                                     }
                                 } else {
-                                    Text("Cargando datos de recinto...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-                                }
-                            } else {
-                                // --- VISTA CULTIVO (EXPANDIDA) ---
-                                if (cultivoData != null) {
-                                    val c = cultivoData!!
-                                    
-                                    // 1. Identificación SIGPAC (Desde capa cultivo)
-                                    Text("Identificación (Capa Cultivo)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                    val refString = "${c["provincia"]}/${c["municipio"]}/${c["agregado"]}/${c["zona"]}/${c["poligono"]}/${c["parcela"]}/${c["recinto"]}"
-                                    Text(refString, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom=8.dp))
-                                    
-                                    Divider(Modifier.padding(vertical=6.dp))
-
-                                    // 2. Expediente
-                                    Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
-                                    Row(Modifier.fillMaxWidth()) {
-                                        AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f))
-                                        AttributeItem("Año", c["exp_ano"], Modifier.weight(1f))
-                                        AttributeItem("Prov. Exp", c["exp_provincia"], Modifier.weight(1f))
-                                    }
-                                    Spacer(Modifier.height(8.dp))
-                                    Row(Modifier.fillMaxWidth()) {
-                                        AttributeItem("CA Exp", c["exp_ca"], Modifier.weight(1f))
-                                        Spacer(Modifier.weight(2f)) // Espaciador para alinear
-                                    }
-                                    
-                                    Divider(Modifier.padding(vertical=6.dp))
-
-                                    // 3. Datos Cultivo
-                                    Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
-                                    Row(Modifier.fillMaxWidth()) {
-                                        AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
+                                    // --- VISTA CULTIVO (EXPANDIDA) ---
+                                    if (cultivoData != null) {
+                                        val c = cultivoData!!
                                         
-                                        // CORRECCIÓN SOLICITADA: Dividir entre 10000
-                                        val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0
-                                        val supCultHa = supCultRaw / 10000.0
-                                        AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f))
-                                    }
-                                    Spacer(Modifier.height(8.dp))
-                                    Row(Modifier.fillMaxWidth()) {
-                                        val sist = c["parc_sistexp"]
-                                        val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }
-                                        AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f))
-                                        AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f))
-                                    }
-                                    Spacer(Modifier.height(8.dp))
-                                    AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
+                                        // 1. Identificación SIGPAC (Desde capa cultivo)
+                                        Text("Identificación (Capa Cultivo)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                        val refString = "${c["provincia"]}/${c["municipio"]}/${c["agregado"]}/${c["zona"]}/${c["poligono"]}/${c["parcela"]}/${c["recinto"]}"
+                                        Text(refString, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom=8.dp))
+                                        
+                                        Divider(Modifier.padding(vertical=6.dp))
 
-                                    Divider(Modifier.padding(vertical=6.dp))
-                                    
-                                    // 4. Ayudas
-                                    Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
-                                    AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
-                                    Spacer(Modifier.height(4.dp))
-                                    AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
+                                        // 2. Expediente
+                                        Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        Row(Modifier.fillMaxWidth()) {
+                                            AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f))
+                                            AttributeItem("Año", c["exp_ano"], Modifier.weight(1f))
+                                            AttributeItem("Prov. Exp", c["exp_provincia"], Modifier.weight(1f))
+                                        }
+                                        Spacer(Modifier.height(8.dp))
+                                        Row(Modifier.fillMaxWidth()) {
+                                            AttributeItem("CA Exp", c["exp_ca"], Modifier.weight(1f))
+                                            Spacer(Modifier.weight(2f)) // Espaciador para alinear
+                                        }
+                                        
+                                        Divider(Modifier.padding(vertical=6.dp))
 
-                                    Divider(Modifier.padding(vertical=6.dp))
+                                        // 3. Datos Cultivo
+                                        Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        Row(Modifier.fillMaxWidth()) {
+                                            AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
+                                            
+                                            // SI TOCAR: Dividir entre 10000 (Hectáreas)
+                                            val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0
+                                            val supCultHa = supCultRaw / 10000.0
+                                            AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f))
+                                        }
+                                        Spacer(Modifier.height(8.dp))
+                                        Row(Modifier.fillMaxWidth()) {
+                                            val sist = c["parc_sistexp"]
+                                            val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }
+                                            AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f))
+                                            AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f))
+                                        }
+                                        Spacer(Modifier.height(8.dp))
+                                        AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
 
-                                    // 5. Cultivo Secundario
-                                    Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
-                                    Row(Modifier.fillMaxWidth()) {
-                                        AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f))
-                                        AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f))
+                                        Divider(Modifier.padding(vertical=6.dp))
+                                        
+                                        // 4. Ayudas
+                                        Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
+                                        Spacer(Modifier.height(4.dp))
+                                        AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
+
+                                        Divider(Modifier.padding(vertical=6.dp))
+
+                                        // 5. Cultivo Secundario
+                                        Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                        Row(Modifier.fillMaxWidth()) {
+                                            AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f))
+                                            AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f))
+                                        }
                                     }
                                 }
                             }
