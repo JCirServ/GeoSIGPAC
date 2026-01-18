@@ -394,34 +394,31 @@ fun CameraScreen(
             }
         }
 
-        // --- CONTROL DE ZOOM (Slider Vertical a la derecha) ---
+        // --- CONTROL DE ZOOM (Slider Vertical a la IZQUIERDA) ---
         Box(
             modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 16.dp)
+                .align(Alignment.CenterStart) // CAMBIO: CenterStart (Izquierda)
+                .padding(start = 16.dp)       // CAMBIO: Padding start
                 .height(200.dp)
                 .width(50.dp)
                 .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                 .padding(vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Slider Vertical usando rotación (Hack común en Compose Material3 hasta que haya VerticalSlider nativo)
-            // Nota: Para simplificar y evitar problemas de layout con rotación, usaremos una Column con iconos y un Slider vertical simulado o simplemente un Slider ancho rotado.
-            // Para robustez, usaremos un Slider normal rotado -90 grados.
-            
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxHeight()
             ) {
-                Icon(Icons.Default.ZoomIn, contentDescription = "Zoom In", tint = Color.White, modifier = Modifier.size(20.dp))
+                // CAMBIO: Se han eliminado los iconos de lupa ZoomIn y ZoomOut
                 
                 // Texto del ratio actual
                 Text(
                     text = "${String.format("%.1f", currentZoomRatio)}x",
                     color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
 
                 // Slider Rotado
@@ -447,8 +444,6 @@ fun CameraScreen(
                         )
                     )
                 }
-                
-                Icon(Icons.Default.ZoomOut, contentDescription = "Zoom Out", tint = Color.White, modifier = Modifier.size(20.dp))
             }
         }
 
