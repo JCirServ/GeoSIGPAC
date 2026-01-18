@@ -194,7 +194,7 @@ fun NativeMap(
                         features.forEachIndexed { index, feature ->
                             // En Android SDK, Feature es GeoJSON puro y no contiene layerId ni sourceId directamente
                             Log.i("MVT_INSPECTOR", "Feature #$index") 
-                            val props = feature.properties
+                            val props = feature.properties()
                             if (props != null) {
                                 props.entrySet().forEach { entry ->
                                     Log.d("MVT_INSPECTOR", "   > [${entry.key}] = ${entry.value}")
