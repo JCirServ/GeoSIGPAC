@@ -15,6 +15,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -34,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -195,7 +197,6 @@ fun NativeMap(
                     
                     isLoadingData = true
                     // Al iniciar nueva carga, colapsamos el panel para que "emerja" de nuevo si es necesario
-                    // Opcional: Si prefieres que se mantenga abierto si ya lo estaba, comenta la línea de abajo.
                     isPanelExpanded = false
                     
                     // 1. EXTRAER DATOS DE CULTIVO (MVT) - Síncrono
@@ -367,24 +368,52 @@ fun NativeMap(
             displayData?.let { data ->
                 Card(
                     modifier = Modifier
-                        .fillMaxWidth() // Ocultar todo el ancho
-                        .padding(0.dp) // Sin padding externo
-                        .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)), // Animación suave al expandir
+                        .fillMaxWidth()
+                        .padding(0.dp)
+                        .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                        .pointerInput(Unit) {
+                            detectVerticalDragGestures { change, dragAmount ->
+                                change.consume()
+                                // Lógica de Arrastre:
+                                // Arrastrar hacia arriba (negativo) -> Expandir
+                                // Arrastrar hacia abajo (positivo) -> Contraer
+                                if (dragAmount < -20) {
+                                    isPanelExpanded = true
+                                } else if (dragAmount > 20) {
+                                    isPanelExpanded = false
+                                }
+                            }
+                        },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
-                    // Esquinas superiores redondeadas, inferiores cuadradas
                     shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
+                        
+                        // INDICADOR VISUAL DE ARRASTRE (Drag Handle)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp, bottom = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(40.dp)
+                                    .height(5.dp)
+                                    .clip(RoundedCornerShape(2.5.dp))
+                                    .background(Color.Gray.copy(alpha = 0.3f))
+                            )
+                        }
+
                         // 1. CABECERA (Siempre visible)
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.Top
                         ) {
                             Column {
                                 Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                                // CAMBIO: Separador : en lugar de /
                                 Text(
                                     text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}",
                                     style = MaterialTheme.typography.titleMedium,
@@ -420,7 +449,7 @@ fun NativeMap(
                                     .background(if (selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Transparent)
                                     .clickable { 
                                         selectedTab = 0 
-                                        isPanelExpanded = true 
+                                        // CAMBIO: Ya no expande automáticamente, solo cambia pestaña
                                     }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
@@ -441,7 +470,7 @@ fun NativeMap(
                                     .clickable(enabled = hasCultivo) { 
                                         if (hasCultivo) {
                                             selectedTab = 1
-                                            isPanelExpanded = true
+                                            // CAMBIO: Ya no expande automáticamente, solo cambia pestaña
                                         }
                                     }
                                     .padding(vertical = 8.dp),
@@ -496,8 +525,6 @@ fun NativeMap(
                                     if (cultivoData != null) {
                                         val c = cultivoData!!
                                         
-                                        // CAMBIO: Eliminada sección de Identificación
-
                                         // 2. Expediente
                                         Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
                                         Row(Modifier.fillMaxWidth()) {
