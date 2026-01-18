@@ -120,7 +120,7 @@ fun NativeMap(
 
     // Estado de datos SIGPAC (Panel Inferior)
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
-    var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) } // Nuevo estado para cultivo
+    var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
     
     var isLoadingData by remember { mutableStateOf(false) }
     var apiJob by remember { mutableStateOf<Job?>(null) }
@@ -178,9 +178,6 @@ fun NativeMap(
             map.addOnCameraMoveStartedListener {
                 apiJob?.cancel()
                 isLoadingData = false
-                // No limpiamos datos inmediatamente para evitar parpadeos, 
-                // pero si el usuario se mueve mucho, se limpiarán al detenerse si no encuentra nada.
-                // Opcional: recintoData = null; cultivoData = null
             }
 
             // LISTENER: Al detenerse
@@ -189,6 +186,27 @@ fun NativeMap(
                 if (center != null && map.cameraPosition.zoom > 13) {
                     
                     val screenPoint = map.projection.toScreenLocation(center)
+                    
+                    // --- DEBUG LOGS (MVT INSPECTOR) ---
+                    val features = map.queryRenderedFeatures(screenPoint)
+                    Log.i("MVT_INSPECTOR", "===========================================================")
+                    Log.i("MVT_INSPECTOR", "DATOS MVT EN CENTRO: Lat ${center.latitude}, Lng ${center.longitude}")
+                    if (features.isEmpty()) {
+                        Log.i("MVT_INSPECTOR", "No se encontraron features vectoriales aquí.")
+                    } else {
+                        features.forEachIndexed { index, feature ->
+                            Log.i("MVT_INSPECTOR", "Feature #$index detectada:")
+                            val props = feature.properties()
+                            if (props != null) {
+                                props.entrySet().forEach { entry ->
+                                    Log.d("MVT_INSPECTOR", "   > [${entry.key}] = ${entry.value}")
+                                }
+                            }
+                        }
+                    }
+                    Log.i("MVT_INSPECTOR", "===========================================================")
+                    // ----------------------------------
+
                     isLoadingData = true
                     
                     // 1. EXTRAER DATOS DE CULTIVO (MVT) - Síncrono
@@ -280,7 +298,6 @@ fun NativeMap(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ... (Botones flotantes existentes igual) ...
             SmallFloatingActionButton(
                 onClick = { showLayerMenu = !showLayerMenu },
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -357,9 +374,7 @@ fun NativeMap(
             exit = slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            // Usamos datos de recinto si existen, o fallback a cultivo para cabeceras
             val displayData = recintoData ?: cultivoData
-            
             displayData?.let { data ->
                 Card(
                     modifier = Modifier
@@ -369,10 +384,8 @@ fun NativeMap(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        // 1. CABECERA FIJA
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // CABECERA
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -394,9 +407,8 @@ fun NativeMap(
                         
                         Divider()
 
-                        // 2. PESTAÑAS
+                        // PESTAÑAS
                         Row(modifier = Modifier.fillMaxWidth()) {
-                            // Tab Recinto
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -405,17 +417,10 @@ fun NativeMap(
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    "Recinto", 
-                                    fontWeight = if(selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
-                                    color = if(selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Gray
-                                )
-                                if (selectedTab == 0) {
-                                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.primary))
-                                }
+                                Text("Recinto", fontWeight = if(selectedTab == 0) FontWeight.Bold else FontWeight.Normal, color = if(selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Gray)
+                                if (selectedTab == 0) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.primary))
                             }
 
-                            // Tab Cultivo
                             val hasCultivo = cultivoData != null
                             Box(
                                 modifier = Modifier
@@ -425,23 +430,16 @@ fun NativeMap(
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    "Cultivo",
-                                    fontWeight = if(selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (selectedTab == 1) MaterialTheme.colorScheme.primary else if (hasCultivo) Color.DarkGray else Color.LightGray.copy(alpha=0.6f)
-                                )
-                                if (selectedTab == 1) {
-                                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.primary))
-                                }
+                                Text("Cultivo", fontWeight = if(selectedTab == 1) FontWeight.Bold else FontWeight.Normal, color = if (selectedTab == 1) MaterialTheme.colorScheme.primary else if (hasCultivo) Color.DarkGray else Color.LightGray.copy(alpha=0.6f))
+                                if (selectedTab == 1) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.primary))
                             }
                         }
                         
                         Divider()
 
-                        // 3. CONTENIDO SCROLLABLE
+                        // CONTENIDO
                         Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
                             if (selectedTab == 0) {
-                                // --- VISTA RECINTO ---
                                 if (recintoData != null) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
@@ -466,26 +464,20 @@ fun NativeMap(
                                     Text("Cargando datos de recinto...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                                 }
                             } else {
-                                // --- VISTA CULTIVO ---
                                 if (cultivoData != null) {
                                     val c = cultivoData!!
                                     Text("Datos de Expediente", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom=8.dp))
-                                    
                                     Row(Modifier.fillMaxWidth()) {
                                         AttributeItem("Expediente", "${c["exp_num"]} (${c["exp_ano"]})", Modifier.weight(1f))
                                         AttributeItem("Prov. Exp", c["exp_provincia"], Modifier.weight(1f))
                                     }
                                     Spacer(Modifier.height(12.dp))
-                                    
                                     Text("Detalles Parcela Agrícola", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=8.dp))
-                                    
                                     Row(Modifier.fillMaxWidth()) {
                                         AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
-                                        // Áreas -> Hectáreas visualmente si se desea, pero mostramos raw + unidad
                                         AttributeItem("Superficie Cult.", "${c["parc_supcult"]} áreas", Modifier.weight(1f))
                                     }
                                     Spacer(Modifier.height(8.dp))
-                                    
                                     Row(Modifier.fillMaxWidth()) {
                                         val sist = c["parc_sistexp"]
                                         val sistLabel = if (sist == "S") "Secano" else if (sist == "R") "Regadío" else sist
@@ -493,13 +485,10 @@ fun NativeMap(
                                         AttributeItem("Indicador Cult.", c["parc_indcultapro"], Modifier.weight(1f))
                                     }
                                     Spacer(Modifier.height(8.dp))
-                                    
                                     AttributeItem("Ayudas Solicitadas", c["parc_ayudasol"]?.takeIf { it != "null" } ?: "-", Modifier.fillMaxWidth())
-                                    
                                     if ((c["cultsecun_producto"] != "0" && c["cultsecun_producto"] != null) || (c["tipo_aprovecha"] != null && c["tipo_aprovecha"] != "null")) {
                                         Divider(Modifier.padding(vertical=8.dp))
                                         Text("Otros / Secundario", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom=8.dp))
-                                        
                                         Row(Modifier.fillMaxWidth()) {
                                             AttributeItem("Cult. Secundario", c["cultsecun_producto"]?.takeIf { it != "0" }, Modifier.weight(1f))
                                             AttributeItem("Tipo Aprovecha.", c["tipo_aprovecha"], Modifier.weight(1f))
@@ -549,7 +538,6 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
             val jsonResponse = response.toString().trim()
             var targetJson: JSONObject? = null
             
-            // La API puede devolver array o objeto
             if (jsonResponse.startsWith("[")) {
                 val jsonArray = JSONArray(jsonResponse)
                 if (jsonArray.length() > 0) targetJson = jsonArray.getJSONObject(0)
@@ -558,16 +546,10 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
             }
 
             if (targetJson != null) {
-                // Función auxiliar para buscar propiedades anidadas en GeoJSON
                 fun getProp(key: String): String {
-                    // 1. Directo en raíz
                     if (targetJson!!.has(key)) return targetJson!!.optString(key)
-                    
-                    // 2. En "properties"
                     val props = targetJson!!.optJSONObject("properties")
                     if (props != null && props.has(key)) return props.optString(key)
-                    
-                    // 3. En "features[0].properties"
                     val features = targetJson!!.optJSONArray("features")
                     if (features != null && features.length() > 0) {
                         val fProps = features.getJSONObject(0).optJSONObject("properties")
@@ -580,12 +562,21 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                 val mun = getProp("municipio")
                 val pol = getProp("poligono")
                 
-                // Si no hay datos básicos, no es un recinto válido
                 if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext null
 
-                // CAMBIO: Conversión a Hectáreas
-                val superficieM2 = getProp("superficie").toDoubleOrNull() ?: 0.0
+                // --- CORRECCIÓN SUPERFICIE ---
+                // La API devuelve metros cuadrados (m2).
+                // Obtenemos el valor crudo, lo convertimos a double, y dividimos UNA vez por 10,000 para Hectáreas.
+                val superficieRaw = getProp("superficie")
+                val superficieM2 = superficieRaw.toDoubleOrNull() ?: 0.0
                 val superficieHa = superficieM2 / 10000.0
+                
+                // --- CORRECCIÓN ALTITUD ---
+                // Buscamos 'altitud', si está vacío buscamos 'altitud_media'.
+                var altitudVal = getProp("altitud")
+                if (altitudVal.isEmpty()) {
+                    altitudVal = getProp("altitud_media")
+                }
 
                 return@withContext mapOf(
                     "provincia" to prov,
@@ -595,13 +586,13 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                     "poligono" to pol,
                     "parcela" to getProp("parcela"),
                     "recinto" to getProp("recinto"),
-                    "superficie" to String.format(Locale.US, "%.4f", superficieHa), // Formateado 4 decimales
+                    "superficie" to String.format(Locale.US, "%.4f", superficieHa),
                     "pendiente_media" to getProp("pendiente_media"),
-                    "altitud" to getProp("altitud_media"), // Mapeo altitud_media -> altitud
+                    "altitud" to altitudVal,
                     "uso_sigpac" to getProp("uso_sigpac"),
-                    "subvencionabilidad" to getProp("coef_admisibilidad_pastos"), // CAP -> subvencionabilidad
+                    "subvencionabilidad" to getProp("coef_admisibilidad_pastos"),
                     "coef_regadio" to getProp("coef_regadio"),
-                    "incidencias" to getProp("incidencias").replace("[", "").replace("]", "").replace("\"", ""), // Limpieza array
+                    "incidencias" to getProp("incidencias").replace("[", "").replace("]", "").replace("\"", ""),
                     "region" to getProp("region")
                 )
             }
@@ -626,11 +617,9 @@ private fun loadMapStyle(
 ) {
     val styleBuilder = Style.Builder()
 
-    // 1. MAPA BASE (RASTER)
     val tileUrl = if (baseMap == BaseMap.OSM) {
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     } else {
-        // PNOA WMTS (IGN España)
         "https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&tilematrixset=GoogleMapsCompatible&tilematrix={z}&tilerow={y}&tilecol={x}"
     }
 
@@ -643,9 +632,6 @@ private fun loadMapStyle(
 
     map.setStyle(styleBuilder) { style ->
         
-        // 2. CAPAS VECTORIALES (MVT)
-        
-        // --- CULTIVO (Relleno) ---
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
@@ -665,7 +651,6 @@ private fun loadMapStyle(
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // --- RECINTO (Líneas y Relleno Invisible para detección) ---
         if (showRecinto) {
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
@@ -675,16 +660,14 @@ private fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // 1. Capa Invisible (Fill) para detectar clics en el centro del recinto
                 val fillLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOpacity(0.01f) // Debe ser >0 para que reciba eventos de renderizado
+                    PropertyFactory.fillOpacity(0.01f)
                 )
                 style.addLayer(fillLayer)
 
-                // 2. Capa Visible (Línea) para ver los bordes
                 val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 lineLayer.setProperties(
@@ -701,9 +684,6 @@ private fun loadMapStyle(
     }
 }
 
-/**
- * Activa o restaura la ubicación.
- */
 @SuppressLint("MissingPermission")
 private fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): Boolean {
     if (map == null || map.style == null) return false
@@ -731,7 +711,6 @@ private fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Bo
     return false
 }
 
-// Extension helper
 fun Color.toArgb(): Int {
     return android.graphics.Color.argb(
         (alpha * 255).toInt(),
