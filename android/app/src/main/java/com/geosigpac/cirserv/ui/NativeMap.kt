@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -178,6 +179,33 @@ fun NativeMap(
                 val center = map.cameraPosition.target
                 // Solo buscamos si el zoom es suficiente para ver parcelas y si center no es nulo
                 if (center != null && map.cameraPosition.zoom > 13) {
+                    
+                    // --- LOGGING DETALLADO MVT ---
+                    // Obtenemos las coordenadas de pantalla del centro
+                    val screenPoint = map.projection.toScreenLocation(center)
+                    // Consultamos qué features hay renderizadas en ese píxel
+                    val features = map.queryRenderedFeatures(screenPoint)
+                    
+                    Log.i("MVT_INSPECTOR", "===========================================================")
+                    Log.i("MVT_INSPECTOR", "DATOS MVT EN CENTRO: Lat ${center.latitude}, Lng ${center.longitude}")
+                    if (features.isEmpty()) {
+                        Log.i("MVT_INSPECTOR", "No se encontraron features vectoriales aquí (o no se han cargado aún).")
+                    } else {
+                        features.forEachIndexed { index, feature ->
+                            Log.i("MVT_INSPECTOR", "Feature #$index | Capa: ${feature.layerId} | Fuente: ${feature.sourceId}")
+                            val props = feature.properties
+                            if (props != null) {
+                                props.entrySet().forEach { entry ->
+                                    Log.d("MVT_INSPECTOR", "   > [${entry.key}] = ${entry.value}")
+                                }
+                            } else {
+                                Log.d("MVT_INSPECTOR", "   > Sin propiedades")
+                            }
+                        }
+                    }
+                    Log.i("MVT_INSPECTOR", "===========================================================")
+                    // -----------------------------
+
                     isLoadingData = true
                     apiJob?.cancel()
                     apiJob = scope.launch {
