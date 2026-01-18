@@ -124,6 +124,7 @@ fun GeoSigpacApp() {
         if (isCameraOpen) {
             // PANTALLA CÁMARA (Modal Pantalla Completa)
             CameraScreen(
+                projectId = currentProjectId, // Pasamos el ID del proyecto para la estructura de carpetas
                 onImageCaptured = { uri ->
                     isCameraOpen = false
                     val pid = currentProjectId

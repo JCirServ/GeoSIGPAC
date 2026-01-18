@@ -1,13 +1,16 @@
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.Toast
@@ -25,9 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,15 +52,16 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
-import java.io.File
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
-import java.util.concurrent.Executor
 
 @Composable
 fun CameraScreen(
+    projectId: String?,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit,
     onClose: () -> Unit,
@@ -80,7 +82,7 @@ fun CameraScreen(
     
     // Control de UI para errores (Debounce)
     var showNoDataMessage by remember { mutableStateOf(false) }
-    var isLoadingSigpac by remember { mutableStateOf(false) } // Solo uso interno para lógica
+    var isLoadingSigpac by remember { mutableStateOf(false) } 
     
     // Estado para controlar la ubicación
     var currentLocation by remember { mutableStateOf<Location?>(null) }
@@ -89,7 +91,7 @@ fun CameraScreen(
     var lastApiLocation by remember { mutableStateOf<Location?>(null) }
     var lastApiTimestamp by remember { mutableStateOf(0L) }
     
-    // --- ICONO MAPA MANUAL (Para evitar dependencia material-icons-extended) ---
+    // --- ICONO MAPA MANUAL ---
     val MapIcon = remember {
         ImageVector.Builder(
             name = "Map",
@@ -146,24 +148,19 @@ fun CameraScreen(
                         val (ref, uso) = fetchRealSigpacData(loc.latitude, loc.longitude)
                         
                         if (ref != null) {
-                            // ÉXITO: Mostramos datos inmediatamente
                             sigpacRef = ref
                             sigpacUso = uso
                             showNoDataMessage = false
                         } else {
-                            // FALLO O SIN DATOS:
                             sigpacRef = null
                             sigpacUso = null
-                            
-                            // Esperamos 2 segundos antes de mostrar error
                             delay(2000)
-                            
                             if (sigpacRef == null) {
                                 showNoDataMessage = true
                             }
                         }
                     } catch (e: Exception) {
-                        // Log silencioso si falla
+                        // Log silencioso
                     } finally {
                         isLoadingSigpac = false
                     }
@@ -257,26 +254,22 @@ fun CameraScreen(
             }
         )
         
-        // --- BOTÓN PROYECTO (TOP-LEFT) ---
-        // Se activa cuando hay datos SIGPAC cargados (simulando "Carga de Proyecto")
-        val isProjectDataReady = sigpacRef != null
-        val projectButtonColor = if (isProjectDataReady) Color(0xFF006D3E) else Color.Gray.copy(alpha = 0.5f)
-        
+        // --- BOTÓN VOLVER (TOP-LEFT) ---
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(top = 40.dp, start = 16.dp)
                 .size(50.dp)
                 .clip(CircleShape)
-                .background(projectButtonColor)
-                .clickable(enabled = isProjectDataReady) { 
-                    onClose() // Vuelve a la vista de proyecto
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable { 
+                    onClose() 
                 },
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.Home,
-                contentDescription = "Ir al Proyecto",
+                contentDescription = "Volver",
                 tint = Color.White,
                 modifier = Modifier.size(24.dp)
             )
@@ -349,7 +342,7 @@ fun CameraScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Cancelar (Círculo Pequeño)
+                // Cancelar
                 Box(
                     modifier = Modifier
                         .size(50.dp)
@@ -360,7 +353,7 @@ fun CameraScreen(
                    Text("X", color = Color.White, fontWeight = FontWeight.Bold)
                 }
 
-                // Disparador (Círculo Grande 80dp)
+                // Disparador
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -371,19 +364,21 @@ fun CameraScreen(
                             takePhoto(
                                 context = context,
                                 imageCapture = imageCaptureUseCase,
+                                projectId = projectId,
+                                sigpacRef = sigpacRef,
                                 onImageCaptured = onImageCaptured,
                                 onError = onError
                             )
                         }
                 )
                 
-                // Botón Mapa (Cuadrado Redondeado 80dp - Estilo Material3/Glass)
+                // Botón Mapa
                 Box(
                     modifier = Modifier
-                        .size(80.dp) // Mismo tamaño que el disparador para simetría
-                        .clip(RoundedCornerShape(24.dp)) // "Squircle" moderno
-                        .background(Color.Black.copy(alpha = 0.5f)) // Fondo translúcido
-                        .border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(24.dp)) // Borde fino elegante
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .border(2.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(24.dp))
                         .clickable { onGoToMap() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -405,14 +400,12 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
         
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = 10000 // 10s
+        connection.connectTimeout = 10000 
         connection.readTimeout = 10000
         connection.requestMethod = "GET"
         connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
 
-        val responseCode = connection.responseCode
-
-        if (responseCode == 200) {
+        if (connection.responseCode == 200) {
             val stream = connection.inputStream
             val reader = BufferedReader(InputStreamReader(stream))
             val response = StringBuilder()
@@ -424,7 +417,6 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
             connection.disconnect()
             
             val jsonResponse = response.toString().trim()
-
             var targetJson: JSONObject? = null
 
             if (jsonResponse.startsWith("[")) {
@@ -464,7 +456,7 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
             }
         }
     } catch (e: Exception) {
-        // Logs eliminados
+        // Ignored
     }
     return@withContext Pair(null, null)
 }
@@ -472,18 +464,43 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
+    projectId: String?,
+    sigpacRef: String?,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit
 ) {
     val imageCapture = imageCapture ?: return
 
-    val photoFile = File(
-        context.cacheDir,
-        "SIGPAC_${System.currentTimeMillis()}.jpg"
-    )
+    // 1. Determinar nombres de carpetas y archivo
+    val projectFolder = projectId ?: "SIN PROYECTO"
+    
+    // Sanitizar referencia SIGPAC (reemplazar ':' por '_' para sistema de archivos)
+    val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
+    
+    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+    val filename = "${safeSigpacRef}-$timestamp.jpg"
+    
+    // Estructura de ruta relativa dentro de DCIM
+    val relativePath = "DCIM/GeoSIGPAC/$projectFolder/$safeSigpacRef"
 
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+    // 2. Configurar metadatos para MediaStore
+    val contentValues = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1) // Marcar como pendiente mientras se escribe
+        }
+    }
 
+    // 3. Crear opciones de salida
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(
+        context.contentResolver,
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+        contentValues
+    ).build()
+
+    // 4. Capturar
     imageCapture.takePicture(
         outputOptions,
         ContextCompat.getMainExecutor(context),
@@ -493,7 +510,20 @@ private fun takePhoto(
             }
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                val savedUri = Uri.fromFile(photoFile)
+                val savedUri = output.savedUri ?: Uri.EMPTY
+                
+                // Si estamos en Android Q+, marcar como ya no pendiente
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && savedUri != Uri.EMPTY) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    }
+                    try {
+                        context.contentResolver.update(savedUri, values, null, null)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                
                 onImageCaptured(savedUri)
             }
         }
