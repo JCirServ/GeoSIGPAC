@@ -45,6 +45,7 @@ import java.io.File
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 import java.util.concurrent.Executor
 
 @Composable
@@ -285,7 +286,8 @@ fun CameraScreen(
 private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?, String?> = withContext(Dispatchers.IO) {
     try {
         // Formato URL: [x]/[y].json -> Longitude/Latitude
-        val urlString = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/$lng/$lat.json"
+        // Usamos Locale.US para asegurar que los decimales sean puntos (.)
+        val urlString = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
         
         Log.d("SigpacAPI", "Requesting: $urlString")
         
