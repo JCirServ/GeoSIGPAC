@@ -36,7 +36,8 @@ fun WebProjectManager(
                 webChromeClient = WebChromeClient() // Habilita alerts y logs de JS en Logcat
 
                 // Cargar la Single Page Application (SPA) desde assets
-                loadUrl("file:///android_assets/index.html")
+                // CORRECCIÓN: La URL debe ser "file:///android_asset/" (singular)
+                loadUrl("file:///android_asset/index.html")
                 
                 // Callback para guardar referencia si es necesario
                 onWebViewCreated(this)
