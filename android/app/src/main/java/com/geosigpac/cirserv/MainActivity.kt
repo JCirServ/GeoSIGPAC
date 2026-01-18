@@ -1,6 +1,7 @@
 package com.geosigpac.cirserv
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -74,9 +75,20 @@ fun GeoSigpacApp() {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     
     // --- ESTADO DE SESIÓN DE FOTOS (Persistencia) ---
-    // Elevamos el estado aquí para que no se pierda al cambiar de pestaña
-    var sessionLastUri by remember { mutableStateOf<Uri?>(null) }
-    var sessionPhotoCount by remember { mutableIntStateOf(0) }
+    // Inicializamos SharedPreferences
+    val sharedPrefs = remember {
+        context.getSharedPreferences("geosigpac_prefs", Context.MODE_PRIVATE)
+    }
+
+    // Cargamos estado guardado o usamos valores por defecto
+    var sessionLastUri by remember {
+        val savedUriString = sharedPrefs.getString("last_photo_uri", null)
+        mutableStateOf(if (savedUriString != null) Uri.parse(savedUriString) else null)
+    }
+    
+    var sessionPhotoCount by remember {
+        mutableIntStateOf(sharedPrefs.getInt("photo_count", 0))
+    }
     
     // Control de Pestañas (0 = Web, 1 = Mapa)
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -139,9 +151,17 @@ fun GeoSigpacApp() {
                 lastCapturedUri = sessionLastUri, // Pasamos el estado persistente
                 photoCount = sessionPhotoCount,   // Pasamos el contador
                 onImageCaptured = { uri ->
-                    // Actualizamos estado persistente en MainActivity
+                    // 1. Actualizar Estado en Memoria
                     sessionLastUri = uri
-                    sessionPhotoCount++
+                    val newCount = sessionPhotoCount + 1
+                    sessionPhotoCount = newCount
+                    
+                    // 2. Persistir en SharedPreferences
+                    sharedPrefs.edit().apply {
+                        putString("last_photo_uri", uri.toString())
+                        putInt("photo_count", newCount)
+                        apply()
+                    }
                     
                     val pid = currentProjectId
                     if (pid != null) {
