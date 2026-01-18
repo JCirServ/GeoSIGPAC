@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -27,11 +28,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -116,9 +119,14 @@ fun NativeMap(
     var initialLocationSet by remember { mutableStateOf(false) }
 
     // Estado de datos SIGPAC (Panel Inferior)
-    var sigpacData by remember { mutableStateOf<Map<String, String>?>(null) }
+    var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
+    var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) } // Nuevo estado para cultivo
+    
     var isLoadingData by remember { mutableStateOf(false) }
     var apiJob by remember { mutableStateOf<Job?>(null) }
+
+    // Estado UI Panel
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Recinto, 1: Cultivo
 
     // Inicializar MapLibre
     remember { MapLibre.getInstance(context) }
@@ -156,7 +164,7 @@ fun NativeMap(
             map.uiSettings.isAttributionEnabled = true
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isCompassEnabled = true
-            map.uiSettings.isTiltGesturesEnabled = false // Evitar inclinación accidental para mantener el puntero preciso
+            map.uiSettings.isTiltGesturesEnabled = false
 
             // Posición inicial por defecto
             if (!initialLocationSet) {
@@ -166,60 +174,56 @@ fun NativeMap(
                     .build()
             }
 
-            // LISTENER: Al empezar a mover, ocultamos datos antiguos o loading
+            // LISTENER: Al empezar a mover
             map.addOnCameraMoveStartedListener {
                 apiJob?.cancel()
                 isLoadingData = false
-                // Opcional: Ocultar panel al mover, o dejarlo visible. 
-                // Para "emerger", mejor ocultarlo si se mueve lejos, pero aquí lo ocultamos para refrescar.
-                sigpacData = null 
+                // No limpiamos datos inmediatamente para evitar parpadeos, 
+                // pero si el usuario se mueve mucho, se limpiarán al detenerse si no encuentra nada.
+                // Opcional: recintoData = null; cultivoData = null
             }
 
-            // LISTENER: Al detenerse, buscamos qué hay debajo de la cruz
+            // LISTENER: Al detenerse
             map.addOnCameraIdleListener {
                 val center = map.cameraPosition.target
-                // Solo buscamos si el zoom es suficiente para ver parcelas y si center no es nulo
                 if (center != null && map.cameraPosition.zoom > 13) {
                     
-                    // --- LOGGING DETALLADO MVT ---
-                    // Obtenemos las coordenadas de pantalla del centro
                     val screenPoint = map.projection.toScreenLocation(center)
-                    // Consultamos qué features hay renderizadas en ese píxel
-                    val features = map.queryRenderedFeatures(screenPoint)
-                    
-                    Log.i("MVT_INSPECTOR", "===========================================================")
-                    Log.i("MVT_INSPECTOR", "DATOS MVT EN CENTRO: Lat ${center.latitude}, Lng ${center.longitude}")
-                    if (features.isEmpty()) {
-                        Log.i("MVT_INSPECTOR", "No se encontraron features vectoriales aquí (o no se han cargado aún).")
-                    } else {
-                        features.forEachIndexed { index, feature ->
-                            // En Android SDK, Feature es GeoJSON puro y no contiene layerId ni sourceId directamente
-                            // Pero podemos deducir la capa si hemos configurado el mapa, o inspeccionar propiedades únicas
-                            Log.i("MVT_INSPECTOR", "Feature #$index detectada") 
-                            val props = feature.properties()
-                            if (props != null) {
-                                props.entrySet().forEach { entry ->
-                                    Log.d("MVT_INSPECTOR", "   > [${entry.key}] = ${entry.value}")
-                                }
-                            } else {
-                                Log.d("MVT_INSPECTOR", "   > Sin propiedades")
-                            }
-                        }
-                    }
-                    Log.i("MVT_INSPECTOR", "===========================================================")
-                    // -----------------------------
-
                     isLoadingData = true
+                    
+                    // 1. EXTRAER DATOS DE CULTIVO (MVT) - Síncrono
+                    val cultFeatures = map.queryRenderedFeatures(screenPoint, LAYER_CULTIVO_FILL)
+                    if (cultFeatures.isNotEmpty()) {
+                        val props = cultFeatures[0].properties()
+                        if (props != null) {
+                            val mapProps = mutableMapOf<String, String>()
+                            props.entrySet().forEach { 
+                                mapProps[it.key] = it.value.toString().replace("\"", "") 
+                            }
+                            cultivoData = mapProps
+                        } else {
+                            cultivoData = null
+                        }
+                    } else {
+                        cultivoData = null
+                    }
+                    
+                    // Resetear tab si no hay cultivo
+                    if (cultivoData == null && selectedTab == 1) {
+                        selectedTab = 0
+                    }
+
+                    // 2. EXTRAER DATOS DE RECINTO (API) - Asíncrono
                     apiJob?.cancel()
                     apiJob = scope.launch {
-                        // Pequeño delay para asegurar que el usuario ha parado de verdad
                         delay(300) 
                         val data = fetchFullSigpacInfo(center.latitude, center.longitude)
-                        sigpacData = data
+                        recintoData = data
                         isLoadingData = false
                     }
                 } else {
-                    sigpacData = null
+                    recintoData = null
+                    cultivoData = null
                 }
             }
 
@@ -237,7 +241,7 @@ fun NativeMap(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
                         .target(LatLng(targetLat, targetLng))
-                        .zoom(18.0) // Zoom alto para ver detalle
+                        .zoom(18.0)
                         .tilt(0.0)
                         .build()
                 ), 1500
@@ -261,44 +265,29 @@ fun NativeMap(
             modifier = Modifier.fillMaxSize()
         )
 
-        // --- CRUZ CENTRAL (Retícula) ---
+        // --- CRUZ CENTRAL ---
         Box(
             modifier = Modifier.align(Alignment.Center),
             contentAlignment = Alignment.Center
         ) {
-            // Sombra ligera para contraste
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                tint = Color.Black.copy(alpha = 0.5f),
-                modifier = Modifier.size(38.dp)
-            )
-            // Cruz blanca principal
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Puntero",
-                tint = Color.White,
-                modifier = Modifier.size(36.dp)
-            )
+            Icon(Icons.Default.Add, null, tint = Color.Black.copy(0.5f), modifier = Modifier.size(38.dp))
+            Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
         }
 
-        // --- COLUMNA DE CONTROLES (TOP-RIGHT) ---
+        // --- COLUMNA DE CONTROLES ---
         Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 16.dp, end = 16.dp),
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Botón Configuración (Capas)
+            // ... (Botones flotantes existentes igual) ...
             SmallFloatingActionButton(
                 onClick = { showLayerMenu = !showLayerMenu },
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary,
                 shape = CircleShape
-            ) { Icon(Icons.Default.Settings, contentDescription = "Capas") }
+            ) { Icon(Icons.Default.Settings, "Capas") }
 
-            // Menú Desplegable de Capas
             AnimatedVisibility(visible = showLayerMenu) {
                 Card(
                     modifier = Modifier.width(200.dp),
@@ -332,62 +321,60 @@ fun NativeMap(
                 }
             }
             
-            // Botón Proyectos
             SmallFloatingActionButton(
                 onClick = onNavigateToProjects,
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = Color(0xFF006D3E),
                 shape = CircleShape
-            ) { Icon(Icons.Default.List, contentDescription = "Proyectos") }
+            ) { Icon(Icons.Default.List, "Proyectos") }
             
-            // Botón Cámara
             SmallFloatingActionButton(
                 onClick = onOpenCamera,
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = Color(0xFF006D3E),
                 shape = CircleShape
-            ) { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") }
+            ) { Icon(Icons.Default.CameraAlt, "Cámara") }
 
-            // Botón Ubicación
             SmallFloatingActionButton(
                 onClick = { enableLocation(mapInstance, context, shouldCenter = true) },
                 containerColor = MaterialTheme.colorScheme.secondary,
                 contentColor = Color.White,
                 shape = CircleShape
-            ) { Icon(Icons.Default.MyLocation, contentDescription = "Centrar Ubicación") }
+            ) { Icon(Icons.Default.MyLocation, "Ubicación") }
         }
 
-        // --- LOADING INDICATOR ---
+        // --- LOADING ---
         if (isLoadingData) {
             Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
             }
         }
 
-        // --- PANEL DE DATOS INFERIOR (BOTTOM SHEET) ---
+        // --- PANEL DE DATOS INFERIOR ---
         AnimatedVisibility(
-            visible = sigpacData != null,
+            visible = recintoData != null || (cultivoData != null && showCultivo),
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            sigpacData?.let { data ->
+            // Usamos datos de recinto si existen, o fallback a cultivo para cabeceras
+            val displayData = recintoData ?: cultivoData
+            
+            displayData?.let { data ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(8.dp)
-                        .heightIn(max = 350.dp), // Altura máxima para scroll
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+                        .heightIn(max = 450.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                 ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Cabecera: Referencia SIGPAC
+                        // 1. CABECERA FIJA
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.Top
                         ) {
@@ -400,41 +387,125 @@ fun NativeMap(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                            IconButton(onClick = { sigpacData = null }, modifier = Modifier.size(24.dp)) {
+                            IconButton(onClick = { recintoData = null; cultivoData = null }, modifier = Modifier.size(24.dp)) {
                                 Icon(Icons.Default.Close, "Cerrar")
                             }
                         }
                         
-                        Divider(Modifier.padding(vertical = 8.dp))
+                        Divider()
 
-                        // Datos en Grid/Flow
-                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                            
-                            // Bloque 1: Uso y Superficie
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                AttributeItem("Uso SIGPAC", data["uso_sigpac"], Modifier.weight(1f))
-                                AttributeItem("Superficie", "${data["superficie"]} m²", Modifier.weight(1f))
+                        // 2. PESTAÑAS
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            // Tab Recinto
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedTab = 0 }
+                                    .background(if (selectedTab == 0) MaterialTheme.colorScheme.surface else Color(0xFFEEEEEE))
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Recinto", 
+                                    fontWeight = if(selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
+                                    color = if(selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Gray
+                                )
+                                if (selectedTab == 0) {
+                                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.primary))
+                                }
                             }
-                            Spacer(Modifier.height(8.dp))
-                            
-                            // Bloque 2: Pendiente y Altitud
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                AttributeItem("Pendiente Media", "${data["pendiente_media"]}%", Modifier.weight(1f))
-                                AttributeItem("Altitud", "${data["altitud"]} m", Modifier.weight(1f))
-                            }
-                            Spacer(Modifier.height(8.dp))
 
-                            // Bloque 3: Administrativo
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                AttributeItem("Región", data["region"], Modifier.weight(1f))
-                                AttributeItem("Coef. Regadío", "${data["coef_regadio"]}%", Modifier.weight(1f))
+                            // Tab Cultivo
+                            val hasCultivo = cultivoData != null
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable(enabled = hasCultivo) { if (hasCultivo) selectedTab = 1 }
+                                    .background(if (selectedTab == 1) MaterialTheme.colorScheme.surface else Color(0xFFEEEEEE))
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Cultivo",
+                                    fontWeight = if(selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (selectedTab == 1) MaterialTheme.colorScheme.primary else if (hasCultivo) Color.DarkGray else Color.LightGray.copy(alpha=0.6f)
+                                )
+                                if (selectedTab == 1) {
+                                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.primary))
+                                }
                             }
-                            Spacer(Modifier.height(8.dp))
+                        }
+                        
+                        Divider()
 
-                             // Bloque 4: Otros
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                AttributeItem("Subvencionabilidad", "${data["subvencionabilidad"]}%", Modifier.weight(1f))
-                                AttributeItem("Incidencias", data["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
+                        // 3. CONTENIDO SCROLLABLE
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+                            if (selectedTab == 0) {
+                                // --- VISTA RECINTO ---
+                                if (recintoData != null) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
+                                        AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f))
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f))
+                                        AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f))
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f))
+                                        AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f))
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
+                                        AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
+                                    }
+                                } else {
+                                    Text("Cargando datos de recinto...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                                }
+                            } else {
+                                // --- VISTA CULTIVO ---
+                                if (cultivoData != null) {
+                                    val c = cultivoData!!
+                                    Text("Datos de Expediente", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom=8.dp))
+                                    
+                                    Row(Modifier.fillMaxWidth()) {
+                                        AttributeItem("Expediente", "${c["exp_num"]} (${c["exp_ano"]})", Modifier.weight(1f))
+                                        AttributeItem("Prov. Exp", c["exp_provincia"], Modifier.weight(1f))
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    
+                                    Text("Detalles Parcela Agrícola", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=8.dp))
+                                    
+                                    Row(Modifier.fillMaxWidth()) {
+                                        AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
+                                        // Áreas -> Hectáreas visualmente si se desea, pero mostramos raw + unidad
+                                        AttributeItem("Superficie Cult.", "${c["parc_supcult"]} áreas", Modifier.weight(1f))
+                                    }
+                                    Spacer(Modifier.height(8.dp))
+                                    
+                                    Row(Modifier.fillMaxWidth()) {
+                                        val sist = c["parc_sistexp"]
+                                        val sistLabel = if (sist == "S") "Secano" else if (sist == "R") "Regadío" else sist
+                                        AttributeItem("Sistema Exp.", sistLabel, Modifier.weight(1f))
+                                        AttributeItem("Indicador Cult.", c["parc_indcultapro"], Modifier.weight(1f))
+                                    }
+                                    Spacer(Modifier.height(8.dp))
+                                    
+                                    AttributeItem("Ayudas Solicitadas", c["parc_ayudasol"]?.takeIf { it != "null" } ?: "-", Modifier.fillMaxWidth())
+                                    
+                                    if ((c["cultsecun_producto"] != "0" && c["cultsecun_producto"] != null) || (c["tipo_aprovecha"] != null && c["tipo_aprovecha"] != "null")) {
+                                        Divider(Modifier.padding(vertical=8.dp))
+                                        Text("Otros / Secundario", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom=8.dp))
+                                        
+                                        Row(Modifier.fillMaxWidth()) {
+                                            AttributeItem("Cult. Secundario", c["cultsecun_producto"]?.takeIf { it != "0" }, Modifier.weight(1f))
+                                            AttributeItem("Tipo Aprovecha.", c["tipo_aprovecha"], Modifier.weight(1f))
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -448,7 +519,11 @@ fun NativeMap(
 fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-        Text(value ?: "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = if (value.isNullOrEmpty() || value == "null") "-" else value, 
+            style = MaterialTheme.typography.bodyMedium, 
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
@@ -508,6 +583,10 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                 // Si no hay datos básicos, no es un recinto válido
                 if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext null
 
+                // CAMBIO: Conversión a Hectáreas
+                val superficieM2 = getProp("superficie").toDoubleOrNull() ?: 0.0
+                val superficieHa = superficieM2 / 10000.0
+
                 return@withContext mapOf(
                     "provincia" to prov,
                     "municipio" to mun,
@@ -516,7 +595,7 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                     "poligono" to pol,
                     "parcela" to getProp("parcela"),
                     "recinto" to getProp("recinto"),
-                    "superficie" to getProp("superficie"), // m2
+                    "superficie" to String.format(Locale.US, "%.4f", superficieHa), // Formateado 4 decimales
                     "pendiente_media" to getProp("pendiente_media"),
                     "altitud" to getProp("altitud_media"), // Mapeo altitud_media -> altitud
                     "uso_sigpac" to getProp("uso_sigpac"),
