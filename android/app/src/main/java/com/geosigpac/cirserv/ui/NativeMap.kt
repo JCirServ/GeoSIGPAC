@@ -829,7 +829,10 @@ private suspend fun searchParcelLocation(prov: String, mun: String, pol: String,
         connection.requestMethod = "GET"
         connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
 
-        if (connection.responseCode == 200) {
+        val responseCode = connection.responseCode
+        Log.d("SEARCH_API", "Response Code: $responseCode")
+
+        if (responseCode == 200) {
             val reader = BufferedReader(InputStreamReader(connection.inputStream))
             val response = StringBuilder()
             var line: String?
@@ -837,9 +840,12 @@ private suspend fun searchParcelLocation(prov: String, mun: String, pol: String,
             reader.close()
             connection.disconnect()
 
+            val responseString = response.toString()
+            Log.d("SEARCH_API", "Response Body: $responseString")
+
             // La respuesta suele ser un GeoJSON Point o un objeto con coordenadas
             // Ejemplo: {"type":"Point","coordinates":[-0.3763,39.4699]}
-            val json = JSONObject(response.toString())
+            val json = JSONObject(responseString)
             
             var coords: JSONArray? = null
             if (json.has("coordinates")) {
@@ -868,10 +874,22 @@ private suspend fun searchParcelLocation(prov: String, mun: String, pol: String,
                     lon - offset  // West
                 )
             } else {
-                Log.e("SEARCH_API", "No coordinates in response: $response")
+                Log.e("SEARCH_API", "No coordinates in JSON structure")
             }
         } else {
-            Log.e("SEARCH_API", "Error Code: ${connection.responseCode}")
+            Log.e("SEARCH_API", "Error Code: $responseCode")
+            try {
+                val stream = connection.errorStream
+                if (stream != null) {
+                    val reader = BufferedReader(InputStreamReader(stream))
+                    val errorResponse = StringBuilder()
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) errorResponse.append(line)
+                    Log.e("SEARCH_API", "Error Body: $errorResponse")
+                }
+            } catch (e: Exception) {
+                Log.e("SEARCH_API", "Could not read error body")
+            }
         }
     } catch (e: Exception) {
         e.printStackTrace()
