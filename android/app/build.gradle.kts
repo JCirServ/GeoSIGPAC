@@ -24,44 +24,48 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+    
+    // Configuración para Java 21
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
+    
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "21"
     }
+    
     buildFeatures {
         compose = true
     }
-    // Note: kotlinCompilerExtensionVersion is NOT needed for Kotlin 2.0+ with the compose plugin
 }
 
 dependencies {
+    // Android Core & Lifecycle
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    
+    // Compose BOM & UI
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     
-    // WebView
+    // Funcionalidades Específicas (WebView, Mapas, Cámara)
     implementation(libs.androidx.webkit)
-    
-    // MapLibre
     implementation(libs.maplibre.android.sdk)
-
-    // CameraX
+    
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     
-    // Gson (Manual add as it wasn't requested in TOML specifically but used in code)
+    // JSON Parsing (Gson)
     implementation("com.google.code.gson:gson:2.10.1")
 
+    // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
