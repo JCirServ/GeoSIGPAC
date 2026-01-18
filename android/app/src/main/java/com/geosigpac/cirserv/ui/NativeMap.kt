@@ -44,23 +44,23 @@ import org.maplibre.android.style.sources.TileSet
 import org.maplibre.android.style.sources.VectorSource
 
 // --- CONSTANTES DE CAPAS ---
-private const val SOURCE_PNOA = "pnoa-source"
-private const val LAYER_PNOA = "pnoa-layer"
+private const val SOURCE_BASE = "base-source"
+private const val LAYER_BASE = "base-layer"
 
-// URLs y Nombres de Capas Internas (Source Layers) correctos para MVT
+// Capas SIGPAC (MVT)
 private const val SOURCE_RECINTO = "recinto-source"
 private const val LAYER_RECINTO_LINE = "recinto-layer-line"
-private const val SOURCE_LAYER_ID_RECINTO = "recinto" // El nombre interno del MVT
+private const val SOURCE_LAYER_ID_RECINTO = "recinto"
 
 private const val SOURCE_CULTIVO = "cultivo-source"
 private const val LAYER_CULTIVO_FILL = "cultivo-layer-fill"
-private const val SOURCE_LAYER_ID_CULTIVO = "cultivo_declarado" // El nombre interno del MVT
+private const val SOURCE_LAYER_ID_CULTIVO = "cultivo_declarado"
 
 // --- COORDENADAS POR DEFECTO (Comunidad Valenciana) ---
 private val VALENCIA_LAT = 39.4699
 private val VALENCIA_LNG = -0.3763
 private val DEFAULT_ZOOM = 8.0
-private val USER_TRACKING_ZOOM = 16.0 // Zoom alto para ver parcelas al localizar
+private val USER_TRACKING_ZOOM = 16.0
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
@@ -112,34 +112,33 @@ fun NativeMap(
 
     // --- EFECTOS DE CONTROL ---
     
-    // 1. Cargar Estilo Base y Configuración Inicial
+    // 1. Inicialización
     LaunchedEffect(Unit) {
         mapView.getMapAsync { map ->
             mapInstance = map
-            map.uiSettings.isAttributionEnabled = false
+            map.uiSettings.isAttributionEnabled = true
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isCompassEnabled = true
 
-            // Posición inicial por defecto: Comunidad Valenciana
-            // Se hace antes de cargar el estilo para que el usuario vea algo familiar si falla el GPS
+            // Posición inicial por defecto
             map.cameraPosition = CameraPosition.Builder()
                 .target(LatLng(VALENCIA_LAT, VALENCIA_LNG))
                 .zoom(DEFAULT_ZOOM)
                 .build()
 
-            // Cargar estilo inicial
-            loadMapStyle(map, BaseMap.PNOA, showRecinto, showCultivo, context)
+            // Cargar estilo
+            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context)
         }
     }
 
-    // 2. Mover cámara (desde Web si se selecciona un proyecto)
+    // 2. Mover cámara (desde Web)
     LaunchedEffect(targetLat, targetLng) {
         if (targetLat != null && targetLng != null) {
             mapInstance?.animateCamera(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
                         .target(LatLng(targetLat, targetLng))
-                        .zoom(17.0) // Zoom muy cercano para ver la parcela
+                        .zoom(17.0)
                         .tilt(0.0)
                         .build()
                 ), 1500
@@ -147,7 +146,7 @@ fun NativeMap(
         }
     }
 
-    // 3. Reaccionar a cambios de capas (Base u Overlays)
+    // 3. Reaccionar a cambios de capas
     LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
         mapInstance?.let { map ->
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context)
@@ -156,14 +155,12 @@ fun NativeMap(
 
     // --- UI RENDER ---
     Box(modifier = Modifier.fillMaxSize()) {
-        
-        // VISTA DEL MAPA
         AndroidView(
             factory = { mapView },
             modifier = Modifier.fillMaxSize()
         )
 
-        // BOTONES FLOTANTES
+        // Botón Menú
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -171,16 +168,14 @@ fun NativeMap(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Botón Capas
             FloatingActionButton(
                 onClick = { showLayerMenu = !showLayerMenu },
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Default.Settings, contentDescription = "Capas y Configuración")
+                Icon(Icons.Default.Settings, contentDescription = "Capas")
             }
 
-            // Menú de Capas
             AnimatedVisibility(visible = showLayerMenu) {
                 Card(
                     modifier = Modifier.width(240.dp),
@@ -204,7 +199,6 @@ fun NativeMap(
                                     onClick = { currentBaseMap = base },
                                     modifier = Modifier.size(24.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(base.title, fontSize = 14.sp)
                             }
                         }
@@ -225,14 +219,14 @@ fun NativeMap(
                             modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }
                         ) {
                             Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it })
-                            Text("Cultivos Declarados", fontSize = 14.sp)
+                            Text("Cultivos", fontSize = 14.sp)
                         }
                     }
                 }
             }
         }
 
-        // Botón Mi Ubicación
+        // Botón GPS
         FloatingActionButton(
             onClick = {
                 enableLocation(mapInstance, context, forceZoom = true)
@@ -243,13 +237,15 @@ fun NativeMap(
             containerColor = MaterialTheme.colorScheme.secondary,
             contentColor = Color.White
         ) {
-            Icon(Icons.Default.LocationOn, contentDescription = "Mi Ubicación")
+            Icon(Icons.Default.LocationOn, contentDescription = "Ubicación")
         }
     }
 }
 
 /**
- * Carga el estilo y las capas.
+ * Reconstruye el estilo del mapa.
+ * Usamos un Builder vacío y añadimos el mapa base como RasterLayer.
+ * Esto es más robusto que cargar JSONs remotos para PNOA/OSM básico.
  */
 private fun loadMapStyle(
     map: MapLibreMap,
@@ -260,23 +256,31 @@ private fun loadMapStyle(
 ) {
     val styleBuilder = Style.Builder()
 
-    // 1. CONFIGURAR MAPA BASE
-    if (baseMap == BaseMap.OSM) {
-        styleBuilder.fromUri("https://demotiles.maplibre.org/style.json")
+    // 1. MAPA BASE (RASTER)
+    val tileUrl = if (baseMap == BaseMap.OSM) {
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     } else {
-        // PNOA Ortofoto (TMS HTTPS)
-        val pnoaUrl = "https://tms-pnoa-ma.ign.es/1.0.0/pnoa-ma/{z}/{x}/{y}.jpeg"
-        // TileSet constructor: (usage/version, vararg urls)
-        val tileSet = TileSet("tiles", pnoaUrl)
-        styleBuilder.withSource(RasterSource(SOURCE_PNOA, tileSet, 256))
-        styleBuilder.withLayer(RasterLayer(LAYER_PNOA, SOURCE_PNOA))
+        // PNOA (España)
+        "https://tms-pnoa-ma.ign.es/1.0.0/pnoa-ma/{z}/{x}/{y}.jpeg"
     }
+
+    // Configurar fuente Raster estándar
+    val tileSet = TileSet("2.2.0", tileUrl)
+    if (baseMap == BaseMap.OSM) {
+        tileSet.attribution = "© OpenStreetMap contributors"
+    } else {
+        tileSet.attribution = "© IGN PNOA"
+    }
+    
+    val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
+    styleBuilder.withSource(rasterSource)
+    styleBuilder.withLayer(RasterLayer(LAYER_BASE, SOURCE_BASE))
 
     map.setStyle(styleBuilder) { style ->
         
-        // 2. CAPAS VECTORIALES (MVT)
+        // 2. CAPAS VECTORIALES (MVT) - Se añaden ENCIMA del base
         
-        // --- CULTIVO DECLARADO (Relleno) ---
+        // --- CULTIVO (Relleno) ---
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
@@ -284,14 +288,13 @@ private fun loadMapStyle(
                 style.addSource(cultivoSource)
 
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
-                // IMPORTANTE: El sourceLayer debe coincidir con el nombre interno del MVT
-                fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO 
+                fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
                     PropertyFactory.fillOutlineColor(Color.Yellow.toArgb())
                 )
-                style.addLayer(fillLayer)
+                style.addLayer(fillLayer) // Se añade encima por orden de ejecución
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -305,7 +308,6 @@ private fun loadMapStyle(
                 style.addSource(recintoSource)
 
                 val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                // IMPORTANTE: El sourceLayer debe coincidir con el nombre interno del MVT
                 lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 lineLayer.setProperties(
                     PropertyFactory.lineColor(Color.White.toArgb()),
@@ -317,46 +319,39 @@ private fun loadMapStyle(
             }
         }
 
-        // 3. ACTIVAR UBICACIÓN (Auto-Zoom si hay permisos)
+        // 3. Activar Ubicación
         enableLocation(map, context, forceZoom = true)
     }
 }
 
-/**
- * Activa la ubicación y hace zoom a la posición del usuario.
- * @param forceZoom Si es true, fuerza el zoom al nivel 16 al activar el tracking.
- */
 @SuppressLint("MissingPermission")
 private fun enableLocation(map: MapLibreMap?, context: Context, forceZoom: Boolean = false) {
     if (map == null || map.style == null) return
 
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-        val locationComponent = map.locationComponent
-        
-        // Configuración para que el mapa haga zoom automático al usuario
-        val options = LocationComponentActivationOptions.builder(context, map.style!!)
-            .useDefaultLocationEngine(true)
-            .build()
-        
-        locationComponent.activateLocationComponent(options)
-        locationComponent.isLocationComponentEnabled = true
-        
-        // Modo TRACKING mueve la cámara al usuario
-        locationComponent.cameraMode = CameraMode.TRACKING
-        locationComponent.renderMode = RenderMode.COMPASS
-        
-        // Si queremos forzar un nivel de zoom específico mientras seguimos al usuario
-        if (forceZoom) {
-            locationComponent.zoomWhileTracking(USER_TRACKING_ZOOM)
+        try {
+            val locationComponent = map.locationComponent
+            val options = LocationComponentActivationOptions.builder(context, map.style!!)
+                .useDefaultLocationEngine(true)
+                .build()
+            
+            locationComponent.activateLocationComponent(options)
+            locationComponent.isLocationComponentEnabled = true
+            locationComponent.cameraMode = CameraMode.TRACKING
+            locationComponent.renderMode = RenderMode.COMPASS
+            
+            if (forceZoom) {
+                locationComponent.zoomWhileTracking(USER_TRACKING_ZOOM)
+            }
+        } catch (e: Exception) {
+            // Ignorar errores si el estilo no está listo
         }
     } else {
-        // Fallback: Si no hay permiso, asegurar que estamos en Valencia (por si se llama manualmente)
+        // Fallback: Ir a Valencia si no hay GPS
         map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(VALENCIA_LAT, VALENCIA_LNG), DEFAULT_ZOOM))
-        Toast.makeText(context, "Sin permiso GPS: Mostrando Valencia", Toast.LENGTH_SHORT).show()
     }
 }
 
-// Extensión para convertir Color Compose a ARGB int
 fun Color.toArgb(): Int {
     return android.graphics.Color.argb(
         (alpha * 255).toInt(),
