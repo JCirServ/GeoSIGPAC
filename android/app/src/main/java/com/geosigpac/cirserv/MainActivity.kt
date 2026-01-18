@@ -30,10 +30,18 @@ import org.maplibre.gl.geometry.LatLng
 
 class MainActivity : ComponentActivity() {
 
-    // Request permissions on startup for demo purposes
+    // Permission launcher that handles the user response
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> }
+    ) { permissions ->
+        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
+        val locationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
+        
+        if (!cameraGranted || !locationGranted) {
+            // In a real app, show a dialog explaining why you need permissions
+            android.widget.Toast.makeText(this, "Se requieren permisos para la demo.", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,26 +49,29 @@ class MainActivity : ComponentActivity() {
         // 1. Initialize MapLibre
         MapLibre.getInstance(this)
         
-        // 2. Request Permissions
+        // 2. Request Permissions immediately for this demo
         checkPermissions()
         
         enableEdgeToEdge()
         
         setContent {
-            // Material Theme wrapper could go here
             MainScreen()
         }
     }
 
     private fun checkPermissions() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            
-            requestPermissionLauncher.launch(arrayOf(
-                Manifest.permission.CAMERA,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ))
+        val permissionsToRequest = mutableListOf<String>()
+        
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.CAMERA)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
         }
     }
 }
@@ -71,51 +82,36 @@ fun MainScreen() {
     val scope = rememberCoroutineScope()
 
     // --- STATES ---
-    // Controls whether the camera UI is visible
     var showCamera by remember { mutableStateOf(false) }
-    // Stores the ID of the project pending a photo
     var activeProjectId by remember { mutableStateOf<String?>(null) }
-    // Controls the target location for the Map
     var targetLocation by remember { mutableStateOf<LatLng?>(null) }
     
-    // References to interact with views imperatively
+    // References
     var mapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
-    // --- EFFECTS ---
-    // Animate map when targetLocation changes (Triggered from Web)
+    // Animate map when targetLocation changes
     LaunchedEffect(targetLocation) {
         targetLocation?.let { loc ->
-            mapInstance?.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(loc, 14.0)
-            )
+            mapInstance?.animateCamera(CameraUpdateFactory.newLatLngZoom(loc, 14.0))
         }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize()
-    ) { innerPadding ->
+    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            
-            // MAIN LAYOUT: Split View
             Column(modifier = Modifier.fillMaxSize()) {
                 
-                // 1. TOP: NATIVE MAP
-                Box(
-                    modifier = Modifier
-                        .weight(0.4f)
-                        .fillMaxWidth()
-                ) {
+                // 1. NATIVE MAP (Top 40%)
+                Box(modifier = Modifier.weight(0.4f).fillMaxWidth()) {
                     AndroidView(
                         factory = { ctx ->
                             MapView(ctx).apply {
-                                onCreate(Bundle()) // Mandatory for MapLibre lifecycle
+                                onCreate(Bundle())
                                 getMapAsync { map ->
                                     mapInstance = map
                                     map.setStyle("https://demotiles.maplibre.org/style.json") {
-                                        // Default View: Spain
                                         map.cameraPosition = org.maplibre.gl.camera.CameraPosition.Builder()
-                                            .target(LatLng(40.4168, -3.7038))
+                                            .target(LatLng(40.4168, -3.7038)) // Madrid default
                                             .zoom(5.0)
                                             .build()
                                     }
@@ -123,18 +119,12 @@ fun MainScreen() {
                             }
                         },
                         modifier = Modifier.fillMaxSize(),
-                        update = { mapView ->
-                            mapView.onStart() // Ensure map renders
-                        }
+                        update = { it.onStart() }
                     )
                 }
 
-                // 2. BOTTOM: WEBVIEW (Project Manager)
-                Box(
-                    modifier = Modifier
-                        .weight(0.6f)
-                        .fillMaxWidth()
-                ) {
+                // 2. WEBVIEW (Bottom 60%)
+                Box(modifier = Modifier.weight(0.6f).fillMaxWidth()) {
                     AndroidView(
                         factory = { ctx ->
                             WebView(ctx).apply {
@@ -142,7 +132,6 @@ fun MainScreen() {
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                // Web Settings
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 settings.allowFileAccess = true
@@ -160,10 +149,12 @@ fun MainScreen() {
                                             targetLocation = LatLng(lat, lng)
                                         }
                                     ),
-                                    "Android" // window.Android
+                                    "Android"
                                 )
                                 
+                                // Load from Assets
                                 loadUrl("file:///android_asset/index.html")
+                                
                                 webViewClient = WebViewClient()
                                 webViewInstance = this
                             }
@@ -173,15 +164,13 @@ fun MainScreen() {
                 }
             }
 
-            // 3. OVERLAY: CAMERA SCREEN
+            // 3. CAMERA OVERLAY
             if (showCamera) {
                 CameraScreen(
                     onImageCaptured = { uri ->
-                        // Success: Send URI back to WebView
                         val projectId = activeProjectId
                         if (projectId != null) {
                             webViewInstance?.post {
-                                // Calls: window.onPhotoCaptured(id, uri)
                                 webViewInstance?.evaluateJavascript(
                                     "if(window.onPhotoCaptured) window.onPhotoCaptured('$projectId', '$uri');",
                                     null
@@ -190,13 +179,8 @@ fun MainScreen() {
                         }
                         showCamera = false
                     },
-                    onError = { exc ->
-                        android.util.Log.e("Main", "Camera Error", exc)
-                        showCamera = false
-                    },
-                    onClose = {
-                        showCamera = false
-                    }
+                    onError = { showCamera = false },
+                    onClose = { showCamera = false }
                 )
             }
         }
