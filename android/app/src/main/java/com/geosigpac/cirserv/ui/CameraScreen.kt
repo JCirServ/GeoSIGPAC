@@ -399,11 +399,9 @@ fun CameraScreen(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 16.dp)
-                // CAMBIO: Contenedor más compacto (280dp)
-                .height(280.dp) 
+                .height(280.dp)
                 .width(50.dp)
                 .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-                // CAMBIO: Padding vertical mínimo para que el slider llegue a los bordes
                 .padding(vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -413,7 +411,6 @@ fun CameraScreen(
                 modifier = Modifier.fillMaxHeight()
             ) {
                 
-                // Texto del ratio actual
                 Text(
                     text = "${String.format("%.1f", currentZoomRatio)}x",
                     color = Color.White,
@@ -422,14 +419,10 @@ fun CameraScreen(
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
 
-                // Slider Rotado
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .graphicsLayer {
-                            rotationZ = 270f
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
-                        },
+                        .fillMaxWidth(), // Asegura que el contenedor esté centrado
                     contentAlignment = Alignment.Center
                 ) {
                     Slider(
@@ -437,11 +430,16 @@ fun CameraScreen(
                         onValueChange = { valz ->
                             camera?.cameraControl?.setLinearZoom(valz)
                         },
-                        // CAMBIO: Slider ancho (alto tras rotar) para llenar el contenedor de 280dp
-                        modifier = Modifier.width(260.dp),
+                        modifier = Modifier
+                            .graphicsLayer {
+                                rotationZ = 270f
+                                transformOrigin = TransformOrigin(0.5f, 0.5f)
+                            }
+                            // CAMBIO CLAVE: Usar requiredWidth en lugar de width
+                            .requiredWidth(240.dp), // Ajustado un poco menos que 280 para dar espacio al texto
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
-                            activeTrackColor = Color(0xFF006D3E), // Primary green
+                            activeTrackColor = Color(0xFF006D3E),
                             inactiveTrackColor = Color.White.copy(alpha = 0.3f)
                         )
                     )
