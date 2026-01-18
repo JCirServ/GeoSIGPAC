@@ -154,7 +154,12 @@ fun GeoSigpacApp() {
                 when (selectedTab) {
                     0 -> WebProjectManager(
                         webAppInterface = webAppInterface,
-                        onWebViewCreated = { webView -> webViewRef = webView }
+                        onWebViewCreated = { webView -> webViewRef = webView },
+                        onNavigateToMap = { selectedTab = 1 },
+                        onOpenCamera = {
+                            currentProjectId = null
+                            isCameraOpen = true
+                        }
                     )
                     1 -> NativeMap(
                         targetLat = mapTarget?.first,
