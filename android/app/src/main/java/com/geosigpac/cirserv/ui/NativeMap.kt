@@ -226,15 +226,20 @@ fun NativeMap(
         scope.launch {
             val map = mapInstance
             if (map != null && map.style != null) {
+                // LOGCAT: Depuración del filtro
+                Log.d("SIGPAC_FILTER", "Buscando: Prov='$prov', Mun='$mun', Pol='$pol', Parc='$parc', Rec='$rec'")
+
                 // 1. Aplicar Filtro Visual (Highlight)
+                // Usamos Expression.toString() para asegurar que comparamos strings,
+                // ya que los tiles vectoriales pueden tener estos campos como números.
                 val filterList = mutableListOf<Expression>(
-                    Expression.eq(Expression.get("provincia"), Expression.literal(prov)),
-                    Expression.eq(Expression.get("municipio"), Expression.literal(mun)),
-                    Expression.eq(Expression.get("poligono"), Expression.literal(pol)),
-                    Expression.eq(Expression.get("parcela"), Expression.literal(parc))
+                    Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
+                    Expression.eq(Expression.toString(Expression.get("municipio")), Expression.literal(mun)),
+                    Expression.eq(Expression.toString(Expression.get("poligono")), Expression.literal(pol)),
+                    Expression.eq(Expression.toString(Expression.get("parcela")), Expression.literal(parc))
                 )
                 if (rec != null) {
-                    filterList.add(Expression.eq(Expression.get("recinto"), Expression.literal(rec)))
+                    filterList.add(Expression.eq(Expression.toString(Expression.get("recinto")), Expression.literal(rec)))
                 }
 
                 val filter = Expression.all(*filterList.toTypedArray())
@@ -809,7 +814,7 @@ private suspend fun searchParcelLocation(prov: String, mun: String, pol: String,
         }
         val encodedCql = java.net.URLEncoder.encode(cql, "UTF-8")
         val urlString = "$baseUrl?service=WFS&request=GetFeature&version=2.0.0&typeNames=$typeName&outputFormat=application/json&cql_filter=$encodedCql"
-        Log.d("SEARCH_WFS", "Query: $urlString")
+        
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 8000
