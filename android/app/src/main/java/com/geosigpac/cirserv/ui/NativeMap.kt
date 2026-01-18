@@ -272,26 +272,20 @@ fun NativeMap(
                 contentColor = Color(0xFF006D3E),
                 shape = CircleShape
             ) {
-                // ICONO CAMERA ALT (Requiere material-icons-extended)
                 Icon(Icons.Default.CameraAlt, contentDescription = "Cámara")
             }
-        }
 
-        // --- BOTÓN CENTRAR UBICACIÓN (BOTTOM-RIGHT) ---
-        FloatingActionButton(
-            onClick = {
-                // Al pulsar el botón explícitamente, SÍ queremos centrar (true)
-                enableLocation(mapInstance, context, shouldCenter = true)
-            },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp),
-            containerColor = MaterialTheme.colorScheme.secondary,
-            contentColor = Color.White,
-            shape = CircleShape
-        ) {
-            // ICONO MY LOCATION (CENTER)
-            Icon(Icons.Default.MyLocation, contentDescription = "Centrar Ubicación")
+            // 4. Botón Centrar Ubicación (Movido aquí debajo)
+            SmallFloatingActionButton(
+                onClick = {
+                    enableLocation(mapInstance, context, shouldCenter = true)
+                },
+                containerColor = MaterialTheme.colorScheme.secondary,
+                contentColor = Color.White,
+                shape = CircleShape
+            ) {
+                Icon(Icons.Default.MyLocation, contentDescription = "Centrar Ubicación")
+            }
         }
     }
 }
