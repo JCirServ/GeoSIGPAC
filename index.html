@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GeoSIGPAC Web Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#006d3e', // Agricultural Green
+                        secondary: '#4c6356',
+                        accent: '#eab308',
+                        background: '#f8fafc',
+                        surface: '#ffffff'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Touch optimization */
+        body {
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        /* Hide scrollbar globally */
+        html, body {
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE/Edge */
+        }
+        
+        ::-webkit-scrollbar {
+            display: none; /* Chrome/Safari/Webview */
+        }
+
+        .project-card {
+            transition: transform 0.15s ease-out;
+        }
+        .project-card:active {
+            transform: scale(0.98);
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+  }
+}
+</script>
+</head>
+<body class="bg-background text-gray-800 antialiased pb-24">
+
+    <!-- Header -->
+    <header class="bg-primary text-white p-4 sticky top-0 z-50 shadow-lg flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <div class="bg-white/20 p-2 rounded-full backdrop-blur-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 7V5c0-1.1.9-2 2-2h2"></path>
+                    <path d="M17 3h2c1.1 0 2 .9 2 2v2"></path>
+                    <path d="M21 17v2c0 1.1-.9 2-2 2h-2"></path>
+                    <path d="M7 21H5c-1.1 0-2-.9-2-2v-2"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M12 16v3"></path>
+                    <path d="M12 8V5"></path>
+                    <path d="M16 12h3"></path>
+                    <path d="M8 12H5"></path>
+                </svg>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight">GeoSIGPAC</h1>
+                <p class="text-[10px] uppercase tracking-wider opacity-80">Gestor de Parcelas</p>
+            </div>
+        </div>
+        <button class="p-2 active:bg-white/10 rounded-full transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        </button>
+    </header>
+
+    <!-- Project List -->
+    <main id="project-list" class="p-4 space-y-4">
+        <div class="flex justify-center mt-10">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+    </main>
+
+    <!-- FAB -->
+    <button onclick="window.Android ? window.Android.showToast('Función Demo: Añadir proyecto') : alert('Demo')" 
+            class="fixed bottom-6 right-6 h-14 w-14 bg-secondary text-white rounded-2xl shadow-xl flex items-center justify-center hover:bg-primary transition-colors active:scale-95 z-40">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+    </button>
+
+    <script>
+        // --- STATE ---
+        let projects = [];
+
+        // --- ANDROID BRIDGE SETUP ---
+        // Ensure the Android object exists for browser testing
+        if (typeof window.Android === 'undefined') {
+            window.Android = {
+                getProjects: () => JSON.stringify([
+                    {
+                        id: 'demo1',
+                        name: 'Parcela Demo Browser',
+                        description: 'Simulación en navegador (Sin conexión nativa)',
+                        lat: 40.4168,
+                        lng: -3.7038,
+                        date: '2023-10-30',
+                        status: 'pending',
+                        imageUrl: null
+                    },
+                    {
+                        id: 'demo2',
+                        name: 'Viñedos de Prueba',
+                        description: 'Ejemplo de datos estáticos',
+                        lat: 41.3851,
+                        lng: 2.1734,
+                        date: '2023-11-05',
+                        status: 'verified',
+                        imageUrl: 'https://picsum.photos/400/200'
+                    }
+                ]),
+                showToast: (msg) => console.log('Native Toast:', msg),
+                onProjectSelected: (lat, lng) => console.log('Native Map Focus:', lat, lng),
+                openCamera: (id) => {
+                    console.log('Native Camera Request:', id);
+                    // Mock response for browser testing
+                    setTimeout(() => {
+                        window.onPhotoCaptured(id, "https://picsum.photos/600/400?r=" + Math.random());
+                    }, 1000);
+                }
+            };
+        }
+
+        // --- CORE FUNCTIONS ---
+
+        function loadProjects() {
+            try {
+                const json = window.Android.getProjects();
+                projects = JSON.parse(json);
+                renderProjects();
+            } catch (e) {
+                console.error("Error parsing projects", e);
+                document.getElementById('project-list').innerHTML = `
+                    <div class="text-center text-red-500 p-4 bg-red-50 rounded-lg">
+                        Error al cargar datos nativos.
+                    </div>`;
+            }
+        }
+
+        function renderProjects() {
+            const container = document.getElementById('project-list');
+            container.innerHTML = '';
+
+            if (projects.length === 0) {
+                container.innerHTML = `<div class="text-center text-gray-400 mt-20">No hay proyectos disponibles</div>`;
+                return;
+            }
+
+            projects.forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'project-card bg-surface rounded-xl shadow-sm border border-gray-100 overflow-hidden';
+                card.id = `card-${p.id}`;
+
+                // Status Badge Logic
+                let statusClass = 'bg-yellow-100 text-yellow-800';
+                let statusLabel = 'Pendiente';
+                if (p.status === 'verified') { statusClass = 'bg-blue-100 text-blue-800'; statusLabel = 'Verificado'; }
+                else if (p.status === 'completed') { statusClass = 'bg-green-100 text-green-800'; statusLabel = 'Completado'; }
+
+                // Image Logic
+                const imageContent = p.imageUrl 
+                    ? `<img src="${p.imageUrl}" class="w-full h-full object-cover" id="img-${p.id}" alt="${p.name}">`
+                    : `<div class="w-full h-full flex flex-col items-center justify-center bg-gray-100 text-gray-400" id="placeholder-${p.id}">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mb-1 opacity-50"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                         <span class="text-[10px] font-medium uppercase tracking-wide">Sin Foto</span>
+                       </div>`;
+
+                card.innerHTML = `
+                    <div class="relative h-40 w-full bg-gray-50 border-b border-gray-100">
+                        ${imageContent}
+                        <div class="absolute top-2 right-2 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${statusClass} shadow-sm backdrop-blur-sm bg-opacity-90">
+                            ${statusLabel}
+                        </div>
+                    </div>
+                    
+                    <div class="p-4">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="font-bold text-gray-800 text-lg leading-snug">${p.name}</h3>
+                        </div>
+                        <p class="text-gray-500 text-sm line-clamp-2 mb-4">${p.description}</p>
+                        
+                        <div class="flex items-center gap-4 mb-4 text-xs text-gray-400 font-medium">
+                            <div class="flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                                <span>${p.date}</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                                <span>ID: ${p.id}</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <button onclick="handleLocate(${p.lat}, ${p.lng})" 
+                                class="flex items-center justify-center gap-2 py-2.5 px-4 bg-primary/5 text-primary rounded-lg font-semibold text-sm hover:bg-primary/10 transition-colors active:bg-primary/20">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                                Localizar
+                            </button>
+                            
+                            <button onclick="handleCamera('${p.id}')" 
+                                class="flex items-center justify-center gap-2 py-2.5 px-4 bg-primary text-white rounded-lg font-semibold text-sm shadow-md shadow-primary/20 hover:bg-primary/90 transition-all active:translate-y-0.5">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                                Foto
+                            </button>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // --- EVENT HANDLERS ---
+
+        window.handleLocate = (lat, lng) => {
+            window.Android.onProjectSelected(lat, lng);
+        };
+
+        window.handleCamera = (id) => {
+            window.Android.openCamera(id);
+        };
+
+        // --- PUBLIC API FOR ANDROID ---
+
+        window.onPhotoCaptured = (projectId, uri) => {
+            console.log(`Updated photo for ${projectId}: ${uri}`);
+            
+            // Update local state
+            const proj = projects.find(p => p.id === projectId);
+            if (proj) proj.imageUrl = uri;
+
+            // DOM Update Strategy:
+            // 1. If image element exists, update src with timestamp to force reload if same URI
+            // 2. If placeholder exists, replace with image element
+            
+            const existingImg = document.getElementById(`img-${projectId}`);
+            if (existingImg) {
+                existingImg.src = uri; // WebView handles file:// caching logic usually, add timestamp if needed
+            } else {
+                const placeholder = document.getElementById(`placeholder-${projectId}`);
+                if (placeholder && placeholder.parentNode) {
+                    const parent = placeholder.parentNode;
+                    // Create new image
+                    const newImg = document.createElement('img');
+                    newImg.src = uri;
+                    newImg.className = "w-full h-full object-cover animate-fade-in";
+                    newImg.id = `img-${projectId}`;
+                    
+                    // Clear parent (remove placeholder) keeping the status badge
+                    // Note: Status badge is absolute positioned, so we need to be careful not to remove it if it's a sibling inside the relative container.
+                    // Structure: relative container > [image/placeholder, badge]
+                    // So we just replace the placeholder node.
+                    parent.replaceChild(newImg, placeholder);
+                } else {
+                    // Fallback full render
+                    renderProjects();
+                }
+            }
+            
+            window.Android.showToast("Imagen guardada correctamente");
+        };
+
+        // --- INIT ---
+        document.addEventListener('DOMContentLoaded', loadProjects);
+
+    </script>
+</body>
+</html>

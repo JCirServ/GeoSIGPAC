@@ -1,0 +1,8 @@
+{
+  "name": "GeoSIGPAC Web Manager",
+  "description": "Interactive Project Manager for GeoSIGPAC hybrid application. Handles project data, photos, and coordinates with a bridge to Android native components.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
