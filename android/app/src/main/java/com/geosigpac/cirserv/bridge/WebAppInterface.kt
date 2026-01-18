@@ -20,13 +20,17 @@ data class NativeProject(
     var imageUrl: String? = null
 )
 
+/**
+ * Interface injected into the WebView.
+ * Handles calls from JavaScript to Android.
+ */
 class WebAppInterface(
     private val context: Context,
-    private val scope: CoroutineScope,
+    private val scope: CoroutineScope, // Scope for launching main thread actions
     private val onCameraRequested: (String) -> Unit,
     private val onMapFocusRequested: (Double, Double) -> Unit
 ) {
-    // Single Source of Truth: Data resides in Android
+    // Mock Data for the Single Source of Truth demo
     private val mockProjects = listOf(
         NativeProject(
             "p1", "Parcela 102 - Olivos", 
@@ -46,17 +50,20 @@ class WebAppInterface(
     )
 
     /**
-     * Triggered by Web to open Native Camera
+     * JS Calls: window.Android.openCamera(projectId)
+     * Triggers the Native Camera Compose Screen.
      */
     @JavascriptInterface
     fun openCamera(projectId: String) {
+        // JavascriptInterface runs on a background thread, use scope to touch UI state
         scope.launch(Dispatchers.Main) {
             onCameraRequested(projectId)
         }
     }
 
     /**
-     * Triggered by Web when a user clicks 'Localizar'
+     * JS Calls: window.Android.onProjectSelected(lat, lng)
+     * Moves the Native MapLibre camera.
      */
     @JavascriptInterface
     fun onProjectSelected(lat: Double, lng: Double) {
@@ -67,11 +74,12 @@ class WebAppInterface(
 
     @JavascriptInterface
     fun showToast(message: String) {
-        Toast.makeText(context, "Native: $message", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Android Native: $message", Toast.LENGTH_SHORT).show()
     }
 
     /**
-     * Synchronous data fetch called by React's useEffect on mount
+     * JS Calls: window.Android.getProjects()
+     * Returns initial data synchronously.
      */
     @JavascriptInterface
     fun getProjects(): String {
