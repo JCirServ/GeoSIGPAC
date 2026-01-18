@@ -146,6 +146,11 @@ fun GeoSigpacApp() {
                     // Cerrar cámara y navegar al mapa
                     isCameraOpen = false
                     selectedTab = 1
+                },
+                onGoToProjects = {
+                    // Cerrar cámara y navegar explícitamente a Proyectos
+                    isCameraOpen = false
+                    selectedTab = 0
                 }
             )
         } else {

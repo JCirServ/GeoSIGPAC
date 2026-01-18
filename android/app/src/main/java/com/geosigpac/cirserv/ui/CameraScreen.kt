@@ -27,7 +27,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -65,7 +65,8 @@ fun CameraScreen(
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit,
     onClose: () -> Unit,
-    onGoToMap: () -> Unit
+    onGoToMap: () -> Unit,
+    onGoToProjects: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -254,7 +255,7 @@ fun CameraScreen(
             }
         )
         
-        // --- BOTÓN VOLVER (TOP-LEFT) ---
+        // --- BOTÓN IR A PROYECTOS (TOP-LEFT) ---
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -263,13 +264,13 @@ fun CameraScreen(
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.5f))
                 .clickable { 
-                    onClose() 
+                    onGoToProjects() 
                 },
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.Home,
-                contentDescription = "Volver",
+                imageVector = Icons.Default.List,
+                contentDescription = "Ir a Proyectos",
                 tint = Color.White,
                 modifier = Modifier.size(24.dp)
             )
@@ -342,7 +343,7 @@ fun CameraScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Cancelar
+                // Cancelar (Solo cierra, comportamiento "Atrás")
                 Box(
                     modifier = Modifier
                         .size(50.dp)
