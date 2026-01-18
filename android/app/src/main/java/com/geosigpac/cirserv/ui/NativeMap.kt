@@ -445,7 +445,7 @@ fun NativeMap(
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
                                         // CAMBIO: Se muestra en áreas, sin conversión a Ha
-                                        AttributeItem("Superficie", "${recintoData!!["superficie"]} áreas", Modifier.weight(1f))
+                                        AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f))
                                     }
                                     Spacer(Modifier.height(12.dp))
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
