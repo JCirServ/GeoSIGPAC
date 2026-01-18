@@ -7,11 +7,18 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Settings
@@ -23,12 +30,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -46,6 +61,11 @@ import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
 import org.maplibre.android.style.sources.VectorSource
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Locale
 
 // --- CONSTANTES DE CAPAS ---
 private const val SOURCE_BASE = "base-source"
@@ -81,6 +101,7 @@ fun NativeMap(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     
     // --- ESTADO ---
     var mapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
@@ -91,6 +112,11 @@ fun NativeMap(
 
     // Controla si ya hemos centrado la cámara en el usuario al inicio
     var initialLocationSet by remember { mutableStateOf(false) }
+
+    // Estado de datos SIGPAC (Panel Inferior)
+    var sigpacData by remember { mutableStateOf<Map<String, String>?>(null) }
+    var isLoadingData by remember { mutableStateOf(false) }
+    var apiJob by remember { mutableStateOf<Job?>(null) }
 
     // Inicializar MapLibre
     remember { MapLibre.getInstance(context) }
@@ -121,16 +147,16 @@ fun NativeMap(
 
     // --- EFECTOS DE CONTROL ---
     
-    // 1. Inicialización
+    // 1. Inicialización y Listeners
     LaunchedEffect(Unit) {
         mapView.getMapAsync { map ->
             mapInstance = map
             map.uiSettings.isAttributionEnabled = true
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isCompassEnabled = true
+            map.uiSettings.isTiltGesturesEnabled = false // Evitar inclinación accidental para mantener el puntero preciso
 
-            // Posición inicial por defecto (Valencia)
-            // Solo si no se ha establecido ubicación previa
+            // Posición inicial por defecto
             if (!initialLocationSet) {
                 map.cameraPosition = CameraPosition.Builder()
                     .target(LatLng(VALENCIA_LAT, VALENCIA_LNG))
@@ -138,9 +164,36 @@ fun NativeMap(
                     .build()
             }
 
-            // Cargar estilo y configurar ubicación
+            // LISTENER: Al empezar a mover, ocultamos datos antiguos o loading
+            map.addOnCameraMoveStartedListener {
+                apiJob?.cancel()
+                isLoadingData = false
+                // Opcional: Ocultar panel al mover, o dejarlo visible. 
+                // Para "emerger", mejor ocultarlo si se mueve lejos, pero aquí lo ocultamos para refrescar.
+                sigpacData = null 
+            }
+
+            // LISTENER: Al detenerse, buscamos qué hay debajo de la cruz
+            map.addOnCameraIdleListener {
+                val center = map.cameraPosition.target
+                // Solo buscamos si el zoom es suficiente para ver parcelas
+                if (map.cameraPosition.zoom > 13) {
+                    isLoadingData = true
+                    apiJob?.cancel()
+                    apiJob = scope.launch {
+                        // Pequeño delay para asegurar que el usuario ha parado de verdad
+                        delay(300) 
+                        val data = fetchFullSigpacInfo(center.latitude, center.longitude)
+                        sigpacData = data
+                        isLoadingData = false
+                    }
+                } else {
+                    sigpacData = null
+                }
+            }
+
+            // Cargar estilo
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
-                // Callback: Se ha activado la ubicación correctamente
                 initialLocationSet = true
             }
         }
@@ -153,7 +206,7 @@ fun NativeMap(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
                         .target(LatLng(targetLat, targetLng))
-                        .zoom(16.0)
+                        .zoom(18.0) // Zoom alto para ver detalle
                         .tilt(0.0)
                         .build()
                 ), 1500
@@ -162,11 +215,10 @@ fun NativeMap(
     }
 
     // 3. Reaccionar a cambios de capas
-    // IMPORTANTE: Al cambiar capas, pasamos false a shouldCenterUser para NO mover la cámara
     LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
         mapInstance?.let { map ->
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) {
-                // No action needed on layer switch location update
+                // No action needed
             }
         }
     }
@@ -178,6 +230,27 @@ fun NativeMap(
             modifier = Modifier.fillMaxSize()
         )
 
+        // --- CRUZ CENTRAL (Retícula) ---
+        Box(
+            modifier = Modifier.align(Alignment.Center),
+            contentAlignment = Alignment.Center
+        ) {
+            // Sombra ligera para contraste
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                tint = Color.Black.copy(alpha = 0.5f),
+                modifier = Modifier.size(38.dp)
+            )
+            // Cruz blanca principal
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Puntero",
+                tint = Color.White,
+                modifier = Modifier.size(36.dp)
+            )
+        }
+
         // --- COLUMNA DE CONTROLES (TOP-RIGHT) ---
         Column(
             modifier = Modifier
@@ -186,15 +259,13 @@ fun NativeMap(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 1. Botón Configuración (Capas)
+            // Botón Configuración (Capas)
             SmallFloatingActionButton(
                 onClick = { showLayerMenu = !showLayerMenu },
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary,
                 shape = CircleShape
-            ) {
-                Icon(Icons.Default.Settings, contentDescription = "Capas")
-            }
+            ) { Icon(Icons.Default.Settings, contentDescription = "Capas") }
 
             // Menú Desplegable de Capas
             AnimatedVisibility(visible = showLayerMenu) {
@@ -206,88 +277,229 @@ fun NativeMap(
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text("Mapa Base", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                         Spacer(modifier = Modifier.height(4.dp))
-                        
                         BaseMap.values().forEach { base ->
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { currentBaseMap = base }
-                                    .padding(vertical = 4.dp),
+                                modifier = Modifier.fillMaxWidth().clickable { currentBaseMap = base }.padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                RadioButton(
-                                    selected = (currentBaseMap == base),
-                                    onClick = { currentBaseMap = base },
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                RadioButton(selected = (currentBaseMap == base), onClick = { currentBaseMap = base }, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(base.title, fontSize = 13.sp)
                             }
                         }
-
                         Divider(modifier = Modifier.padding(vertical = 8.dp))
                         Text("Capas SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable { showRecinto = !showRecinto }
-                        ) {
-                            Checkbox(
-                                checked = showRecinto, 
-                                onCheckedChange = { showRecinto = it },
-                                modifier = Modifier.size(30.dp).padding(4.dp)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showRecinto = !showRecinto }) {
+                            Checkbox(checked = showRecinto, onCheckedChange = { showRecinto = it }, modifier = Modifier.size(30.dp).padding(4.dp))
                             Text("Recintos", fontSize = 13.sp)
                         }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }
-                        ) {
-                            Checkbox(
-                                checked = showCultivo, 
-                                onCheckedChange = { showCultivo = it },
-                                modifier = Modifier.size(30.dp).padding(4.dp)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }) {
+                            Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it }, modifier = Modifier.size(30.dp).padding(4.dp))
                             Text("Cultivos", fontSize = 13.sp)
                         }
                     }
                 }
             }
             
-            // 2. Botón Proyectos (Volver a la Web)
+            // Botón Proyectos
             SmallFloatingActionButton(
                 onClick = onNavigateToProjects,
                 containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = Color(0xFF006D3E), // Primary green
+                contentColor = Color(0xFF006D3E),
                 shape = CircleShape
-            ) {
-                Icon(Icons.Default.List, contentDescription = "Proyectos")
-            }
+            ) { Icon(Icons.Default.List, contentDescription = "Proyectos") }
             
-            // 3. Botón Cámara (Acceso Rápido)
+            // Botón Cámara
             SmallFloatingActionButton(
                 onClick = onOpenCamera,
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = Color(0xFF006D3E),
                 shape = CircleShape
-            ) {
-                Icon(Icons.Default.CameraAlt, contentDescription = "Cámara")
-            }
+            ) { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") }
 
-            // 4. Botón Centrar Ubicación (Movido aquí debajo)
+            // Botón Ubicación
             SmallFloatingActionButton(
-                onClick = {
-                    enableLocation(mapInstance, context, shouldCenter = true)
-                },
+                onClick = { enableLocation(mapInstance, context, shouldCenter = true) },
                 containerColor = MaterialTheme.colorScheme.secondary,
                 contentColor = Color.White,
                 shape = CircleShape
-            ) {
-                Icon(Icons.Default.MyLocation, contentDescription = "Centrar Ubicación")
+            ) { Icon(Icons.Default.MyLocation, contentDescription = "Centrar Ubicación") }
+        }
+
+        // --- LOADING INDICATOR ---
+        if (isLoadingData) {
+            Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
+            }
+        }
+
+        // --- PANEL DE DATOS INFERIOR (BOTTOM SHEET) ---
+        AnimatedVisibility(
+            visible = sigpacData != null,
+            enter = slideInVertically(initialOffsetY = { it }),
+            exit = slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            sigpacData?.let { data ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                        .heightIn(max = 350.dp), // Altura máxima para scroll
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        // Cabecera: Referencia SIGPAC
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Column {
+                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                Text(
+                                    text = "${data["provincia"]}/${data["municipio"]}/${data["agregado"]}/${data["zona"]}/${data["poligono"]}/${data["parcela"]}/${data["recinto"]}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(onClick = { sigpacData = null }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, "Cerrar")
+                            }
+                        }
+                        
+                        Divider(Modifier.padding(vertical = 8.dp))
+
+                        // Datos en Grid/Flow
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            
+                            // Bloque 1: Uso y Superficie
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                AttributeItem("Uso SIGPAC", data["uso_sigpac"], Modifier.weight(1f))
+                                AttributeItem("Superficie", "${data["superficie"]} m²", Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            
+                            // Bloque 2: Pendiente y Altitud
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                AttributeItem("Pendiente Media", "${data["pendiente_media"]}%", Modifier.weight(1f))
+                                AttributeItem("Altitud", "${data["altitud"]} m", Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(8.dp))
+
+                            // Bloque 3: Administrativo
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                AttributeItem("Región", data["region"], Modifier.weight(1f))
+                                AttributeItem("Coef. Regadío", "${data["coef_regadio"]}%", Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(8.dp))
+
+                             // Bloque 4: Otros
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                AttributeItem("Subvencionabilidad", "${data["subvencionabilidad"]}%", Modifier.weight(1f))
+                                AttributeItem("Incidencias", data["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+        Text(value ?: "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+// --- FUNCIÓN DE API ---
+private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? = withContext(Dispatchers.IO) {
+    try {
+        val urlString = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
+        val url = URL(urlString)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+        connection.requestMethod = "GET"
+        connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
+        
+        if (connection.responseCode == 200) {
+            val reader = BufferedReader(InputStreamReader(connection.inputStream))
+            val response = StringBuilder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) response.append(line)
+            reader.close()
+            connection.disconnect()
+            
+            val jsonResponse = response.toString().trim()
+            var targetJson: JSONObject? = null
+            
+            // La API puede devolver array o objeto
+            if (jsonResponse.startsWith("[")) {
+                val jsonArray = JSONArray(jsonResponse)
+                if (jsonArray.length() > 0) targetJson = jsonArray.getJSONObject(0)
+            } else if (jsonResponse.startsWith("{")) {
+                targetJson = JSONObject(jsonResponse)
+            }
+
+            if (targetJson != null) {
+                // Función auxiliar para buscar propiedades anidadas en GeoJSON
+                fun getProp(key: String): String {
+                    // 1. Directo en raíz
+                    if (targetJson!!.has(key)) return targetJson!!.optString(key)
+                    
+                    // 2. En "properties"
+                    val props = targetJson!!.optJSONObject("properties")
+                    if (props != null && props.has(key)) return props.optString(key)
+                    
+                    // 3. En "features[0].properties"
+                    val features = targetJson!!.optJSONArray("features")
+                    if (features != null && features.length() > 0) {
+                        val fProps = features.getJSONObject(0).optJSONObject("properties")
+                        if (fProps != null && fProps.has(key)) return fProps.optString(key)
+                    }
+                    return ""
+                }
+
+                val prov = getProp("provincia")
+                val mun = getProp("municipio")
+                val pol = getProp("poligono")
+                
+                // Si no hay datos básicos, no es un recinto válido
+                if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext null
+
+                return@withContext mapOf(
+                    "provincia" to prov,
+                    "municipio" to mun,
+                    "agregado" to getProp("agregado"),
+                    "zona" to getProp("zona"),
+                    "poligono" to pol,
+                    "parcela" to getProp("parcela"),
+                    "recinto" to getProp("recinto"),
+                    "superficie" to getProp("superficie"), // m2
+                    "pendiente_media" to getProp("pendiente_media"),
+                    "altitud" to getProp("altitud_media"), // Mapeo altitud_media -> altitud
+                    "uso_sigpac" to getProp("uso_sigpac"),
+                    "subvencionabilidad" to getProp("coef_admisibilidad_pastos"), // CAP -> subvencionabilidad
+                    "coef_regadio" to getProp("coef_regadio"),
+                    "incidencias" to getProp("incidencias").replace("[", "").replace("]", "").replace("\"", ""), // Limpieza array
+                    "region" to getProp("region")
+                )
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return@withContext null
 }
 
 /**
@@ -308,17 +520,12 @@ private fun loadMapStyle(
     val tileUrl = if (baseMap == BaseMap.OSM) {
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     } else {
-        // PNOA WMTS (IGN España) - Compatible Google Maps
-        // Usamos la capa "OI.OrthoimageCoverage" (Ortoimagen) con TileMatrixSet GoogleMapsCompatible
+        // PNOA WMTS (IGN España)
         "https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&tilematrixset=GoogleMapsCompatible&tilematrix={z}&tilerow={y}&tilecol={x}"
     }
 
     val tileSet = TileSet("2.2.0", tileUrl)
-    if (baseMap == BaseMap.OSM) {
-        tileSet.attribution = "© OpenStreetMap contributors"
-    } else {
-        tileSet.attribution = "© IGN PNOA"
-    }
+    tileSet.attribution = if (baseMap == BaseMap.OSM) "© OpenStreetMap" else "© IGN PNOA"
     
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
     styleBuilder.withSource(rasterSource)
@@ -333,13 +540,7 @@ private fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                
-                // CRUCIAL: Permitir Overzoom. 
-                // El servidor da tiles hasta el nivel 15. Si el usuario hace zoom a 16, 17, 18,
-                // usamos los tiles del nivel 15 estirados.
-                tileSetCultivo.minZoom = 5f
-                tileSetCultivo.maxZoom = 15f
-                
+                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 15f
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -351,9 +552,7 @@ private fun loadMapStyle(
                     PropertyFactory.fillOutlineColor(Color.Yellow.toArgb())
                 )
                 style.addLayer(fillLayer)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
         // --- RECINTO (Líneas) ---
@@ -361,10 +560,7 @@ private fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                
-                // CRUCIAL: Permitir Overzoom también aquí.
-                tileSetRecinto.minZoom = 5f
-                tileSetRecinto.maxZoom = 15f
+                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
@@ -376,12 +572,9 @@ private fun loadMapStyle(
                     PropertyFactory.lineWidth(1.5f)
                 )
                 style.addLayer(lineLayer)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // 3. Restaurar configuración de ubicación
         if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
         }
@@ -390,7 +583,6 @@ private fun loadMapStyle(
 
 /**
  * Activa o restaura la ubicación.
- * @return true si se activó con éxito (hay permisos).
  */
 @SuppressLint("MissingPermission")
 private fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): Boolean {
@@ -405,22 +597,16 @@ private fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Bo
             
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
-            
             locationComponent.renderMode = RenderMode.COMPASS
 
             if (shouldCenter) {
-                // Solo movemos la cámara si se solicita explícitamente (inicio o botón click)
                 locationComponent.cameraMode = CameraMode.TRACKING
                 locationComponent.zoomWhileTracking(USER_TRACKING_ZOOM)
             } else {
-                // Si solo estamos refrescando capas, NO movemos la cámara
-                // Usamos NONE para ver el punto azul pero mantener el control manual
                 locationComponent.cameraMode = CameraMode.NONE
             }
             return true
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
     return false
 }

@@ -91,7 +91,8 @@ fun GeoSigpacApp() {
     }
     
     // Control de Pestañas (0 = Web, 1 = Mapa)
-    var selectedTab by remember { mutableIntStateOf(0) }
+    // CAMBIO: Iniciamos en 1 para abrir el Mapa primero
+    var selectedTab by remember { mutableIntStateOf(1) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
