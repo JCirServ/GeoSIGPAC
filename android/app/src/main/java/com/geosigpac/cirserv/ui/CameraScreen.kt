@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -68,31 +69,51 @@ fun CameraScreen(
     var sigpacUso by remember { mutableStateOf<String?>(null) }
     var isLoadingSigpac by remember { mutableStateOf(false) }
     
-    // Estado para controlar la ubicación y peticiones API
+    // Estado para controlar la ubicación
     var currentLocation by remember { mutableStateOf<Location?>(null) }
+    
+    // Estado para lógica de refresco (Distancia y Tiempo)
     var lastApiLocation by remember { mutableStateOf<Location?>(null) }
+    var lastApiTimestamp by remember { mutableStateOf(0L) }
 
-    // --- EFECTO PARA LLAMADA API ---
-    LaunchedEffect(currentLocation) {
-        val loc = currentLocation ?: return@LaunchedEffect
-        
-        // Evitar llamadas excesivas: Solo actualizar si nos hemos movido > 10 metros
-        // o si no tenemos datos previos.
-        val shouldFetch = lastApiLocation == null || loc.distanceTo(lastApiLocation!!) > 10f
-        
-        if (shouldFetch) {
-            lastApiLocation = loc
-            isLoadingSigpac = true
-            try {
-                val (ref, uso) = fetchRealSigpacData(loc.latitude, loc.longitude)
-                // Actualizamos siempre, incluso si es null (para limpiar si salimos de parcela válida)
-                sigpacRef = ref
-                sigpacUso = uso
-            } catch (e: Exception) {
-                Log.e("CameraScreen", "Error API SIGPAC Catch UI", e)
-            } finally {
-                isLoadingSigpac = false
+    // --- BUCLE HÍBRIDO: DISTANCIA (>3m) O TIEMPO (>5s) ---
+    LaunchedEffect(Unit) {
+        while (true) {
+            val loc = currentLocation
+            val now = System.currentTimeMillis()
+            
+            if (loc != null) {
+                // Cálculo de disparadores
+                val distance = if (lastApiLocation != null) loc.distanceTo(lastApiLocation!!) else Float.MAX_VALUE
+                val timeElapsed = now - lastApiTimestamp
+                
+                // CONDICIONES:
+                // 1. Primera vez (lastApiLocation es null)
+                // 2. Distancia > 3 metros
+                // 3. Tiempo > 5000 ms (5 segundos)
+                val shouldFetch = lastApiLocation == null || distance > 3.0f || timeElapsed > 5000
+                
+                if (shouldFetch && !isLoadingSigpac) {
+                    isLoadingSigpac = true
+                    
+                    // Actualizamos referencias ANTES de la llamada para evitar rebotes inmediatos
+                    lastApiLocation = loc
+                    lastApiTimestamp = now
+                    
+                    try {
+                        val (ref, uso) = fetchRealSigpacData(loc.latitude, loc.longitude)
+                        sigpacRef = ref
+                        sigpacUso = uso
+                    } catch (e: Exception) {
+                        Log.e("CameraScreen", "Error en bucle API SIGPAC", e)
+                    } finally {
+                        isLoadingSigpac = false
+                    }
+                }
             }
+            
+            // Verificamos cada 500ms para responder rápido al movimiento
+            delay(500)
         }
     }
 
@@ -365,7 +386,8 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
                 Log.e("SigpacDebug", "DATOS EXTRAÍDOS -> Prov:$prov Mun:$mun Pol:$pol Parc:$parc Rec:$rec Uso:$uso")
 
                 if (prov.isNotEmpty() && mun.isNotEmpty()) {
-                    val ref = "$prov-$mun-$pol-$parc-$rec"
+                    // CAMBIO: Separador cambiado a ':'
+                    val ref = "$prov:$mun:$pol:$parc:$rec"
                     return@withContext Pair(ref, uso)
                 } else {
                      Log.e("SigpacDebug", "DATOS INCOMPLETOS: Faltan provincia o municipio")
