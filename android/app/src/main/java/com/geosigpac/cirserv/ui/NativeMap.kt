@@ -9,8 +9,11 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -71,7 +74,9 @@ enum class BaseMap(val title: String) {
 @Composable
 fun NativeMap(
     targetLat: Double?,
-    targetLng: Double?
+    targetLng: Double?,
+    onNavigateToProjects: () -> Unit,
+    onOpenCamera: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -172,25 +177,28 @@ fun NativeMap(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Botón Menú
+        // --- COLUMNA DE CONTROLES (TOP-RIGHT) ---
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(16.dp),
+                .padding(top = 16.dp, end = 16.dp),
             horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            FloatingActionButton(
+            // 1. Botón Configuración (Capas)
+            SmallFloatingActionButton(
                 onClick = { showLayerMenu = !showLayerMenu },
                 containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.primary
+                contentColor = MaterialTheme.colorScheme.primary,
+                shape = CircleShape
             ) {
                 Icon(Icons.Default.Settings, contentDescription = "Capas")
             }
 
+            // Menú Desplegable de Capas
             AnimatedVisibility(visible = showLayerMenu) {
                 Card(
-                    modifier = Modifier.width(240.dp),
+                    modifier = Modifier.width(200.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                 ) {
@@ -209,9 +217,10 @@ fun NativeMap(
                                 RadioButton(
                                     selected = (currentBaseMap == base),
                                     onClick = { currentBaseMap = base },
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Text(base.title, fontSize = 14.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(base.title, fontSize = 13.sp)
                             }
                         }
 
@@ -222,23 +231,51 @@ fun NativeMap(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().clickable { showRecinto = !showRecinto }
                         ) {
-                            Checkbox(checked = showRecinto, onCheckedChange = { showRecinto = it })
-                            Text("Recintos", fontSize = 14.sp)
+                            Checkbox(
+                                checked = showRecinto, 
+                                onCheckedChange = { showRecinto = it },
+                                modifier = Modifier.size(30.dp).padding(4.dp)
+                            )
+                            Text("Recintos", fontSize = 13.sp)
                         }
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }
                         ) {
-                            Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it })
-                            Text("Cultivos", fontSize = 14.sp)
+                            Checkbox(
+                                checked = showCultivo, 
+                                onCheckedChange = { showCultivo = it },
+                                modifier = Modifier.size(30.dp).padding(4.dp)
+                            )
+                            Text("Cultivos", fontSize = 13.sp)
                         }
                     }
                 }
             }
+            
+            // 2. Botón Proyectos (Volver a la Web)
+            SmallFloatingActionButton(
+                onClick = onNavigateToProjects,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = Color(0xFF006D3E), // Primary green
+                shape = CircleShape
+            ) {
+                Icon(Icons.Default.List, contentDescription = "Proyectos")
+            }
+            
+            // 3. Botón Cámara (Acceso Rápido)
+            SmallFloatingActionButton(
+                onClick = onOpenCamera,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = Color(0xFF006D3E),
+                shape = CircleShape
+            ) {
+                Icon(Icons.Default.CameraAlt, contentDescription = "Cámara")
+            }
         }
 
-        // Botón GPS (Forzar centrado manual)
+        // --- BOTÓN CENTRAR UBICACIÓN (BOTTOM-RIGHT) ---
         FloatingActionButton(
             onClick = {
                 // Al pulsar el botón explícitamente, SÍ queremos centrar (true)
@@ -248,9 +285,11 @@ fun NativeMap(
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
             containerColor = MaterialTheme.colorScheme.secondary,
-            contentColor = Color.White
+            contentColor = Color.White,
+            shape = CircleShape
         ) {
-            Icon(Icons.Default.LocationOn, contentDescription = "Ubicación")
+            // Icono cambiado a "Center View" (Diana)
+            Icon(Icons.Default.MyLocation, contentDescription = "Centrar Ubicación")
         }
     }
 }

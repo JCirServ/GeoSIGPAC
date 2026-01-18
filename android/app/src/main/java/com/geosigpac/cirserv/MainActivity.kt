@@ -13,16 +13,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -125,56 +117,40 @@ fun GeoSigpacApp() {
     }
 
     // --- RENDERIZADO ---
-    if (isCameraOpen) {
-        // PANTALLA CÁMARA (Modal Pantalla Completa)
-        CameraScreen(
-            onImageCaptured = { uri ->
-                isCameraOpen = false
-                val pid = currentProjectId
-                if (pid != null) {
-                    scope.launch {
-                        val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
-                        webViewRef?.evaluateJavascript(jsCode, null)
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        if (isCameraOpen) {
+            // PANTALLA CÁMARA (Modal Pantalla Completa)
+            CameraScreen(
+                onImageCaptured = { uri ->
+                    isCameraOpen = false
+                    val pid = currentProjectId
+                    if (pid != null) {
+                        scope.launch {
+                            val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
+                            webViewRef?.evaluateJavascript(jsCode, null)
+                        }
+                    } else {
+                        Toast.makeText(context, "Foto capturada (Sin proyecto asociado)", Toast.LENGTH_SHORT).show()
                     }
+                },
+                onError = { exc ->
+                    Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
+                    isCameraOpen = false
+                },
+                onClose = { isCameraOpen = false },
+                onGoToMap = {
+                    // Cerrar cámara y navegar al mapa
+                    isCameraOpen = false
+                    selectedTab = 1
                 }
-            },
-            onError = { exc ->
-                Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
-                isCameraOpen = false
-            },
-            onClose = { isCameraOpen = false },
-            onGoToMap = {
-                // Cerrar cámara y navegar al mapa
-                isCameraOpen = false
-                selectedTab = 1
-            }
-        )
-    } else {
-        // PANTALLA PRINCIPAL CON PESTAÑAS
-        Scaffold(
-            bottomBar = {
-                NavigationBar {
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Filled.Home, contentDescription = "Proyectos") },
-                        label = { Text("Proyectos") },
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 }
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Filled.LocationOn, contentDescription = "Mapa") },
-                        label = { Text("Mapa") },
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 }
-                    )
-                }
-            }
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding) // Respetar el espacio de la barra inferior
-            ) {
-                // Renderizado Condicional de Vistas
+            )
+        } else {
+            // NAVEGACIÓN PRINCIPAL
+            // Usamos Box para superponer o cambiar vistas sin BottomBar
+            Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
                     0 -> WebProjectManager(
                         webAppInterface = webAppInterface,
@@ -182,7 +158,12 @@ fun GeoSigpacApp() {
                     )
                     1 -> NativeMap(
                         targetLat = mapTarget?.first,
-                        targetLng = mapTarget?.second
+                        targetLng = mapTarget?.second,
+                        onNavigateToProjects = { selectedTab = 0 },
+                        onOpenCamera = {
+                            currentProjectId = null // Foto general desde el mapa
+                            isCameraOpen = true
+                        }
                     )
                 }
             }
