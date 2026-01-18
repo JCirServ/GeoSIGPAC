@@ -16,15 +16,20 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.List
@@ -36,12 +41,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -147,7 +156,10 @@ fun NativeMap(
     // Estado Búsqueda
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
-    var searchActive by remember { mutableStateOf(false) } // Si hay un resultado activo
+    var searchActive by remember { mutableStateOf(false) }
+    
+    // TECLADO PERSONALIZADO
+    var showCustomKeyboard by remember { mutableStateOf(false) }
 
     // Estado de datos SIGPAC
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
@@ -192,6 +204,7 @@ fun NativeMap(
     // --- FUNCIÓN DE BÚSQUEDA ---
     fun performSearch() {
         if (searchQuery.isBlank()) return
+        showCustomKeyboard = false // Ocultar teclado
         focusManager.clearFocus()
         isSearching = true
         searchActive = true
@@ -199,7 +212,7 @@ fun NativeMap(
         // Formato: PROV:MUN:POL:PARC[:REC]
         val parts = searchQuery.split(":").map { it.trim() }
         if (parts.size < 4) {
-            Toast.makeText(context, "Formato incorrecto. Use: Prov:Mun:Pol:Parcela", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
             isSearching = false
             return
         }
@@ -241,7 +254,7 @@ fun NativeMap(
             
             if (bbox != null) {
                 mapInstance?.animateCamera(
-                    CameraUpdateFactory.newLatLngBounds(bbox, 100), // Padding
+                    CameraUpdateFactory.newLatLngBounds(bbox, 100),
                     1500
                 )
             } else {
@@ -262,7 +275,6 @@ fun NativeMap(
 
     // --- LÓGICA DE PROCESAMIENTO DE MAPA ---
     fun updateMapState(map: MapLibreMap, isIdle: Boolean) {
-        // Si hay una búsqueda activa, NO sobrescribimos el resaltado con la cruz central
         if (searchActive) return
 
         val center = map.cameraPosition.target ?: return
@@ -277,7 +289,6 @@ fun NativeMap(
 
         val screenPoint = map.projection.toScreenLocation(center)
 
-        // 1. Detectar RECINTO bajo la cruz
         val features = map.queryRenderedFeatures(screenPoint, LAYER_RECINTO_FILL)
         if (features.isNotEmpty()) {
             val feature = features[0]
@@ -332,7 +343,6 @@ fun NativeMap(
             }
         }
 
-        // 2. DETECTAR CULTIVO
         val cultFeatures = map.queryRenderedFeatures(screenPoint, LAYER_CULTIVO_FILL)
         if (cultFeatures.isNotEmpty()) {
              val props = cultFeatures[0].properties()
@@ -345,7 +355,6 @@ fun NativeMap(
             cultivoData = null
         }
         
-        // 3. API
         if (isIdle) {
             isLoadingData = true
             isPanelExpanded = false
@@ -415,13 +424,15 @@ fun NativeMap(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Cruz central (Solo visible si no estamos buscando activamente, opcional)
-        Box(
-            modifier = Modifier.align(Alignment.Center),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.Add, null, tint = Color.Black.copy(0.5f), modifier = Modifier.size(38.dp))
-            Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
+        // Cruz central
+        if (!isSearching && !showCustomKeyboard) {
+            Box(
+                modifier = Modifier.align(Alignment.Center),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Add, null, tint = Color.Black.copy(0.5f), modifier = Modifier.size(38.dp))
+                Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
+            }
         }
 
         // --- BUSCADOR (TOP LEFT) ---
@@ -429,32 +440,45 @@ fun NativeMap(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(top = 16.dp, start = 16.dp, end = 16.dp)
-                .fillMaxWidth(0.65f) // Ocupa 65% del ancho
+                .fillMaxWidth(0.65f)
         ) {
+            // Usamos un TextField 'falso' o de solo lectura que activa el teclado custom
+            // para evitar que salga el teclado de sistema.
+            val interactionSource = remember { MutableInteractionSource() }
+            
+            LaunchedEffect(interactionSource) {
+                interactionSource.interactions.collect { interaction ->
+                    if (interaction is PressInteraction.Release) {
+                        showCustomKeyboard = true
+                        isPanelExpanded = false // Colapsar panel inferior si está abierto
+                    }
+                }
+            }
+
             TextField(
                 value = searchQuery,
-                onValueChange = { searchQuery = it },
+                onValueChange = { /* No hacer nada, se controla por el teclado custom */ },
                 placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 12.sp) },
                 singleLine = true,
                 maxLines = 1,
+                readOnly = true, // IMPORTANTE: Bloquea teclado nativo
+                interactionSource = interactionSource,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { performSearch() }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
                     unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
-                    focusedIndicatorColor = FieldGreen,
+                    focusedIndicatorColor = if(showCustomKeyboard) FieldGreen else Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
                     cursorColor = FieldGreen
                 ),
                 shape = RoundedCornerShape(8.dp),
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { clearSearch() }) {
+                        IconButton(onClick = { clearSearch(); showCustomKeyboard = false }) {
                             Icon(Icons.Default.Close, "Borrar", tint = Color.Gray)
                         }
                     } else {
-                        IconButton(onClick = { performSearch() }) {
+                        IconButton(onClick = { showCustomKeyboard = true }) {
                             Icon(Icons.Default.Search, "Buscar", tint = FieldGreen)
                         }
                     }
@@ -464,7 +488,6 @@ fun NativeMap(
         }
 
         // --- BOTONES (TOP END) ---
-        // Desplazados hacia abajo para no chocar con el buscador
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -541,121 +564,117 @@ fun NativeMap(
             }
         }
 
-        // BOTTOM SHEET
-        AnimatedVisibility(
-            visible = recintoData != null || (cultivoData != null && showCultivo),
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            val displayData = recintoData ?: cultivoData
-            displayData?.let { data ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(0.dp)
-                        .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-                        .pointerInput(Unit) {
-                            detectVerticalDragGestures { change, dragAmount ->
-                                change.consume()
-                                if (dragAmount < -20) {
-                                    isPanelExpanded = true
-                                } else if (dragAmount > 20) {
-                                    isPanelExpanded = false
+        // BOTTOM SHEET (Info)
+        // Solo visible si NO estamos escribiendo
+        if (!showCustomKeyboard) {
+            AnimatedVisibility(
+                visible = recintoData != null || (cultivoData != null && showCultivo),
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it }),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                val displayData = recintoData ?: cultivoData
+                displayData?.let { data ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(0.dp)
+                            .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                            .pointerInput(Unit) {
+                                detectVerticalDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    if (dragAmount < -20) isPanelExpanded = true else if (dragAmount > 20) isPanelExpanded = false
+                                }
+                            },
+                        colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
+                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
+                                Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Column {
+                                    Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
+                                    Text(
+                                        text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FieldGreen 
+                                    )
+                                }
+                                IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite)
                                 }
                             }
-                        },
-                    colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
-                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Column {
-                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
-                                Text(
-                                    text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = FieldGreen 
-                                )
-                            }
-                            IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite)
-                            }
-                        }
-                        
-                        Divider(color = FieldDivider)
-
-                        val hasCultivo = cultivoData != null
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).background(FieldSurface).padding(4.dp), 
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
-                            }
-                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
-                            }
-                        }
-                        
-                        if (isPanelExpanded) {
+                            
                             Divider(color = FieldDivider)
-                            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
-                                if (selectedTab == 0) {
-                                    if (recintoData != null) {
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
-                                            AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f))
+
+                            val hasCultivo = cultivoData != null
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).background(FieldSurface).padding(4.dp), 
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
+                                }
+                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
+                                }
+                            }
+                            
+                            if (isPanelExpanded) {
+                                Divider(color = FieldDivider)
+                                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                                    if (selectedTab == 0) {
+                                        if (recintoData != null) {
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
+                                                AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f))
+                                            }
+                                            Spacer(Modifier.height(12.dp))
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f))
+                                                AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f))
+                                            }
+                                            Spacer(Modifier.height(12.dp))
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f))
+                                                AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f))
+                                            }
+                                            Spacer(Modifier.height(12.dp))
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
+                                                AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
+                                            }
                                         }
-                                        Spacer(Modifier.height(12.dp))
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f))
-                                            AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f))
+                                    } else {
+                                        if (cultivoData != null) {
+                                            val c = cultivoData!!
+                                            Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f)); AttributeItem("Año", c["exp_ano"], Modifier.weight(1f)) }
+                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f)); val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0; val supCultHa = supCultRaw / 10000.0; AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f)) }
+                                            Spacer(Modifier.height(8.dp))
+                                            Row(Modifier.fillMaxWidth()) { val sist = c["parc_sistexp"]; val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }; AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f)); AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f)) }
+                                            Spacer(Modifier.height(8.dp))
+                                            AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
+                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
+                                            Spacer(Modifier.height(4.dp))
+                                            AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
+                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f)) }
                                         }
-                                        Spacer(Modifier.height(12.dp))
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f))
-                                            AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f))
-                                        }
-                                        Spacer(Modifier.height(12.dp))
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
-                                            AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f))
-                                        }
-                                    }
-                                } else {
-                                    if (cultivoData != null) {
-                                        val c = cultivoData!!
-                                        Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                        Row(Modifier.fillMaxWidth()) { AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f)); AttributeItem("Año", c["exp_ano"], Modifier.weight(1f)) }
-                                        Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                        Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                        Row(Modifier.fillMaxWidth()) { AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f)); val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0; val supCultHa = supCultRaw / 10000.0; AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f)) }
-                                        Spacer(Modifier.height(8.dp))
-                                        Row(Modifier.fillMaxWidth()) { val sist = c["parc_sistexp"]; val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }; AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f)); AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f)) }
-                                        Spacer(Modifier.height(8.dp))
-                                        AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
-                                        Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                        Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                        AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
-                                        Spacer(Modifier.height(4.dp))
-                                        AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
-                                        Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                        Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                        Row(Modifier.fillMaxWidth()) { AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f)) }
                                     }
                                 }
                             }
@@ -663,6 +682,105 @@ fun NativeMap(
                     }
                 }
             }
+        }
+
+        // --- TECLADO PERSONALIZADO ---
+        AnimatedVisibility(
+            visible = showCustomKeyboard,
+            enter = slideInVertically(initialOffsetY = { it }),
+            exit = slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            CustomSigpacKeyboard(
+                onKey = { char -> searchQuery += char },
+                onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
+                onSearch = { performSearch() },
+                onClose = { showCustomKeyboard = false }
+            )
+        }
+    }
+}
+
+// --- COMPONENTE TECLADO PERSONALIZADO ---
+@Composable
+fun CustomSigpacKeyboard(
+    onKey: (String) -> Unit,
+    onBackspace: () -> Unit,
+    onSearch: () -> Unit,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(FieldSurface)
+            .padding(8.dp)
+            .navigationBarsPadding() // Respeta barra de navegación Android
+    ) {
+        // Cabecera del teclado
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("TECLADO SIGPAC", color = FieldGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 8.dp))
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, "Cerrar", tint = FieldGray)
+            }
+        }
+
+        val rows = listOf(
+            listOf("1", "2", "3"),
+            listOf("4", "5", "6"),
+            listOf("7", "8", "9"),
+            listOf(":", "0", "DEL")
+        )
+
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                row.forEach { key ->
+                    val weight = 1f
+                    Box(
+                        modifier = Modifier
+                            .weight(weight)
+                            .height(55.dp) // Botones grandes para dedos
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(FieldBackground)
+                            .clickable {
+                                if (key == "DEL") onBackspace() else onKey(key)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (key == "DEL") {
+                            Icon(Icons.Default.Backspace, "Borrar", tint = HighContrastWhite)
+                        } else {
+                            Text(
+                                text = key, 
+                                style = MaterialTheme.typography.headlineMedium, 
+                                fontWeight = FontWeight.Bold, 
+                                color = HighContrastWhite
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        
+        // Botón Buscar Gigante
+        Button(
+            onClick = onSearch,
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = FieldGreen),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Icon(Icons.Default.Search, null, tint = Color.White)
+            Spacer(Modifier.width(8.dp))
+            Text("BUSCAR PARCELA", fontWeight = FontWeight.Bold, color = Color.White)
         }
     }
 }
@@ -681,36 +799,22 @@ fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) 
 }
 
 // --- FUNCIONES API (WFS & INFO) ---
-
-// Busca ubicación usando el WFS nacional (Mapama)
 private suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): LatLngBounds? = withContext(Dispatchers.IO) {
     try {
-        // Construcción de consulta WFS (Estándar OGC)
-        // Usamos el servicio del Ministerio (WMS/WFS SIGPAC)
         val baseUrl = "https://wms.mapama.gob.es/sigpac/wfs"
-        
-        // El filtro CQL depende de si buscamos PARCELA o RECINTO
-        // Nota: El servicio suele tener capas 'SIGPAC:PARCELA' o 'SIGPAC:RECINTO'
         val typeName = if (rec != null) "SIGPAC:RECINTO" else "SIGPAC:PARCELA"
-        
-        // Filtro CQL estandarizado
         var cql = "PROVINCIA='$prov' AND MUNICIPIO='$mun' AND POLIGONO='$pol' AND PARCELA='$parc'"
         if (rec != null) {
             cql += " AND RECINTO='$rec'"
         }
-        
-        // URL completa
         val encodedCql = java.net.URLEncoder.encode(cql, "UTF-8")
         val urlString = "$baseUrl?service=WFS&request=GetFeature&version=2.0.0&typeNames=$typeName&outputFormat=application/json&cql_filter=$encodedCql"
-        
         Log.d("SEARCH_WFS", "Query: $urlString")
-        
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 8000
         connection.readTimeout = 8000
         connection.requestMethod = "GET"
-        
         if (connection.responseCode == 200) {
             val reader = BufferedReader(InputStreamReader(connection.inputStream))
             val response = StringBuilder()
@@ -718,14 +822,11 @@ private suspend fun searchParcelLocation(prov: String, mun: String, pol: String,
             while (reader.readLine().also { line = it } != null) response.append(line)
             reader.close()
             connection.disconnect()
-            
             val json = JSONObject(response.toString())
             val features = json.optJSONArray("features")
             if (features != null && features.length() > 0) {
-                // Obtenemos el Bounding Box (bbox) del GeoJSON
                 val feature = features.getJSONObject(0)
-                val bbox = feature.optJSONArray("bbox") // [minLon, minLat, maxLon, maxLat]
-                
+                val bbox = feature.optJSONArray("bbox") 
                 if (bbox != null && bbox.length() == 4) {
                     return@withContext LatLngBounds.from(
                         bbox.getDouble(3), // North
