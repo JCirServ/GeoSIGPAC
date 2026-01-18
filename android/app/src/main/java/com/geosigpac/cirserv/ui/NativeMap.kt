@@ -380,7 +380,7 @@ fun NativeMap(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(8.dp)
-                        .heightIn(max = 450.dp),
+                        .heightIn(max = 500.dp), // Aumentamos altura máxima para mostrar todos los datos
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                 ) {
@@ -440,10 +440,12 @@ fun NativeMap(
                         // CONTENIDO
                         Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
                             if (selectedTab == 0) {
+                                // --- VISTA RECINTO ---
                                 if (recintoData != null) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
-                                        AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f))
+                                        // CAMBIO: Se muestra en áreas, sin conversión a Ha
+                                        AttributeItem("Superficie", "${recintoData!!["superficie"]} áreas", Modifier.weight(1f))
                                     }
                                     Spacer(Modifier.height(12.dp))
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -464,35 +466,63 @@ fun NativeMap(
                                     Text("Cargando datos de recinto...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                                 }
                             } else {
+                                // --- VISTA CULTIVO (EXPANDIDA) ---
                                 if (cultivoData != null) {
                                     val c = cultivoData!!
-                                    Text("Datos de Expediente", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom=8.dp))
+                                    
+                                    // 1. Identificación SIGPAC (Desde capa cultivo)
+                                    Text("Identificación (Capa Cultivo)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                    val refString = "${c["provincia"]}/${c["municipio"]}/${c["agregado"]}/${c["zona"]}/${c["poligono"]}/${c["parcela"]}/${c["recinto"]}"
+                                    Text(refString, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom=8.dp))
+                                    
+                                    Divider(Modifier.padding(vertical=6.dp))
+
+                                    // 2. Expediente
+                                    Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
                                     Row(Modifier.fillMaxWidth()) {
-                                        AttributeItem("Expediente", "${c["exp_num"]} (${c["exp_ano"]})", Modifier.weight(1f))
+                                        AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f))
+                                        AttributeItem("Año", c["exp_ano"], Modifier.weight(1f))
                                         AttributeItem("Prov. Exp", c["exp_provincia"], Modifier.weight(1f))
                                     }
-                                    Spacer(Modifier.height(12.dp))
-                                    Text("Detalles Parcela Agrícola", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=8.dp))
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(Modifier.fillMaxWidth()) {
+                                        AttributeItem("CA Exp", c["exp_ca"], Modifier.weight(1f))
+                                        Spacer(Modifier.weight(2f)) // Espaciador para alinear
+                                    }
+                                    
+                                    Divider(Modifier.padding(vertical=6.dp))
+
+                                    // 3. Datos Cultivo
+                                    Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
                                     Row(Modifier.fillMaxWidth()) {
                                         AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f))
-                                        AttributeItem("Superficie Cult.", "${c["parc_supcult"]} áreas", Modifier.weight(1f))
+                                        AttributeItem("Superficie", "${c["parc_supcult"]} áreas", Modifier.weight(1f))
                                     }
                                     Spacer(Modifier.height(8.dp))
                                     Row(Modifier.fillMaxWidth()) {
                                         val sist = c["parc_sistexp"]
-                                        val sistLabel = if (sist == "S") "Secano" else if (sist == "R") "Regadío" else sist
-                                        AttributeItem("Sistema Exp.", sistLabel, Modifier.weight(1f))
-                                        AttributeItem("Indicador Cult.", c["parc_indcultapro"], Modifier.weight(1f))
+                                        val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }
+                                        AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f))
+                                        AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f))
                                     }
                                     Spacer(Modifier.height(8.dp))
-                                    AttributeItem("Ayudas Solicitadas", c["parc_ayudasol"]?.takeIf { it != "null" } ?: "-", Modifier.fillMaxWidth())
-                                    if ((c["cultsecun_producto"] != "0" && c["cultsecun_producto"] != null) || (c["tipo_aprovecha"] != null && c["tipo_aprovecha"] != "null")) {
-                                        Divider(Modifier.padding(vertical=8.dp))
-                                        Text("Otros / Secundario", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom=8.dp))
-                                        Row(Modifier.fillMaxWidth()) {
-                                            AttributeItem("Cult. Secundario", c["cultsecun_producto"]?.takeIf { it != "0" }, Modifier.weight(1f))
-                                            AttributeItem("Tipo Aprovecha.", c["tipo_aprovecha"], Modifier.weight(1f))
-                                        }
+                                    AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
+
+                                    Divider(Modifier.padding(vertical=6.dp))
+                                    
+                                    // 4. Ayudas
+                                    Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                    AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
+                                    Spacer(Modifier.height(4.dp))
+                                    AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
+
+                                    Divider(Modifier.padding(vertical=6.dp))
+
+                                    // 5. Cultivo Secundario
+                                    Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical=4.dp))
+                                    Row(Modifier.fillMaxWidth()) {
+                                        AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f))
+                                        AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f))
                                     }
                                 }
                             }
@@ -509,7 +539,7 @@ fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) 
     Column(modifier = modifier) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
         Text(
-            text = if (value.isNullOrEmpty() || value == "null") "-" else value, 
+            text = if (value.isNullOrEmpty() || value == "null" || value == "0") "-" else value, 
             style = MaterialTheme.typography.bodyMedium, 
             fontWeight = FontWeight.SemiBold
         )
@@ -567,20 +597,14 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                 if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext null
 
                 // --- CORRECCIÓN SUPERFICIE ---
-                // La API devuelve metros cuadrados (m2).
-                // Obtenemos el valor crudo, lo convertimos a double, y dividimos UNA vez por 10,000 para Hectáreas.
+                // CAMBIO: No dividimos por 10000. Se trata como "áreas".
                 val superficieRaw = getProp("superficie")
-                val superficieM2 = superficieRaw.toDoubleOrNull() ?: 0.0
-                val superficieHa = superficieM2 / 10000.0
-                Log.d("API_SIGPAC", "Superficie: Raw=$superficieRaw, M2=$superficieM2, Ha=$superficieHa")
                 
                 // --- CORRECCIÓN ALTITUD ---
-                // Buscamos 'altitud', si está vacío buscamos 'altitud_media'.
                 var altitudVal = getProp("altitud")
                 if (altitudVal.isEmpty()) {
                     altitudVal = getProp("altitud_media")
                 }
-                Log.d("API_SIGPAC", "Altitud encontrada: $altitudVal")
 
                 return@withContext mapOf(
                     "provincia" to prov,
@@ -590,7 +614,7 @@ private suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, S
                     "poligono" to pol,
                     "parcela" to getProp("parcela"),
                     "recinto" to getProp("recinto"),
-                    "superficie" to String.format(Locale.US, "%.4f", superficieHa),
+                    "superficie" to superficieRaw, // Raw value
                     "pendiente_media" to getProp("pendiente_media"),
                     "altitud" to altitudVal,
                     "uso_sigpac" to getProp("uso_sigpac"),
