@@ -52,6 +52,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    // Iconos extendidos (CameraAlt, MyLocation, etc.)
+    implementation(libs.androidx.material.icons.extended)
     
     // --- Funcionalidades Híbridas ---
     
