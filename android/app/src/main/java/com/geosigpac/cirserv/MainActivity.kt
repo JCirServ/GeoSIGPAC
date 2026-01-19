@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -46,7 +47,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         // --- MODO INMERSIVO (OCULTAR BARRAS) ---
-        // Oculta la barra de estado y la barra de navegación para una experiencia Full Screen
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -79,12 +79,10 @@ fun GeoSigpacApp() {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     
     // --- ESTADO DE SESIÓN DE FOTOS (Persistencia) ---
-    // Inicializamos SharedPreferences
     val sharedPrefs = remember {
         context.getSharedPreferences("geosigpac_prefs", Context.MODE_PRIVATE)
     }
 
-    // Cargamos estado guardado o usamos valores por defecto
     var sessionLastUri by remember {
         val savedUriString = sharedPrefs.getString("last_photo_uri", null)
         mutableStateOf(if (savedUriString != null) Uri.parse(savedUriString) else null)
@@ -95,7 +93,6 @@ fun GeoSigpacApp() {
     }
     
     // Control de Pestañas (0 = Web, 1 = Mapa)
-    // CAMBIO: Iniciamos en 1 para abrir el Mapa primero
     var selectedTab by remember { mutableIntStateOf(1) }
 
     val launcher = rememberLauncherForActivityResult(
@@ -103,7 +100,6 @@ fun GeoSigpacApp() {
         onResult = { perms ->
             val cameraGranted = perms[Manifest.permission.CAMERA] == true
             hasPermissions = cameraGranted
-            // Si se conceden los permisos ahora, abrir la cámara automáticamente
             if (cameraGranted) {
                 isCameraOpen = true
             }
@@ -136,9 +132,7 @@ fun GeoSigpacApp() {
                 }
             },
             onMapFocusRequested = { lat, lng ->
-                // 1. Actualizar coordenadas del mapa
                 mapTarget = lat to lng
-                // 2. Cambiar automáticamente a la pestaña del mapa
                 selectedTab = 1
             }
         )
@@ -149,51 +143,54 @@ fun GeoSigpacApp() {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        // Usamos Box para apilar capas en lugar de reemplazar componentes condicionalmente.
-        // Esto evita que NativeMap sea destruido (onDestroy) cuando se abre la cámara.
+        // Usamos Box para mantener todos los componentes vivos
         Box(modifier = Modifier.fillMaxSize()) {
             
             // 1. CAPA MAPA (Fondo)
-            // NativeMap maneja su pausa/reanuda internamente via 'isVisible'
             NativeMap(
                 targetLat = mapTarget?.first,
                 targetLng = mapTarget?.second,
                 isVisible = (!isCameraOpen && selectedTab == 1), 
                 onNavigateToProjects = { selectedTab = 0 },
                 onOpenCamera = {
-                    currentProjectId = null // Foto general desde el mapa
+                    currentProjectId = null 
                     isCameraOpen = true
                 }
             )
 
             // 2. CAPA WEB (Intermedia)
-            // Se muestra sobre el mapa si estamos en tab 0 y sin cámara
-            if (!isCameraOpen && selectedTab == 0) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
-                ) {
-                    WebProjectManager(
-                        webAppInterface = webAppInterface,
-                        onWebViewCreated = { webView -> webViewRef = webView },
-                        onNavigateToMap = { selectedTab = 1 },
-                        onOpenCamera = {
-                            currentProjectId = null
-                            isCameraOpen = true
-                        }
-                    )
-                }
+            // CAMBIO: Si estamos en la tab de proyectos (0), mantenemos la web visible (alpha 1)
+            // incluso si la cámara se abre. La cámara cubrirá la web al estar en una capa superior (Z-index).
+            // Esto evita que la web desaparezca antes de que la cámara cargue, revelando el mapa de fondo.
+            val isWebVisible = (selectedTab == 0)
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .graphicsLayer {
+                        alpha = if (isWebVisible) 1f else 0f
+                        // Solo la movemos fuera si realmente cambiamos de tab, no por la cámara
+                        translationX = if (isWebVisible) 0f else 9999f
+                    }
+            ) {
+                WebProjectManager(
+                    webAppInterface = webAppInterface,
+                    onWebViewCreated = { webView -> webViewRef = webView },
+                    onNavigateToMap = { selectedTab = 1 },
+                    onOpenCamera = {
+                        currentProjectId = null
+                        isCameraOpen = true
+                    }
+                )
             }
             
             // 3. CAPA CÁMARA (Superior - Modal)
             if (isCameraOpen) {
-                // Permite usar el botón atrás físico para cerrar la cámara
                 BackHandler {
                     isCameraOpen = false
                 }
                 
-                // Fondo negro para cubrir todo
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -204,12 +201,10 @@ fun GeoSigpacApp() {
                         lastCapturedUri = sessionLastUri, 
                         photoCount = sessionPhotoCount,   
                         onImageCaptured = { uri ->
-                            // 1. Actualizar Estado
                             sessionLastUri = uri
                             val newCount = sessionPhotoCount + 1
                             sessionPhotoCount = newCount
                             
-                            // 2. Persistir
                             sharedPrefs.edit().apply {
                                 putString("last_photo_uri", uri.toString())
                                 putInt("photo_count", newCount)
@@ -227,7 +222,6 @@ fun GeoSigpacApp() {
                         },
                         onError = { exc ->
                             Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
-                            // isCameraOpen = false // No cerramos automáticamente para evitar frustración
                         },
                         onClose = { isCameraOpen = false },
                         onGoToMap = {
