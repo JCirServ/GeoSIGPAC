@@ -31,7 +31,6 @@ fun WebProjectManager(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
             NavigationBar {
-                // Botón: Ir al Mapa
                 NavigationBarItem(
                     selected = false,
                     onClick = onNavigateToMap,
@@ -44,7 +43,6 @@ fun WebProjectManager(
                     label = { Text("Mapa") }
                 )
                 
-                // Botón: Abrir Cámara (Icono Extended)
                 NavigationBarItem(
                     selected = false,
                     onClick = onOpenCamera,
@@ -62,28 +60,29 @@ fun WebProjectManager(
         AndroidView(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding), // Evita que la barra tape el contenido web
+                .padding(innerPadding),
             factory = { context ->
                 WebView(context).apply {
-                    // Configuración esencial para apps híbridas modernas
                     settings.apply {
                         javaScriptEnabled = true
                         domStorageEnabled = true
-                        allowFileAccess = true // Necesario para cargar assets locales y fotos de la cámara
+                        allowFileAccess = true
                         allowContentAccess = true
+                        // Ajustes críticos para cargar módulos desde file:///
+                        allowFileAccessFromFileURLs = true
+                        allowUniversalAccessFromFileURLs = true
+                        // Forzar el modo oscuro si el sistema lo requiere o mantener claro
+                        databaseEnabled = true
                     }
 
-                    // Inyectar el puente JS
                     addJavascriptInterface(webAppInterface, "Android")
 
-                    // Clientes para manejo de errores y consola
                     webViewClient = WebViewClient()
-                    webChromeClient = WebChromeClient() // Habilita alerts y logs de JS en Logcat
+                    webChromeClient = WebChromeClient()
 
-                    // Cargar la Single Page Application (SPA) desde assets
+                    // Importante: Asegúrate de haber ejecutado 'npm run build' antes
                     loadUrl("file:///android_asset/index.html")
                     
-                    // Callback para guardar referencia si es necesario
                     onWebViewCreated(this)
                 }
             }
