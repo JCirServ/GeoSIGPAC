@@ -107,41 +107,51 @@ fun NativeMap(
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    // Inicializar MapLibre (Singleton)
     remember { MapLibre.getInstance(context) }
 
-    // Mantenemos la instancia del MapView en memoria a través de las recomposiciones
-    // para que la configuración sobreviva, pero se destruirá en onDispose (al salir de la pantalla).
+    // Creamos la instancia del MapView dentro de remember.
+    // Usamos apply para inicializarlo inmediatamente (onCreate).
     val mapView = remember {
         MapView(context).apply {
             onCreate(Bundle())
-            // Iniciamos ciclo de vida
-            onStart()
-            onResume()
         }
     }
 
-    // --- GESTIÓN DEL CICLO DE VIDA ---
+    // --- GESTIÓN ROBUSTA DEL CICLO DE VIDA ---
     DisposableEffect(lifecycleOwner) {
+        // Observer: Maneja eventos del sistema (minimizar app, rotar pantalla)
         val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
-                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
-                else -> {}
+            try {
+                when (event) {
+                    Lifecycle.Event.ON_START -> mapView.onStart()
+                    Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                    Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                    Lifecycle.Event.ON_STOP -> mapView.onStop()
+                    Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                    else -> {}
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error en ciclo de vida MapView: ${e.message}")
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
 
+        // Iniciamos el mapa inmediatamente si el ciclo de vida lo permite
+        mapView.onStart()
+        mapView.onResume()
+
         onDispose {
-            Log.d(TAG, "NativeMap Disposed (Limpieza Final)")
+            Log.d(TAG, "NativeMap Disposing... Starting clean shutdown sequence.")
             lifecycleOwner.lifecycle.removeObserver(observer)
             try {
-                // Al salir de esta pantalla (ir a Cámara o Proyectos), destruimos el mapa.
+                // CRÍTICO: MapLibre crashea si pasas de Resume a Destroy.
+                // Debemos bajar los estados manualmente al salir de la composición.
+                mapView.onPause()
+                mapView.onStop()
                 mapView.onDestroy()
             } catch (e: Exception) {
-                Log.e(TAG, "Error cleaning up MapView: ${e.message}")
+                Log.e(TAG, "Error cleaning up MapView in onDispose: ${e.message}")
             }
         }
     }
