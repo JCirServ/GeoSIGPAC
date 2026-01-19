@@ -1,57 +1,75 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Project } from '../types';
-import { getNativeProjects } from '../services/bridge';
 
-const INITIAL_MOCK_PROJECTS: Project[] = [
-  {
-    id: 'p1',
-    name: 'Parcela 102 - Olivos',
-    description: 'Revisión de sistema de riego y conteo de árboles.',
-    lat: 37.3891,
-    lng: -5.9845,
-    date: '2023-10-25',
-    status: 'pending',
-    imageUrl: 'https://picsum.photos/id/112/600/400'
-  },
-  {
-    id: 'p2',
-    name: 'Parcela 45 - Viñedos',
-    description: 'Inspección fitosanitaria trimestral.',
-    lat: 42.4285,
-    lng: -2.6280,
-    date: '2023-10-26',
-    status: 'verified',
-    imageUrl: 'https://picsum.photos/id/425/600/400'
-  }
-];
+import { useState, useCallback, useEffect } from 'react';
+import { Inspection, Parcela } from '../types';
+
+const STORAGE_KEY = 'geosigpac_inspections_v2';
 
 export const useProjectStore = () => {
-  const [projects, setProjects] = useState<Project[]>(INITIAL_MOCK_PROJECTS);
+  const [inspections, setInspections] = useState<Inspection[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Load data from Android on startup (Single Source of Truth)
+  // Cargar datos persistidos
   useEffect(() => {
-    const nativeData = getNativeProjects();
-    if (nativeData && nativeData.length > 0) {
-      console.log("Hydrating from Android Native:", nativeData);
-      setProjects(nativeData);
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      setInspections(JSON.parse(saved));
+    } else {
+      // Datos iniciales demo
+      const demo: Inspection[] = [{
+        id: 'ins-1',
+        title: 'Campaña Olivar 2024',
+        description: 'Control de cubiertas vegetales y erosión.',
+        date: new Date().toISOString().split('T')[0],
+        status: 'in_progress',
+        parcelas: [
+          { id: 'p1', name: 'Recinto 102', lat: 37.3891, lng: -5.9845, area: 4.5, status: 'pending' },
+          { id: 'p2', name: 'Recinto 105', lat: 37.3885, lng: -5.9830, area: 2.1, status: 'verified' }
+        ]
+      }];
+      setInspections(demo);
     }
+    setLoading(false);
   }, []);
 
-  const handlePhotoCaptured = useCallback((projectId: string, photoUri: string) => {
-    setProjects(prev => prev.map(p => {
-      if (p.id === projectId) {
-        return { ...p, imageUrl: photoUri };
+  // Persistir cambios
+  useEffect(() => {
+    if (!loading) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(inspections));
+    }
+  }, [inspections, loading]);
+
+  const addInspection = (inspection: Inspection) => {
+    setInspections(prev => [inspection, ...prev]);
+  };
+
+  const removeInspection = (id: string) => {
+    setInspections(prev => prev.filter(i => i.id !== id));
+  };
+
+  const updateInspectionStatus = (id: string, status: Inspection['status']) => {
+    setInspections(prev => prev.map(i => i.id === id ? { ...i, status } : i));
+  };
+
+  const removeParcela = (inspectionId: string, parcelaId: string) => {
+    setInspections(prev => prev.map(i => {
+      if (i.id === inspectionId) {
+        return { ...i, parcelas: i.parcelas.filter(p => p.id !== parcelaId) };
       }
-      return p;
+      return i;
     }));
+  };
+
+  const handlePhotoCaptured = useCallback((parcelaId: string, photoUri: string) => {
+    setInspections(prev => prev.map(ins => ({
+      ...ins,
+      parcelas: ins.parcelas.map(p => p.id === parcelaId ? { ...p, imageUrl: photoUri, status: 'verified' } : p)
+    })));
   }, []);
 
   useEffect(() => {
     window.onPhotoCaptured = handlePhotoCaptured;
-    return () => {
-      window.onPhotoCaptured = undefined;
-    };
+    return () => { window.onPhotoCaptured = undefined; };
   }, [handlePhotoCaptured]);
 
-  return { projects, setProjects };
+  return { inspections, addInspection, removeInspection, removeParcela, updateInspectionStatus, loading };
 };

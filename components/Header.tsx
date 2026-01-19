@@ -1,20 +1,21 @@
+
 import React from 'react';
-import { Menu, MapPin } from 'lucide-react';
+import { ClipboardCheck, Settings } from 'lucide-react';
 
 export const Header: React.FC = () => {
   return (
-    <header className="sticky top-0 z-10 bg-primary text-white shadow-md p-4 flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <div className="bg-white/20 p-2 rounded-full">
-          <MapPin size={20} className="text-white" />
+    <header className="sticky top-0 z-30 glass-panel p-4 flex items-center justify-between border-b border-white/5">
+      <div className="flex items-center gap-3">
+        <div className="bg-emerald-500/20 p-2 rounded-xl border border-emerald-500/30">
+          <ClipboardCheck size={22} className="text-emerald-400" />
         </div>
         <div>
-          <h1 className="text-lg font-bold leading-tight">GeoSIGPAC</h1>
-          <p className="text-xs text-white/80">Gestor de Parcelas</p>
+          <h1 className="text-sm font-black text-slate-100 leading-tight uppercase tracking-tighter">GeoSIGPAC Inspecciones</h1>
+          <p className="text-[10px] text-emerald-400/80 font-bold uppercase tracking-widest">Digital Field Manager</p>
         </div>
       </div>
-      <button className="p-2 active:bg-white/10 rounded-full transition-colors">
-        <Menu size={24} />
+      <button className="w-10 h-10 flex items-center justify-center bg-white/5 rounded-full text-slate-400 active:scale-90 transition-all">
+        <Settings size={20} />
       </button>
     </header>
   );

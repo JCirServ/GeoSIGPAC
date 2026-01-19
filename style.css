@@ -1,15 +1,43 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --primary: #006d3e;
-  --secondary: #4c6356;
-  --tertiary: #f97316;
+  --primary: #10b981;
+  --bg-dark: #0f172a;
+  --surface-dark: #1e293b;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: #f8fafc;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #root {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 10px;
+}
+
+.glass-panel {
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.status-badge {
+  @apply px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border;
 }

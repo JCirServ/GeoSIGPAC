@@ -1,68 +1,84 @@
 
 import React from 'react';
 import { Header } from './components/Header';
-import { ProjectCard } from './components/ProjectCard';
+import { InspectionCard } from './components/InspectionCard';
+import { KmlUploader } from './components/KmlUploader';
 import { AIAssistant } from './components/AIAssistant';
 import { useProjectStore } from './store/useProjectStore';
-import { Plus, LayoutGrid, Info } from 'lucide-react';
-import { showNativeToast } from './services/bridge';
+import { LayoutGrid, PieChart, Activity, Info } from 'lucide-react';
 
 const App: React.FC = () => {
-  const { projects } = useProjectStore();
+  const { inspections, addInspection, removeInspection, removeParcela, updateInspectionStatus, loading } = useProjectStore();
 
-  const handleFabClick = () => {
-    showNativeToast("Añadir nueva parcela: Función habilitada en versión Pro.");
-  };
+  const totalArea = inspections.reduce((acc, ins) => 
+    acc + ins.parcelas.reduce((pAcc, p) => pAcc + p.area, 0), 0
+  );
+  const totalRecintos = inspections.reduce((acc, ins) => acc + ins.parcelas.length, 0);
+
+  if (loading) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-32">
+    <div className="min-h-screen pb-24">
       <Header />
       
-      <main className="px-4 py-6 max-w-2xl mx-auto">
-        <div className="flex items-end justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">Expedientes</h2>
-            <p className="text-sm text-slate-500 font-medium">Gestionando {projects.length} parcelas activas</p>
+      <main className="px-5 py-6 max-w-2xl mx-auto">
+        {/* Dashboard Stats */}
+        <section className="grid grid-cols-2 gap-4 mb-8">
+          <div className="glass-panel p-4 rounded-3xl border border-white/5">
+            <div className="flex items-center gap-2 text-emerald-400 mb-2">
+              <Activity size={16} />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Área Total</span>
+            </div>
+            <div className="text-3xl font-black text-slate-100">{totalArea.toFixed(1)}</div>
+            <div className="text-[10px] text-slate-500 font-bold uppercase">Hectáreas Controladas</div>
           </div>
-          <div className="bg-white p-2 rounded-lg shadow-sm border border-slate-200">
-            <LayoutGrid size={20} className="text-primary" />
+          <div className="glass-panel p-4 rounded-3xl border border-white/5">
+            <div className="flex items-center gap-2 text-blue-400 mb-2">
+              <LayoutGrid size={16} />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Recintos</span>
+            </div>
+            <div className="text-3xl font-black text-slate-100">{totalRecintos}</div>
+            <div className="text-[10px] text-slate-500 font-bold uppercase">En {inspections.length} Expedientes</div>
           </div>
+        </section>
+
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-black text-slate-100 uppercase tracking-tighter">Expedientes Activos</h2>
+          <PieChart size={20} className="text-slate-500" />
         </div>
 
-        {projects.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-            <Info size={48} className="mb-4 opacity-20" />
-            <p className="font-medium">No hay datos sincronizados</p>
+        {/* Uploader Section */}
+        <KmlUploader onDataParsed={addInspection} />
+
+        {inspections.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-600 bg-white/5 rounded-3xl border border-dashed border-white/10">
+            <Info size={40} className="mb-4 opacity-20" />
+            <p className="font-bold text-sm">Carga un archivo KML para comenzar</p>
+            <p className="text-xs opacity-60">Gestiona tus inspecciones de campo aquí</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {projects.map(project => (
-              <ProjectCard key={project.id} project={project} />
+          <div className="space-y-2">
+            {inspections.map(inspection => (
+              <InspectionCard 
+                key={inspection.id} 
+                inspection={inspection} 
+                onDelete={removeInspection}
+                onRemoveParcela={removeParcela}
+                onStatusChange={updateInspectionStatus}
+              />
             ))}
           </div>
         )}
       </main>
 
-      {/* Floating Action Button Principal */}
-      <div className="fixed bottom-24 right-6 z-50">
-        <button 
-          onClick={handleFabClick}
-          className="w-16 h-16 bg-primary text-white rounded-2xl shadow-2xl shadow-primary/40 flex items-center justify-center hover:scale-105 transition-all active:scale-95 group"
-          aria-label="Nuevo Proyecto"
-        >
-          <Plus size={32} className="group-hover:rotate-90 transition-transform duration-300" />
-        </button>
-      </div>
-
-      {/* Nuevo Asistente IA */}
       <AIAssistant />
 
-      <footer className="text-center py-10 px-6 border-t border-slate-200 mt-10">
-        <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-200 rounded-full text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-            <div className={`w-2 h-2 rounded-full ${window.Android ? 'bg-green-500 animate-pulse' : 'bg-orange-500'}`}></div>
-            {window.Android ? 'Conexión Nativa Activa' : 'Modo Simulación'}
+      <footer className="text-center py-10 px-6 mt-6">
+        <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3 border border-white/5">
+            <div className={`w-1.5 h-1.5 rounded-full ${window.Android ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500'}`}></div>
+            {window.Android ? 'Native Bridge Connected' : 'Simulated Environment'}
         </div>
-        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-tighter">GeoSIGPAC AI Engine v3.0 • Powered by Gemini</p>
+        <p className="text-[9px] text-slate-600 font-bold uppercase tracking-tighter">GeoSIGPAC Field Pro v4.2 • Precision Agriculture</p>
       </footer>
     </div>
   );

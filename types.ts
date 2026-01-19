@@ -1,26 +1,50 @@
+
+export type InspectionStatus = 'planned' | 'in_progress' | 'completed' | 'paused';
+
+export interface Parcela {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  area: number; // en hectáreas
+  status: 'pending' | 'verified';
+  imageUrl?: string;
+}
+
+export interface Inspection {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  status: InspectionStatus;
+  parcelas: Parcela[];
+}
+
+/**
+ * Added Project interface to support legacy or specialized components 
+ * like ProjectCard and native bridge functions.
+ */
 export interface Project {
   id: string;
   name: string;
   description: string;
+  date: string;
+  status: 'pending' | 'verified' | 'completed';
   lat: number;
   lng: number;
   imageUrl?: string;
-  date: string;
-  status: 'pending' | 'verified' | 'completed';
 }
 
-// Definition of the interface injected by Android WebView
 export interface AndroidBridge {
-  openCamera: (projectId: string) => void;
-  // Renamed from focusMap to match requested API
+  openCamera: (parcelaId: string) => void;
   onProjectSelected: (lat: number, lng: number) => void; 
   showToast: (message: string) => void;
-  getProjects: () => string; // Returns JSON string of projects
+  getProjects: () => string; 
 }
 
 declare global {
   interface Window {
     Android?: AndroidBridge;
-    onPhotoCaptured?: (projectId: string, photoUri: string) => void;
+    onPhotoCaptured?: (parcelaId: string, photoUri: string) => void;
   }
 }

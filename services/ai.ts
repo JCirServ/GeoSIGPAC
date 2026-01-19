@@ -9,14 +9,15 @@ import { Project } from "../types";
 
 /**
  * Genera un análisis agronómico basado en los datos de la parcela.
+ * Actualizado a gemini-3-pro-preview para tareas de razonamiento experto.
  */
 export const analyzeProjectWithAI = async (project: Project): Promise<string> => {
   try {
-    // Instanciamos el cliente justo antes de la llamada
+    // Instanciamos el cliente justo antes de la llamada asegurando el uso de la API KEY actualizada
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: `Analiza esta parcela agrícola y dame 3 consejos técnicos breves para el cuaderno de campo:
       Nombre: ${project.name}
       Descripción: ${project.description}
@@ -28,7 +29,7 @@ export const analyzeProjectWithAI = async (project: Project): Promise<string> =>
       },
     });
 
-    // La propiedad .text extrae el contenido generado directamente
+    // La propiedad .text extrae el contenido generado directamente (no es un método)
     return response.text || "No se ha podido generar el análisis técnico.";
   } catch (error) {
     console.error("Error AI Studio:", error);
@@ -38,13 +39,14 @@ export const analyzeProjectWithAI = async (project: Project): Promise<string> =>
 
 /**
  * Analiza una imagen capturada por el agricultor para detectar problemas.
+ * Utiliza gemini-3-pro-preview para análisis multimodal avanzado.
  */
 export const analyzeProjectPhoto = async (photoBase64: string, projectName: string): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-3-pro-preview',
       contents: {
         parts: [
           { text: `Identifica el estado de salud de este cultivo en la parcela ${projectName} y detecta anomalías (plagas, clorosis, estrés hídrico).` },
@@ -67,6 +69,7 @@ export const analyzeProjectPhoto = async (photoBase64: string, projectName: stri
 
 /**
  * Chat interactivo con el asistente agrónomo.
+ * Mantenemos gemini-3-flash-preview para tareas de asistencia general y Q&A básico.
  */
 export const askGeminiAssistant = async (prompt: string): Promise<string> => {
   try {
