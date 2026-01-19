@@ -22,18 +22,21 @@ export default defineConfig({
     outDir: 'android/app/src/main/assets',
     emptyOutDir: true,
     target: 'es2020',
-    cssCodeSplit: false,
+    cssCodeSplit: false, // Mantenemos CSS junto para evitar parpadeos
+    chunkSizeWarningLimit: 1000, // Aumentamos el límite de advertencia razonablemente
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
       },
       output: {
-        // Un solo archivo JS para evitar problemas de latencia en la carga de módulos en Android WebView
-        manualChunks: undefined,
-        inlineDynamicImports: true,
+        // Habilitamos Code Splitting para Android (mejor rendimiento de carga)
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'lucide-react'],
+          maps: ['jszip', '@google/genai']
+        },
         entryFileNames: '[name].js',
-        chunkFileNames: '[name].js',
-        assetFileNames: '[name].[ext]'
+        chunkFileNames: '[name]-[hash].js',
+        assetFileNames: '[name]-[hash].[ext]'
       }
     }
   },

@@ -158,7 +158,7 @@ fun WebProjectManager(
                     }
                     
                     webChromeClient = object : WebChromeClient() {
-                        // CRÍTICO: Sobrescribir este método para manejar <input type="file">
+                        // CRÍTICO: Sobrescribir este método para manejar <input type="file"> de forma robusta en Android
                         override fun onShowFileChooser(
                             webView: WebView?,
                             filePathCallback: ValueCallback<Array<Uri>>?,
@@ -173,17 +173,25 @@ fun WebProjectManager(
                             uploadMessage = filePathCallback
 
                             try {
-                                // Intentar crear el intent basado en los parámetros del input HTML (accept, multiple, etc)
-                                val intent = fileChooserParams?.createIntent()
-                                if (intent != null) {
-                                    filePickerLauncher.launch(intent)
-                                } else {
-                                    // Fallback genérico
-                                    val i = Intent(Intent.ACTION_GET_CONTENT)
-                                    i.addCategory(Intent.CATEGORY_OPENABLE)
-                                    i.type = "*/*"
-                                    filePickerLauncher.launch(i)
-                                }
+                                // En lugar de usar fileChooserParams.createIntent() que puede ser muy restrictivo con KML,
+                                // creamos un Intent manual amplio.
+                                val intent = Intent(Intent.ACTION_GET_CONTENT)
+                                intent.addCategory(Intent.CATEGORY_OPENABLE)
+                                intent.type = "*/*" // Permitir todo para evitar que Android deshabilite archivos KML
+                                
+                                // Sugerir tipos MIME correctos
+                                val mimeTypes = arrayOf(
+                                    "application/vnd.google-earth.kml+xml",
+                                    "application/vnd.google-earth.kmz",
+                                    "application/xml",
+                                    "text/xml",
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/octet-stream"
+                                )
+                                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
+
+                                filePickerLauncher.launch(intent)
                             } catch (e: Exception) {
                                 uploadMessage?.onReceiveValue(null)
                                 uploadMessage = null

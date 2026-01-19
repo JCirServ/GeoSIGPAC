@@ -9,10 +9,12 @@ import android.os.Bundle
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -27,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -146,72 +149,31 @@ fun GeoSigpacApp() {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        if (isCameraOpen) {
-            // PANTALLA CÁMARA (Modal Pantalla Completa)
-            CameraScreen(
-                projectId = currentProjectId, // Pasamos el ID del proyecto para la estructura de carpetas
-                lastCapturedUri = sessionLastUri, // Pasamos el estado persistente
-                photoCount = sessionPhotoCount,   // Pasamos el contador
-                onImageCaptured = { uri ->
-                    // 1. Actualizar Estado en Memoria
-                    sessionLastUri = uri
-                    val newCount = sessionPhotoCount + 1
-                    sessionPhotoCount = newCount
-                    
-                    // 2. Persistir en SharedPreferences
-                    sharedPrefs.edit().apply {
-                        putString("last_photo_uri", uri.toString())
-                        putInt("photo_count", newCount)
-                        apply()
-                    }
-                    
-                    val pid = currentProjectId
-                    if (pid != null) {
-                        scope.launch {
-                            val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
-                            webViewRef?.evaluateJavascript(jsCode, null)
-                        }
-                    } 
-                    // Feedback visual para el usuario
-                    Toast.makeText(context, "Foto guardada", Toast.LENGTH_SHORT).show()
-                },
-                onError = { exc ->
-                    Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
-                    isCameraOpen = false
-                },
-                onClose = { isCameraOpen = false },
-                onGoToMap = {
-                    // Cerrar cámara y navegar al mapa
-                    isCameraOpen = false
-                    selectedTab = 1
-                },
-                onGoToProjects = {
-                    // Cerrar cámara y navegar explícitamente a Proyectos
-                    isCameraOpen = false
-                    selectedTab = 0
+        // Usamos Box para apilar capas en lugar de reemplazar componentes condicionalmente.
+        // Esto evita que NativeMap sea destruido (onDestroy) cuando se abre la cámara.
+        Box(modifier = Modifier.fillMaxSize()) {
+            
+            // 1. CAPA MAPA (Fondo)
+            // NativeMap maneja su pausa/reanuda internamente via 'isVisible'
+            NativeMap(
+                targetLat = mapTarget?.first,
+                targetLng = mapTarget?.second,
+                isVisible = (!isCameraOpen && selectedTab == 1), 
+                onNavigateToProjects = { selectedTab = 0 },
+                onOpenCamera = {
+                    currentProjectId = null // Foto general desde el mapa
+                    isCameraOpen = true
                 }
             )
-        } else {
-            // NAVEGACIÓN PRINCIPAL
-            // Usamos Box para superponer vistas sin destruir el Mapa
-            Box(modifier = Modifier.fillMaxSize()) {
-                
-                // 1. NativeMap (Siempre en el árbol, controlado por isVisible)
-                // Se coloca primero para quedar "al fondo"
-                NativeMap(
-                    targetLat = mapTarget?.first,
-                    targetLng = mapTarget?.second,
-                    isVisible = (selectedTab == 1), // Visible solo si es pestaña 1
-                    onNavigateToProjects = { selectedTab = 0 },
-                    onOpenCamera = {
-                        currentProjectId = null // Foto general desde el mapa
-                        isCameraOpen = true
-                    }
-                )
 
-                // 2. WebProjectManager (Encima del mapa si está activo)
-                // Usamos 'if' porque el WebView es más ligero de recrear y no sufre de congelamientos GL
-                if (selectedTab == 0) {
+            // 2. CAPA WEB (Intermedia)
+            // Se muestra sobre el mapa si estamos en tab 0 y sin cámara
+            if (!isCameraOpen && selectedTab == 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
                     WebProjectManager(
                         webAppInterface = webAppInterface,
                         onWebViewCreated = { webView -> webViewRef = webView },
@@ -219,6 +181,62 @@ fun GeoSigpacApp() {
                         onOpenCamera = {
                             currentProjectId = null
                             isCameraOpen = true
+                        }
+                    )
+                }
+            }
+            
+            // 3. CAPA CÁMARA (Superior - Modal)
+            if (isCameraOpen) {
+                // Permite usar el botón atrás físico para cerrar la cámara
+                BackHandler {
+                    isCameraOpen = false
+                }
+                
+                // Fondo negro para cubrir todo
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                ) {
+                    CameraScreen(
+                        projectId = currentProjectId, 
+                        lastCapturedUri = sessionLastUri, 
+                        photoCount = sessionPhotoCount,   
+                        onImageCaptured = { uri ->
+                            // 1. Actualizar Estado
+                            sessionLastUri = uri
+                            val newCount = sessionPhotoCount + 1
+                            sessionPhotoCount = newCount
+                            
+                            // 2. Persistir
+                            sharedPrefs.edit().apply {
+                                putString("last_photo_uri", uri.toString())
+                                putInt("photo_count", newCount)
+                                apply()
+                            }
+                            
+                            val pid = currentProjectId
+                            if (pid != null) {
+                                scope.launch {
+                                    val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
+                                    webViewRef?.evaluateJavascript(jsCode, null)
+                                }
+                            } 
+                            Toast.makeText(context, "Foto guardada", Toast.LENGTH_SHORT).show()
+                        },
+                        onError = { exc ->
+                            Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
+                            // isCameraOpen = false // No cerramos automáticamente para evitar frustración
+                        },
+                        onClose = { isCameraOpen = false },
+                        onGoToMap = {
+                            isCameraOpen = false
+                            selectedTab = 1
+                        },
+                        onGoToProjects = {
+                            isCameraOpen = false
+                            selectedTab = 0
                         }
                     )
                 }

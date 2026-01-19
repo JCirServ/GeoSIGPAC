@@ -80,8 +80,6 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
       }
 
       // Búsqueda agnóstica de Namespaces
-      // Iteramos todos los nodos para encontrar 'Placemark' comparando localName
-      // Esto soluciona problemas donde getElementsByTagName('Placemark') falla si hay namespaces (kml:Placemark)
       const allElements = kml.getElementsByTagName("*");
       const placemarks = Array.from(allElements).filter(el => 
         el.localName === 'Placemark' || el.nodeName === 'Placemark'
@@ -91,8 +89,6 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
       
       for (let i = 0; i < placemarks.length; i++) {
         const pm = placemarks[i];
-        
-        // Búsqueda robusta de nombre y coordenadas dentro del Placemark
         const children = pm.getElementsByTagName("*");
         
         let name = `Recinto ${i + 1}`;
@@ -105,19 +101,16 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
         }
         
         if (coordsContent) {
-          // Normalizar separadores: convertir saltos de línea y tabuladores en espacios
           const normalizedCoords = coordsContent.replace(/\s+/g, ' ').trim();
           const points = normalizedCoords.split(' ');
           
           if (points.length > 0) {
-            // KML estándar: lon,lat,alt
             const firstPoint = points[0].split(',');
             if (firstPoint.length >= 2) {
                 const lng = parseFloat(firstPoint[0]);
                 const lat = parseFloat(firstPoint[1]);
 
                 if (!isNaN(lat) && !isNaN(lng)) {
-                   // Cálculo de área simulado
                    const complexity = points.length; 
                    const area = (Math.random() * 2 + (complexity * 0.05)).toFixed(2);
 
@@ -135,7 +128,7 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
         }
       }
 
-      // Fallback agresivo: Si no hay Placemarks, buscar cualquier etiqueta coordinates
+      // Fallback agresivo para coordenadas crudas
       if (parcelas.length === 0) {
         console.warn("No se encontraron Placemarks, intentando búsqueda cruda de coordenadas...");
         const rawCoords = Array.from(allElements).filter(el => el.localName === 'coordinates');
@@ -158,7 +151,6 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
       }
 
       if (parcelas.length === 0) {
-        // Debug para desarrollador: mostrar inicio del archivo
         console.warn("XML Content Preview:", kmlText.substring(0, 500));
         showNativeToast("No se encontraron geometrías válidas en el archivo.");
       } else {
@@ -188,7 +180,8 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
         type="file" 
         ref={fileInputRef} 
         onChange={handleFileUpload} 
-        accept=".kml, .kmz, application/vnd.google-earth.kml+xml, application/vnd.google-earth.kmz" 
+        // Accept ampliado para máxima compatibilidad con Android File Picker
+        accept=".kml,.kmz,.xml,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/xml,text/xml,application/zip,application/x-zip-compressed,multipart/x-zip"
         className="hidden" 
       />
       <button 
