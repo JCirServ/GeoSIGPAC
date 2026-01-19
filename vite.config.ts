@@ -1,3 +1,4 @@
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve, dirname } from 'path';
@@ -8,7 +9,8 @@ const __dirname = dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
-  // Base relativa indispensable para file:///android_asset/
+  // Base relativa './' permite que los assets se carguen correctamente
+  // bajo cualquier prefijo de ruta que configure el WebViewAssetLoader.
   base: './', 
   define: {
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
@@ -20,13 +22,13 @@ export default defineConfig({
     outDir: 'android/app/src/main/assets',
     emptyOutDir: true,
     target: 'es2020',
-    cssCodeSplit: false, // Unifica el CSS en un solo archivo
+    cssCodeSplit: false,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
       },
       output: {
-        // Forzamos un solo bundle para evitar errores de carga de chunks en Android
+        // Un solo archivo JS para evitar problemas de latencia en la carga de módulos en Android WebView
         manualChunks: undefined,
         inlineDynamicImports: true,
         entryFileNames: '[name].js',
