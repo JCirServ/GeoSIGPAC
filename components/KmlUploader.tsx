@@ -3,6 +3,7 @@ import React, { useRef } from 'react';
 import { FileUp, Loader2 } from 'lucide-react';
 import { Parcela, Inspection } from '../types';
 import { showNativeToast } from '../services/bridge';
+import JSZip from 'jszip';
 
 interface KmlUploaderProps {
   onDataParsed: (inspection: Inspection) => void;
@@ -18,9 +19,34 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
 
     setIsParsing(true);
     try {
-      const text = await file.text();
+      let kmlText = "";
+
+      // Detectar si es KMZ o KML
+      if (file.name.toLowerCase().endsWith('.kmz')) {
+        try {
+          const zip = await JSZip.loadAsync(file);
+          // Buscar el primer archivo que termine en .kml dentro del zip
+          const kmlFileName = Object.keys(zip.files).find(filename => filename.toLowerCase().endsWith('.kml'));
+          
+          if (kmlFileName) {
+            kmlText = await zip.file(kmlFileName)!.async("string");
+          } else {
+            // A veces el kml principal se llama doc.kml, pero si no hay .kml explícito, error.
+            throw new Error("No se encontró un archivo .kml dentro del KMZ.");
+          }
+        } catch (e) {
+          console.error("Error descomprimiendo KMZ", e);
+          showNativeToast("El archivo KMZ no es válido o está corrupto.");
+          setIsParsing(false);
+          return;
+        }
+      } else {
+        // Es un KML normal
+        kmlText = await file.text();
+      }
+
       const parser = new DOMParser();
-      const kml = parser.parseFromString(text, 'text/xml');
+      const kml = parser.parseFromString(kmlText, 'text/xml');
       const placemarks = kml.querySelectorAll('Placemark');
       
       const parcelas: Parcela[] = [];
@@ -50,11 +76,11 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
       });
 
       if (parcelas.length === 0) {
-        showNativeToast("El archivo KML no contiene geometrías válidas.");
+        showNativeToast("El archivo no contiene geometrías válidas.");
       } else {
         const newInspection: Inspection = {
           id: `ins-${Date.now()}`,
-          title: file.name.replace('.kml', ''),
+          title: file.name.replace(/\.km[lz]/i, ''), // Remueve extension .kml o .kmz
           description: `Importación automática de ${parcelas.length} recintos.`,
           date: new Date().toISOString().split('T')[0],
           status: 'planned',
@@ -65,7 +91,7 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
       }
     } catch (error) {
       console.error(error);
-      showNativeToast("Error al procesar el archivo KML.");
+      showNativeToast("Error al procesar el archivo.");
     } finally {
       setIsParsing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -78,7 +104,7 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
         type="file" 
         ref={fileInputRef} 
         onChange={handleFileUpload} 
-        accept=".kml" 
+        accept=".kml, .kmz" 
         className="hidden" 
       />
       <button 
@@ -91,7 +117,7 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
         ) : (
           <FileUp size={20} />
         )}
-        {isParsing ? 'Procesando KML...' : 'Importar Archivo KML'}
+        {isParsing ? 'Procesando...' : 'Importar Archivo KML / KMZ'}
       </button>
     </div>
   );
