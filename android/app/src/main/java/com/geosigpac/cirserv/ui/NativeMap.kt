@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -67,6 +68,7 @@ private const val TAG = "GeoSIGPAC_LOG_Map"
 fun NativeMap(
     targetLat: Double?,
     targetLng: Double?,
+    isVisible: Boolean, // Nuevo parámetro para control de visibilidad
     onNavigateToProjects: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
@@ -107,60 +109,65 @@ fun NativeMap(
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    Log.d(TAG, "Inicializando Composable NativeMap")
+    Log.d(TAG, "NativeMap composition update. isVisible=$isVisible")
 
     remember { MapLibre.getInstance(context) }
 
-    // Creamos el MapView. NO llamamos a los métodos del ciclo de vida aquí,
-    // se gestionarán estrictamente en el DisposableEffect para evitar inconsistencias.
+    // Mantenemos la instancia del MapView en memoria a través de las recomposiciones
+    // pero evitamos recrearla. Solo se destruirá cuando el Composable salga definitivamente (onDispose real).
     val mapView = remember {
-        Log.d(TAG, "Instanciando nuevo MapView")
+        Log.d(TAG, "Instanciando nuevo MapView (Singleton en contexto Compose)")
         MapView(context).apply {
             onCreate(Bundle())
         }
     }
 
-    // GESTIÓN DEL CICLO DE VIDA DEL MAPA
-    // Es crítico gestionar esto manualmente porque al cambiar de pestañas en Compose,
-    // la vista se desmonta pero la Actividad sigue viva. Si no destruimos el mapa,
-    // el contexto GL se queda colgado y congela la UI.
+    // --- GESTIÓN ROBUSTA DEL CICLO DE VIDA ---
+    // El objetivo es pausar el mapa cuando NO es visible (cambio de pestaña) 
+    // y reanudarlo cuando SÍ es visible, sin destruirlo para evitar bloqueos.
+
+    // 1. Reaccionar a cambios de visibilidad (Tabs)
+    LaunchedEffect(isVisible) {
+        if (isVisible) {
+            Log.d(TAG, "NativeMap Visible -> onStart/onResume")
+            mapView.onStart()
+            mapView.onResume()
+        } else {
+            Log.d(TAG, "NativeMap Hidden -> onPause/onStop")
+            mapView.onPause()
+            mapView.onStop()
+        }
+    }
+
+    // 2. Reaccionar al ciclo de vida de la Activity (Minimizar app, etc.)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            Log.d(TAG, "Lifecycle Event: $event")
+            // Solo procesamos eventos del sistema si el mapa debería ser visible.
+            // Si está oculto por lógica de negocio (tab), ya está pausado.
+            if (!isVisible) return@LifecycleEventObserver
+
             when (event) {
-                Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_STOP -> mapView.onStop()
-                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                Lifecycle.Event.ON_DESTROY -> {
+                    // Este evento es raro aquí si usamos remember, pero por seguridad:
+                    mapView.onDestroy()
+                }
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        
-        // Sincronización Inmediata: Si la app ya está arrancada (Resumed/Started),
-        // el observer no recibirá esos eventos iniciales, así que los llamamos manualmente.
-        val currentState = lifecycleOwner.lifecycle.currentState
-        Log.d(TAG, "Estado inicial del ciclo de vida: $currentState")
-        
-        if (currentState.isAtLeast(Lifecycle.State.STARTED)) {
-            mapView.onStart()
-        }
-        if (currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-            mapView.onResume()
-        }
 
         onDispose {
-            Log.d(TAG, "Desmontando NativeMap (onDispose)")
+            Log.d(TAG, "NativeMap Disposed (Limpieza Final)")
             lifecycleOwner.lifecycle.removeObserver(observer)
-            // CRÍTICO: Limpieza explícita al salir de la pestaña
             try {
-                mapView.onPause()
-                mapView.onStop()
+                // Solo destruimos el mapa si el componente se desmonta completamente de la App
                 mapView.onDestroy()
-                Log.d(TAG, "MapView destruido correctamente")
             } catch (e: Exception) {
-                Log.e(TAG, "Error al destruir MapView: ${e.message}")
+                Log.e(TAG, "Error cleaning up MapView: ${e.message}")
             }
         }
     }
@@ -365,165 +372,179 @@ fun NativeMap(
 
     // --- UI RENDER ---
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(factory = { 
-            Log.d(TAG, "AndroidView Factory: devolviendo mapView")
-            mapView 
-        }, modifier = Modifier.fillMaxSize())
+        // La vista del mapa (AndroidView) debe permanecer SIEMPRE en el árbol de componentes.
+        // Si no es visible, simplemente la ocultamos visualmente con graphicsLayer, pero NO la eliminamos.
+        // Esto evita tener que destruir el contexto GL (causa principal del freeze).
+        AndroidView(
+            factory = { 
+                Log.d(TAG, "AndroidView Factory: devolviendo mapView")
+                mapView 
+            }, 
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { 
+                    alpha = if (isVisible) 1f else 0f 
+                }
+        )
 
-        // Cruz central
-        if (!isSearching && !showCustomKeyboard) {
-            Box(modifier = Modifier.align(Alignment.Center), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Add, null, tint = Color.Black.copy(0.5f), modifier = Modifier.size(38.dp))
-                Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
-            }
-        }
+        // Los controles UI superpuestos SÍ se pueden eliminar condicionalmente para ahorrar recursos
+        if (isVisible) {
 
-        // --- BUSCADOR (TOP LEFT) ---
-        Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 16.dp, start = 16.dp, end = 16.dp).fillMaxWidth(0.65f)) {
-            val interactionSource = remember { MutableInteractionSource() }
-            LaunchedEffect(interactionSource) {
-                interactionSource.interactions.collect { interaction ->
-                    if (interaction is PressInteraction.Release) {
-                        showCustomKeyboard = true
-                        isPanelExpanded = false 
-                    }
+            // Cruz central
+            if (!isSearching && !showCustomKeyboard) {
+                Box(modifier = Modifier.align(Alignment.Center), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Add, null, tint = Color.Black.copy(0.5f), modifier = Modifier.size(38.dp))
+                    Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
                 }
             }
-            TextField(
-                value = searchQuery,
-                onValueChange = { },
-                placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 12.sp) },
-                singleLine = true,
-                maxLines = 1,
-                readOnly = true,
-                interactionSource = interactionSource,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
-                    unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
-                    focusedIndicatorColor = if(showCustomKeyboard) FieldGreen else Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    cursorColor = FieldGreen
-                ),
-                shape = RoundedCornerShape(8.dp),
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { clearSearch(); showCustomKeyboard = false }) { Icon(Icons.Default.Close, "Borrar", tint = Color.Gray) }
-                    } else {
-                        IconButton(onClick = { showCustomKeyboard = true }) { Icon(Icons.Default.Search, "Buscar", tint = FieldGreen) }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-            )
-        }
 
-        // --- BOTONES (TOP END) ---
-        Column(modifier = Modifier.align(Alignment.TopEnd).padding(top = 90.dp, end = 16.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu }, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary, shape = CircleShape) { Icon(Icons.Default.Settings, "Capas") }
-
-            AnimatedVisibility(visible = showLayerMenu) {
-                Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Mapa Base", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        BaseMap.values().forEach { base ->
-                            Row(modifier = Modifier.fillMaxWidth().clickable { currentBaseMap = base }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = (currentBaseMap == base), onClick = { currentBaseMap = base }, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(base.title, fontSize = 13.sp)
-                            }
-                        }
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-                        Text("Capas SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showRecinto = !showRecinto }) {
-                            Checkbox(checked = showRecinto, onCheckedChange = { showRecinto = it }, modifier = Modifier.size(30.dp).padding(4.dp)); Text("Recintos", fontSize = 13.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }) {
-                            Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it }, modifier = Modifier.size(30.dp).padding(4.dp)); Text("Cultivos", fontSize = 13.sp)
+            // --- BUSCADOR (TOP LEFT) ---
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 16.dp, start = 16.dp, end = 16.dp).fillMaxWidth(0.65f)) {
+                val interactionSource = remember { MutableInteractionSource() }
+                LaunchedEffect(interactionSource) {
+                    interactionSource.interactions.collect { interaction ->
+                        if (interaction is PressInteraction.Release) {
+                            showCustomKeyboard = true
+                            isPanelExpanded = false 
                         }
                     }
                 }
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { },
+                    placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 12.sp) },
+                    singleLine = true,
+                    maxLines = 1,
+                    readOnly = true,
+                    interactionSource = interactionSource,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
+                        unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
+                        focusedIndicatorColor = if(showCustomKeyboard) FieldGreen else Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        cursorColor = FieldGreen
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { clearSearch(); showCustomKeyboard = false }) { Icon(Icons.Default.Close, "Borrar", tint = Color.Gray) }
+                        } else {
+                            IconButton(onClick = { showCustomKeyboard = true }) { Icon(Icons.Default.Search, "Buscar", tint = FieldGreen) }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                )
             }
-            SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
-            SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
-            SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, shouldCenter = true) }, containerColor = MaterialTheme.colorScheme.secondary, contentColor = Color.White, shape = CircleShape) { Icon(Icons.Default.MyLocation, "Ubicación") }
-        }
 
-        // Loading
-        if (isLoadingData || isSearching) {
-            Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
-                CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
+            // --- BOTONES (TOP END) ---
+            Column(modifier = Modifier.align(Alignment.TopEnd).padding(top = 90.dp, end = 16.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu }, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary, shape = CircleShape) { Icon(Icons.Default.Settings, "Capas") }
+
+                AnimatedVisibility(visible = showLayerMenu) {
+                    Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("Mapa Base", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            BaseMap.values().forEach { base ->
+                                Row(modifier = Modifier.fillMaxWidth().clickable { currentBaseMap = base }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = (currentBaseMap == base), onClick = { currentBaseMap = base }, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(base.title, fontSize = 13.sp)
+                                }
+                            }
+                            Divider(modifier = Modifier.padding(vertical = 8.dp))
+                            Text("Capas SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showRecinto = !showRecinto }) {
+                                Checkbox(checked = showRecinto, onCheckedChange = { showRecinto = it }, modifier = Modifier.size(30.dp).padding(4.dp)); Text("Recintos", fontSize = 13.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }) {
+                                Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it }, modifier = Modifier.size(30.dp).padding(4.dp)); Text("Cultivos", fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+                SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
+                SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
+                SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, shouldCenter = true) }, containerColor = MaterialTheme.colorScheme.secondary, contentColor = Color.White, shape = CircleShape) { Icon(Icons.Default.MyLocation, "Ubicación") }
             }
-        }
 
-        // BOTTOM SHEET (Info)
-        if (!showCustomKeyboard) {
-            AnimatedVisibility(visible = recintoData != null || (cultivoData != null && showCultivo), enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-                val displayData = recintoData ?: cultivoData
-                displayData?.let { data ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(0.dp).animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-                            .pointerInput(Unit) { detectVerticalDragGestures { change, dragAmount -> change.consume(); if (dragAmount < -20) isPanelExpanded = true else if (dragAmount > 20) isPanelExpanded = false } },
-                        colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
-                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
-                                Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
-                            }
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                                Column {
-                                    Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
-                                    Text(text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FieldGreen)
-                                }
-                                IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
-                            }
-                            Divider(color = FieldDivider)
+            // Loading
+            if (isLoadingData || isSearching) {
+                Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
+                    CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
+                }
+            }
 
-                            val hasCultivo = cultivoData != null
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).background(FieldSurface).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
+            // BOTTOM SHEET (Info)
+            if (!showCustomKeyboard) {
+                AnimatedVisibility(visible = recintoData != null || (cultivoData != null && showCultivo), enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
+                    val displayData = recintoData ?: cultivoData
+                    displayData?.let { data ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(0.dp).animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                                .pointerInput(Unit) { detectVerticalDragGestures { change, dragAmount -> change.consume(); if (dragAmount < -20) isPanelExpanded = true else if (dragAmount > 20) isPanelExpanded = false } },
+                            colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
+                            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
+                                    Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
                                 }
-                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                                    Column {
+                                        Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
+                                        Text(text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FieldGreen)
+                                    }
+                                    IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
                                 }
-                            }
-                            
-                            if (isPanelExpanded) {
                                 Divider(color = FieldDivider)
-                                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
-                                    if (selectedTab == 0) {
-                                        if (recintoData != null) {
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f)); AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f)); AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f)); AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f)); AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f)) }
-                                        }
-                                    } else {
-                                        if (cultivoData != null) {
-                                            val c = cultivoData!!
-                                            Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f)); AttributeItem("Año", c["exp_ano"], Modifier.weight(1f)) }
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                            Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f)); val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0; val supCultHa = supCultRaw / 10000.0; AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(8.dp))
-                                            Row(Modifier.fillMaxWidth()) { val sist = c["parc_sistexp"]; val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }; AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f)); AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(8.dp))
-                                            AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                            Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
-                                            Spacer(Modifier.height(4.dp))
-                                            AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                            Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f)) }
+
+                                val hasCultivo = cultivoData != null
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).background(FieldSurface).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
+                                    }
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
+                                    }
+                                }
+                                
+                                if (isPanelExpanded) {
+                                    Divider(color = FieldDivider)
+                                    Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                                        if (selectedTab == 0) {
+                                            if (recintoData != null) {
+                                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f)); AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f)) }
+                                                Spacer(Modifier.height(12.dp))
+                                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f)); AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f)) }
+                                                Spacer(Modifier.height(12.dp))
+                                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f)); AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f)) }
+                                                Spacer(Modifier.height(12.dp))
+                                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f)); AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f)) }
+                                            }
+                                        } else {
+                                            if (cultivoData != null) {
+                                                val c = cultivoData!!
+                                                Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                                Row(Modifier.fillMaxWidth()) { AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f)); AttributeItem("Año", c["exp_ano"], Modifier.weight(1f)) }
+                                                Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                                Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                                Row(Modifier.fillMaxWidth()) { AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f)); val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0; val supCultHa = supCultRaw / 10000.0; AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f)) }
+                                                Spacer(Modifier.height(8.dp))
+                                                Row(Modifier.fillMaxWidth()) { val sist = c["parc_sistexp"]; val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }; AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f)); AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f)) }
+                                                Spacer(Modifier.height(8.dp))
+                                                AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
+                                                Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                                Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                                AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
+                                                Spacer(Modifier.height(4.dp))
+                                                AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
+                                                Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                                Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                                Row(Modifier.fillMaxWidth()) { AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f)) }
+                                            }
                                         }
                                     }
                                 }
@@ -531,17 +552,16 @@ fun NativeMap(
                         }
                     }
                 }
-            }
-        }
 
-        // --- TECLADO PERSONALIZADO (Desde MapComponents.kt) ---
-        AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-            CustomSigpacKeyboard(
-                onKey = { char -> searchQuery += char },
-                onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
-                onSearch = { performSearch() },
-                onClose = { showCustomKeyboard = false }
-            )
-        }
+                // --- TECLADO PERSONALIZADO ---
+                AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
+                    CustomSigpacKeyboard(
+                        onKey = { char -> searchQuery += char },
+                        onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
+                        onSearch = { performSearch() },
+                        onClose = { showCustomKeyboard = false }
+                    )
+                }
+            } // Fin if(isVisible)
     }
 }

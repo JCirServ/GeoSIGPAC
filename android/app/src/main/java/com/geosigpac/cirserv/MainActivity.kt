@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv
 
 import android.Manifest
@@ -192,24 +193,31 @@ fun GeoSigpacApp() {
             )
         } else {
             // NAVEGACIÓN PRINCIPAL
-            // Usamos Box para superponer o cambiar vistas sin BottomBar
+            // Usamos Box para superponer vistas sin destruir el Mapa
             Box(modifier = Modifier.fillMaxSize()) {
-                when (selectedTab) {
-                    0 -> WebProjectManager(
+                
+                // 1. NativeMap (Siempre en el árbol, controlado por isVisible)
+                // Se coloca primero para quedar "al fondo"
+                NativeMap(
+                    targetLat = mapTarget?.first,
+                    targetLng = mapTarget?.second,
+                    isVisible = (selectedTab == 1), // Visible solo si es pestaña 1
+                    onNavigateToProjects = { selectedTab = 0 },
+                    onOpenCamera = {
+                        currentProjectId = null // Foto general desde el mapa
+                        isCameraOpen = true
+                    }
+                )
+
+                // 2. WebProjectManager (Encima del mapa si está activo)
+                // Usamos 'if' porque el WebView es más ligero de recrear y no sufre de congelamientos GL
+                if (selectedTab == 0) {
+                    WebProjectManager(
                         webAppInterface = webAppInterface,
                         onWebViewCreated = { webView -> webViewRef = webView },
                         onNavigateToMap = { selectedTab = 1 },
                         onOpenCamera = {
                             currentProjectId = null
-                            isCameraOpen = true
-                        }
-                    )
-                    1 -> NativeMap(
-                        targetLat = mapTarget?.first,
-                        targetLng = mapTarget?.second,
-                        onNavigateToProjects = { selectedTab = 0 },
-                        onOpenCamera = {
-                            currentProjectId = null // Foto general desde el mapa
                             isCameraOpen = true
                         }
                     )
