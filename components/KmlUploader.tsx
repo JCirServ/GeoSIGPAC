@@ -13,132 +13,169 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isParsing, setIsParsing] = React.useState(false);
 
+  // Función auxiliar robusta para leer archivos en entornos híbridos (WebView)
+  const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Fallo al leer archivo como ArrayBuffer"));
+        }
+      };
+      reader.onerror = () => reject(new Error("Error de lectura de archivo"));
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setIsParsing(true);
     try {
+      // 1. Lectura binaria segura
+      const buffer = await readFileAsArrayBuffer(file);
+      const view = new Uint8Array(buffer);
+      
+      // 2. Detección de KMZ (ZIP) por firma hexadecimal (PK..)
+      // Android a veces pierde la extensión .kmz en los Content Providers
+      const isZip = view.length > 4 && 
+                    view[0] === 0x50 && view[1] === 0x4B && 
+                    view[2] === 0x03 && view[3] === 0x04;
+
       let kmlText = "";
 
-      // Detectar si es KMZ o KML
-      if (file.name.toLowerCase().endsWith('.kmz')) {
+      if (isZip) {
         try {
-          const zip = await JSZip.loadAsync(file);
-          // Buscar cualquier archivo que termine en .kml
+          const zip = await JSZip.loadAsync(buffer);
+          // Buscar archivo .kml ignorando mayúsculas/minúsculas
           const kmlFileName = Object.keys(zip.files).find(filename => filename.toLowerCase().endsWith('.kml'));
           
           if (kmlFileName) {
             kmlText = await zip.file(kmlFileName)!.async("string");
           } else {
-            throw new Error("No se encontró un archivo .kml dentro del KMZ.");
+            throw new Error("El archivo KMZ no contiene un .kml válido.");
           }
         } catch (e) {
           console.error("Error descomprimiendo KMZ", e);
-          showNativeToast("El archivo KMZ no es válido o está corrupto.");
-          setIsParsing(false);
-          return;
+          throw new Error("Archivo KMZ corrupto o ilegible.");
         }
       } else {
-        // Es un KML normal
-        kmlText = await file.text();
+        // Decodificar KML plano
+        const decoder = new TextDecoder("utf-8");
+        kmlText = decoder.decode(buffer);
       }
 
+      // 3. Parsing XML Robusto
       const parser = new DOMParser();
       const kml = parser.parseFromString(kmlText, 'text/xml');
       
-      // Usamos getElementsByTagName en lugar de querySelectorAll para:
-      // 1. Evitar problemas con namespaces (kml:Placemark vs Placemark)
-      // 2. Obtener una colección viva de nodos
-      const placemarks = kml.getElementsByTagName('Placemark');
+      // Verificación de errores de XML
+      const parserError = kml.getElementsByTagName("parsererror");
+      if (parserError.length > 0) {
+        console.error("XML Parser Error:", parserError[0].textContent);
+        throw new Error("El contenido del archivo no es un XML válido.");
+      }
+
+      // Búsqueda agnóstica de Namespaces
+      // Iteramos todos los nodos para encontrar 'Placemark' comparando localName
+      // Esto soluciona problemas donde getElementsByTagName('Placemark') falla si hay namespaces (kml:Placemark)
+      const allElements = kml.getElementsByTagName("*");
+      const placemarks = Array.from(allElements).filter(el => 
+        el.localName === 'Placemark' || el.nodeName === 'Placemark'
+      );
       
       const parcelas: Parcela[] = [];
       
-      // Iteramos sobre la colección HTMLCollection
       for (let i = 0; i < placemarks.length; i++) {
         const pm = placemarks[i];
         
-        // Obtener nombre: buscamos la etiqueta name dentro del Placemark
-        const nameTags = pm.getElementsByTagName('name');
-        const name = nameTags.length > 0 ? nameTags[0].textContent || `Recinto ${i + 1}` : `Recinto ${i + 1}`;
+        // Búsqueda robusta de nombre y coordenadas dentro del Placemark
+        const children = pm.getElementsByTagName("*");
         
-        // Obtener coordenadas: buscamos 'coordinates' en cualquier profundidad 
-        // (dentro de Point, Polygon, MultiGeometry, etc.)
-        const coordsTags = pm.getElementsByTagName('coordinates');
+        let name = `Recinto ${i + 1}`;
+        let coordsContent = "";
+
+        for (let j = 0; j < children.length; j++) {
+            const child = children[j];
+            if (child.localName === 'name') name = child.textContent || name;
+            if (child.localName === 'coordinates') coordsContent = child.textContent?.trim() || "";
+        }
         
-        if (coordsTags.length > 0) {
-          // Tomamos la primera etiqueta de coordenadas encontrada
-          const coordsContent = coordsTags[0].textContent?.trim() || "";
+        if (coordsContent) {
+          // Normalizar separadores: convertir saltos de línea y tabuladores en espacios
+          const normalizedCoords = coordsContent.replace(/\s+/g, ' ').trim();
+          const points = normalizedCoords.split(' ');
           
-          // Separadores comunes en KML: espacio, salto de línea o coma
-          // El formato suele ser: lon,lat,alt lon,lat,alt ...
-          const points = coordsContent.split(/\s+/);
-          
-          if (points.length > 0 && points[0].includes(',')) {
+          if (points.length > 0) {
+            // KML estándar: lon,lat,alt
             const firstPoint = points[0].split(',');
-            const lng = parseFloat(firstPoint[0]);
-            const lat = parseFloat(firstPoint[1]);
+            if (firstPoint.length >= 2) {
+                const lng = parseFloat(firstPoint[0]);
+                const lat = parseFloat(firstPoint[1]);
 
-            if (!isNaN(lat) && !isNaN(lng)) {
-               // Cálculo de área simulado basado en la cantidad de puntos (mayor complejidad = mayor área aprox para demo)
-               const complexity = points.length; 
-               const area = (Math.random() * 2 + (complexity * 0.05)).toFixed(2);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                   // Cálculo de área simulado
+                   const complexity = points.length; 
+                   const area = (Math.random() * 2 + (complexity * 0.05)).toFixed(2);
 
-               parcelas.push({
-                id: `p-${Date.now()}-${i}`,
-                name: name,
-                lat: lat,
-                lng: lng,
-                area: parseFloat(area),
-                status: 'pending'
-              });
+                   parcelas.push({
+                    id: `p-${Date.now()}-${i}`,
+                    name: name,
+                    lat: lat,
+                    lng: lng,
+                    area: parseFloat(area),
+                    status: 'pending'
+                  });
+                }
             }
           }
         }
       }
 
+      // Fallback agresivo: Si no hay Placemarks, buscar cualquier etiqueta coordinates
       if (parcelas.length === 0) {
-        // Si falló Placemark, intentamos un fallback agresivo buscando coordenadas sueltas
-        // Esto es útil para estructuras KML muy extrañas o corruptas
-        const allCoords = kml.getElementsByTagName('coordinates');
-        if (allCoords.length > 0 && parcelas.length === 0) {
-            console.log("Intentando fallback de coordenadas...");
-             for (let j = 0; j < allCoords.length; j++) {
-                const txt = allCoords[j].textContent?.trim() || "";
-                const parts = txt.split(/\s+/)[0].split(',');
-                if (parts.length >= 2) {
-                    const lng = parseFloat(parts[0]);
-                    const lat = parseFloat(parts[1]);
-                    if(!isNaN(lng) && !isNaN(lat)) {
-                        parcelas.push({
-                            id: `fallback-${j}`,
-                            name: `Geometría ${j+1}`,
-                            lat, lng, area: 1.0, status: 'pending'
-                        });
-                    }
+        console.warn("No se encontraron Placemarks, intentando búsqueda cruda de coordenadas...");
+        const rawCoords = Array.from(allElements).filter(el => el.localName === 'coordinates');
+        
+        rawCoords.forEach((el, idx) => {
+            const txt = el.textContent?.trim() || "";
+            const parts = txt.split(/\s+/)[0].split(',');
+            if (parts.length >= 2) {
+                const lng = parseFloat(parts[0]);
+                const lat = parseFloat(parts[1]);
+                if(!isNaN(lng) && !isNaN(lat)) {
+                    parcelas.push({
+                        id: `fallback-${idx}`,
+                        name: `Geometría Detectada ${idx+1}`,
+                        lat, lng, area: 1.0, status: 'pending'
+                    });
                 }
-             }
-        }
+            }
+        });
       }
 
       if (parcelas.length === 0) {
-        console.warn("XML Parseado:", kmlText.substring(0, 200)); // Debug
-        showNativeToast("El archivo no contiene geometrías válidas.");
+        // Debug para desarrollador: mostrar inicio del archivo
+        console.warn("XML Content Preview:", kmlText.substring(0, 500));
+        showNativeToast("No se encontraron geometrías válidas en el archivo.");
       } else {
         const newInspection: Inspection = {
           id: `ins-${Date.now()}`,
-          title: file.name.replace(/\.km[lz]/i, ''),
+          title: file.name.replace(/\.(kml|kmz|xml)$/i, ''),
           description: `Importación automática de ${parcelas.length} recintos.`,
           date: new Date().toISOString().split('T')[0],
           status: 'planned',
           parcelas
         };
         onDataParsed(newInspection);
-        showNativeToast(`Importados ${parcelas.length} recintos con éxito.`);
+        showNativeToast(`Importados ${parcelas.length} recintos correctamente.`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      showNativeToast("Error al procesar el archivo.");
+      showNativeToast(error.message || "Error al procesar el archivo.");
     } finally {
       setIsParsing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -151,7 +188,7 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
         type="file" 
         ref={fileInputRef} 
         onChange={handleFileUpload} 
-        accept=".kml, .kmz" 
+        accept=".kml, .kmz, application/vnd.google-earth.kml+xml, application/vnd.google-earth.kmz" 
         className="hidden" 
       />
       <button 
@@ -164,7 +201,7 @@ export const KmlUploader: React.FC<KmlUploaderProps> = ({ onDataParsed }) => {
         ) : (
           <FileUp size={20} />
         )}
-        {isParsing ? 'Procesando...' : 'Importar Archivo KML / KMZ'}
+        {isParsing ? 'Analizando archivo...' : 'Importar Archivo KML / KMZ'}
       </button>
     </div>
   );
