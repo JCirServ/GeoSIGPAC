@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.util.Log
@@ -48,7 +49,7 @@ val FieldDivider = Color(0xFF424242)
 
 // Colores de capas de mapa
 val HighlightColor = Color(0xFFF97316) // Naranja SIGPAC para selección
-val RecintoLineColor = Color(0xFF00E5FF) // Cian brillante para bordes generales (Alto contraste en OSM/PNOA)
+val RecintoLineColor = Color(0xFFD500F9) // Magenta vibrante (Alto contraste contra vegetación)
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),

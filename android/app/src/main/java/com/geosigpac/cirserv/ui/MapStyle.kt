@@ -114,7 +114,7 @@ fun loadMapStyle(
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 outlineLayer.setProperties(
                     PropertyFactory.lineColor(RecintoLineColor.toArgb()),
-                    PropertyFactory.lineWidth(3.0f) // Grosor aumentado a 3px
+                    PropertyFactory.lineWidth(2.0f) // Grosor restaurado a 2px
                 )
                 style.addLayer(outlineLayer)
                 
