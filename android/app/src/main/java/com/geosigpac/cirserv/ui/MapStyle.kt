@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
@@ -108,13 +109,12 @@ fun loadMapStyle(
                 style.addLayer(highlightLine)
 
                 // 3. Capa de Líneas Generales (Bordes)
-                // Usamos FillLayer para evitar artefactos de teselas.
-                // CAMBIO: Color actualizado a RecintoLineColor (Cian) para destacar sobre OSM.
-                val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                // Usamos LineLayer para tener control sobre el grosor (lineWidth)
+                val outlineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 outlineLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb())
+                    PropertyFactory.lineColor(RecintoLineColor.toArgb()),
+                    PropertyFactory.lineWidth(2.0f) // Grosor aumentado a 2px
                 )
                 style.addLayer(outlineLayer)
                 
