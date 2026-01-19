@@ -3,53 +3,86 @@ import { GoogleGenAI } from "@google/genai";
 import { Project } from "../types";
 
 /**
- * Inicializa la IA. 
- * Se asume que process.env.API_KEY está disponible en el entorno de ejecución.
+ * Servicio de Inteligencia Artificial para GeoSIGPAC.
+ * Utiliza los modelos de Google AI Studio (Gemini).
  */
-const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
  * Genera un análisis agronómico basado en los datos de la parcela.
  */
 export const analyzeProjectWithAI = async (project: Project): Promise<string> => {
   try {
-    const ai = getAIClient();
+    // Instanciamos el cliente justo antes de la llamada
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Analiza esta parcela agrícola y dame 3 consejos breves:
+      contents: `Analiza esta parcela agrícola y dame 3 consejos técnicos breves para el cuaderno de campo:
       Nombre: ${project.name}
       Descripción: ${project.description}
       Estado actual: ${project.status}
-      Fecha de inspección: ${project.date}`,
+      Fecha: ${project.date}`,
       config: {
-        systemInstruction: "Eres un ingeniero agrónomo experto en SIGPAC y PAC. Tus respuestas deben ser técnicas, profesionales y muy breves (máximo 300 caracteres). Usa emojis agrícolas. Si la parcela está pendiente, indica qué evidencia fotográfica suele faltar.",
+        systemInstruction: "Eres un ingeniero agrónomo experto en SIGPAC y normativa PAC en España. Sé muy técnico, profesional y breve. Máximo 250 caracteres.",
         temperature: 0.7,
       },
     });
 
-    return response.text || "No se pudo generar el análisis en este momento.";
+    // La propiedad .text extrae el contenido generado directamente
+    return response.text || "No se ha podido generar el análisis técnico.";
   } catch (error) {
-    console.error("Gemini AI Error:", error);
-    return "Error al conectar con el asistente agrónomo. Comprueba tu conexión.";
+    console.error("Error AI Studio:", error);
+    return "Error al conectar con Google AI Studio. Verifica la API Key.";
   }
 };
 
 /**
- * Chat genérico para consultas del agricultor sobre normativa o técnica.
+ * Analiza una imagen capturada por el agricultor para detectar problemas.
+ */
+export const analyzeProjectPhoto = async (photoBase64: string, projectName: string): Promise<string> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          { text: `Identifica el estado de salud de este cultivo en la parcela ${projectName} y detecta anomalías (plagas, clorosis, estrés hídrico).` },
+          { 
+            inlineData: { 
+              mimeType: "image/jpeg", 
+              data: photoBase64.includes(',') ? photoBase64.split(',')[1] : photoBase64 
+            } 
+          }
+        ]
+      }
+    });
+
+    return response.text || "No se pudo analizar la imagen visualmente.";
+  } catch (error) {
+    console.error("Error Vision AI Studio:", error);
+    return "Error en el análisis visual de la imagen.";
+  }
+};
+
+/**
+ * Chat interactivo con el asistente agrónomo.
  */
 export const askGeminiAssistant = async (prompt: string): Promise<string> => {
   try {
-    const ai = getAIClient();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        systemInstruction: "Eres el asistente inteligente de GeoSIGPAC. Ayudas a agricultores de España con dudas sobre SIGPAC, fotos georreferenciadas y trámites de la PAC. Sé conciso y amable.",
+        systemInstruction: "Eres el asistente inteligente de GeoSIGPAC. Ayudas a agricultores con dudas sobre el visor SIGPAC, fotos georreferenciadas y normativa PAC de España. Responde de forma concisa y amable.",
       }
     });
-    return response.text || "Lo siento, no he podido procesar tu consulta.";
+    
+    return response.text || "No tengo una respuesta para eso en este momento.";
   } catch (error) {
-    console.error("Assistant Error:", error);
-    return "Error de comunicación con el servidor de IA.";
+    console.error("Error Chat AI Studio:", error);
+    return "Servicio de asistencia temporalmente no disponible.";
   }
 };
