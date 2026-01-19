@@ -288,7 +288,7 @@ fun NativeMap(
             return
         }
 
-        val center = map.cameraPosition.target
+        val center = map.cameraPosition.target ?: return // Corrección: asegurar que target no es nulo
         val screenPoint = map.projection.toScreenLocation(center)
         val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
 
@@ -346,7 +346,7 @@ fun NativeMap(
             return
         }
 
-        val center = map.cameraPosition.target
+        val center = map.cameraPosition.target ?: return // Corrección: asegurar que target no es nulo
         val screenPoint = map.projection.toScreenLocation(center)
         val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
         
