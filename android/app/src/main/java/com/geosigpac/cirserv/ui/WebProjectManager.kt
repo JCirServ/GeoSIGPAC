@@ -2,12 +2,18 @@
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -19,7 +25,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
@@ -38,6 +47,37 @@ fun WebProjectManager(
     onNavigateToMap: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
+    // Variable para retener el callback del archivo seleccionado
+    var uploadMessage by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+
+    // Launcher para abrir el selector de archivos del sistema
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val data = result.data
+            var results: Array<Uri>? = null
+            
+            if (data != null) {
+                val dataString = data.dataString
+                val clipData = data.clipData
+                
+                if (clipData != null) {
+                    results = Array(clipData.itemCount) { i ->
+                        clipData.getItemAt(i).uri
+                    }
+                } else if (dataString != null) {
+                    results = arrayOf(Uri.parse(dataString))
+                }
+            }
+            uploadMessage?.onReceiveValue(results)
+        } else {
+            // Importante: Si se cancela, debemos devolver null para reiniciar el input del WebView
+            uploadMessage?.onReceiveValue(null)
+        }
+        uploadMessage = null
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -76,7 +116,6 @@ fun WebProjectManager(
                 .padding(innerPadding),
             factory = { context ->
                 // 1. Configuramos el AssetLoader
-                // El dominio 'appassets.androidplatform.net' es el estándar recomendado por Google.
                 val assetLoader = WebViewAssetLoader.Builder()
                     .setDomain("appassets.androidplatform.net")
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
@@ -90,16 +129,15 @@ fun WebProjectManager(
                         domStorageEnabled = true
                         databaseEnabled = true
                         
-                        // Desactivamos acceso a archivos para forzar el uso del AssetLoader (más seguro)
+                        // Desactivamos acceso a archivos directos pero habilitamos acceso a contenido
                         allowFileAccess = false
-                        allowContentAccess = false
+                        allowContentAccess = true
                         
                         // Optimizaciones de visualización
                         loadWithOverviewMode = true
                         useWideViewPort = true
                         setSupportZoom(false)
                         
-                        // User Agent personalizado para detectar en Web si estamos en la App
                         userAgentString = "$userAgentString GeoSIGPAC/1.0"
                     }
 
@@ -107,7 +145,6 @@ fun WebProjectManager(
                     addJavascriptInterface(webAppInterface, "Android")
 
                     webViewClient = object : WebViewClient() {
-                        // Interceptamos las peticiones para que pasen por el AssetLoader
                         override fun shouldInterceptRequest(
                             view: WebView,
                             request: WebResourceRequest
@@ -118,29 +155,53 @@ fun WebProjectManager(
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
                         }
-
-                        // Manejo de errores de carga
-                        override fun onReceivedError(
-                            view: WebView?,
-                            errorCode: Int,
-                            description: String?,
-                            failingUrl: String?
-                        ) {
-                            super.onReceivedError(view, errorCode, description, failingUrl)
-                        }
                     }
                     
-                    webChromeClient = WebChromeClient()
+                    webChromeClient = object : WebChromeClient() {
+                        // CRÍTICO: Sobrescribir este método para manejar <input type="file">
+                        override fun onShowFileChooser(
+                            webView: WebView?,
+                            filePathCallback: ValueCallback<Array<Uri>>?,
+                            fileChooserParams: FileChooserParams?
+                        ): Boolean {
+                            // Cancelar callback anterior si existe
+                            if (uploadMessage != null) {
+                                uploadMessage?.onReceiveValue(null)
+                                uploadMessage = null
+                            }
 
-                    // Importante: Cargamos la URL a través del dominio virtual HTTPS
-                    // Dado que Vite construye en 'assets/', el index.html está en la raíz del handler /assets/
+                            uploadMessage = filePathCallback
+
+                            try {
+                                // Intentar crear el intent basado en los parámetros del input HTML (accept, multiple, etc)
+                                val intent = fileChooserParams?.createIntent()
+                                if (intent != null) {
+                                    filePickerLauncher.launch(intent)
+                                } else {
+                                    // Fallback genérico
+                                    val i = Intent(Intent.ACTION_GET_CONTENT)
+                                    i.addCategory(Intent.CATEGORY_OPENABLE)
+                                    i.type = "*/*"
+                                    filePickerLauncher.launch(i)
+                                }
+                            } catch (e: Exception) {
+                                uploadMessage?.onReceiveValue(null)
+                                uploadMessage = null
+                                return false
+                            }
+
+                            return true
+                        }
+                    }
+
+                    // Cargamos la URL
                     loadUrl("https://appassets.androidplatform.net/assets/index.html")
                     
                     onWebViewCreated(this)
                 }
             },
             update = { webView ->
-                // Aquí se podrían manejar actualizaciones del estado si fuera necesario
+                // Actualizaciones de estado si fueran necesarias
             }
         )
     }
