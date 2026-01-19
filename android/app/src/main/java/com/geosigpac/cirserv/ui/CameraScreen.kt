@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
@@ -190,20 +191,25 @@ fun CameraScreen(
         }
     }
 
-    // --- VINCULACIÓN DE CÁMARA ---
+    // --- VINCULACIÓN DE CÁMARA (Con Delay de seguridad) ---
     LaunchedEffect(aspectRatio, flashMode) {
+        // RETRASO CRÍTICO: Permite que el WebView/Mapa se oculten y liberen recursos de UI
+        // antes de iniciar el pesado proceso de CameraX.
+        delay(300) 
+
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-            cameraProvider.unbindAll()
-            val preview = Preview.Builder().setTargetAspectRatio(aspectRatio).build()
-            preview.setSurfaceProvider(previewView.surfaceProvider)
-            val imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .setTargetAspectRatio(aspectRatio)
-                .setFlashMode(flashMode)
-                .build()
             try {
+                val cameraProvider = cameraProviderFuture.get()
+                cameraProvider.unbindAll()
+                val preview = Preview.Builder().setTargetAspectRatio(aspectRatio).build()
+                preview.setSurfaceProvider(previewView.surfaceProvider)
+                val imageCapture = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .setTargetAspectRatio(aspectRatio)
+                    .setFlashMode(flashMode)
+                    .build()
+            
                 camera = cameraProvider.bindToLifecycle(
                     lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture
                 )
@@ -214,7 +220,7 @@ fun CameraScreen(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // --- BUCLE SIGPAC Y GPS (Lógica igual que antes) ---
+    // --- BUCLE SIGPAC Y GPS ---
     LaunchedEffect(Unit) {
         while (true) {
             val loc = currentLocation
@@ -264,7 +270,6 @@ fun CameraScreen(
 
     // --- COMPONENTES UI REUTILIZABLES ---
     
-    // Botones Superiores (Config y Proyectos)
     val TopLeftButtons = @Composable {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Box(
@@ -278,7 +283,6 @@ fun CameraScreen(
         }
     }
 
-    // Cajetín de Información
     val InfoBox = @Composable {
         Box(
             modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp)
@@ -298,7 +302,6 @@ fun CameraScreen(
         }
     }
 
-    // Botón Disparador
     val ShutterButton = @Composable {
         Box(
             modifier = Modifier
@@ -313,7 +316,6 @@ fun CameraScreen(
         )
     }
 
-    // Preview de Foto con Badge
     val PreviewButton = @Composable {
         Box(contentAlignment = Alignment.TopEnd) {
             Box(
@@ -342,7 +344,6 @@ fun CameraScreen(
         }
     }
 
-    // Botón Mapa
     val MapButton = @Composable {
         Box(
             modifier = Modifier
@@ -355,48 +356,19 @@ fun CameraScreen(
         ) { Icon(MapIcon, "Mapa", tint = Color.White, modifier = Modifier.size(36.dp)) }
     }
 
-    // Slider Zoom (Vertical u Horizontal)
     val ZoomControl = @Composable { isLandscapeMode: Boolean ->
         val containerModifier = if (isLandscapeMode) {
-             // Horizontal y alargado
-             Modifier
-                .width(260.dp)
-                .height(40.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color.Black.copy(alpha = 0.5f))
-                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
+             Modifier.width(260.dp).height(40.dp).clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
         } else {
-            // Vertical (contenedor alto)
-            Modifier
-                .height(300.dp)
-                .width(30.dp)
-                .clip(RoundedCornerShape(15.dp))
-                .background(Color.Black.copy(alpha = 0.5f))
-                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp))
+            Modifier.height(300.dp).width(30.dp).clip(RoundedCornerShape(15.dp)).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp))
         }
 
-        Box(
-            modifier = containerModifier,
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = containerModifier, contentAlignment = Alignment.Center) {
             Slider(
                 value = currentLinearZoom,
                 onValueChange = { valz -> camera?.cameraControl?.setLinearZoom(valz) },
-                modifier = if (isLandscapeMode) {
-                    Modifier.width(240.dp) // Slider horizontal normal
-                } else {
-                    Modifier
-                        .graphicsLayer {
-                            rotationZ = 270f
-                            transformOrigin = TransformOrigin.Center
-                        }
-                        .requiredWidth(260.dp) // Ancho rotado se convierte en alto visual
-                }, 
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
-                    activeTrackColor = Color(0xFFFFD700),
-                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                )
+                modifier = if (isLandscapeMode) Modifier.width(240.dp) else Modifier.graphicsLayer { rotationZ = 270f; transformOrigin = TransformOrigin.Center }.requiredWidth(260.dp),
+                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFFFFD700), inactiveTrackColor = Color.White.copy(alpha = 0.3f))
             )
         }
     }
@@ -427,18 +399,15 @@ fun CameraScreen(
             }
     ) {
         
-        // 1. Vista de Cámara (Fondo)
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); scaleType = PreviewView.ScaleType.FILL_CENTER } }
         )
         
-        // 2. Anillo de Enfoque
         if (showFocusRing && focusRingPosition != null) {
             Box(modifier = Modifier.offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.x.toDp() - 25.dp }, y = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.y.toDp() - 25.dp }).size(50.dp).border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape))
         }
 
-        // 3. Grid
         if (showGrid) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width; val h = size.height
@@ -449,80 +418,21 @@ fun CameraScreen(
             }
         }
 
-        // --- CAPA DE INTERFAZ (Layout Responsivo) ---
-        
         if (isLandscape) {
-            // ================= LANDSCAPE LAYOUT =================
-            
-            // Arriba Izquierda: Botones
-            Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
-                TopLeftButtons()
-            }
-
-            // Arriba Derecha: Info
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
-                InfoBox()
-            }
-
-            // Centro Derecha: Disparador
-            Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) {
-                ShutterButton()
-            }
-
-            // Abajo Izquierda: Preview y Mapa (Horizontal)
-            Row(
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                PreviewButton()
-                MapButton()
-            }
-
-            // Abajo Derecha: Slider Horizontal
-            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 32.dp)) {
-                // Para que no se solape con el disparador si la pantalla es estrecha, 
-                // lo movemos un poco a la izquierda del borde derecho
-                ZoomControl(true)
-            }
-
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) { TopLeftButtons() }
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) { InfoBox() }
+            Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) { ShutterButton() }
+            Row(modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) { PreviewButton(); MapButton() }
+            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 32.dp)) { ZoomControl(true) }
         } else {
-            // ================= PORTRAIT LAYOUT (Original) =================
-            
-            // Arriba Izquierda
-            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) {
-                TopLeftButtons()
-            }
-
-            // Arriba Derecha
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) {
-                InfoBox()
-            }
-
-            // Centro Izquierda: Zoom Vertical
-            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
-                ZoomControl(false)
-            }
-
-            // Abajo: Fila de controles (Preview - Disparador - Mapa)
-            Column(
-                modifier = Modifier.fillMaxSize().padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.Bottom,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    PreviewButton()
-                    ShutterButton()
-                    MapButton()
-                }
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) { TopLeftButtons() }
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) { InfoBox() }
+            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) { ZoomControl(false) }
+            Column(modifier = Modifier.fillMaxSize().padding(bottom = 32.dp), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { PreviewButton(); ShutterButton(); MapButton() }
             }
         }
         
-        // --- DIÁLOGO CONFIGURACIÓN ---
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
