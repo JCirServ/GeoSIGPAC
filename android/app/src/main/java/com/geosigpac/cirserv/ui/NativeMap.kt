@@ -62,6 +62,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.google.gson.JsonPrimitive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -112,6 +113,9 @@ private const val SOURCE_CULTIVO = "cultivo-source"
 private const val LAYER_CULTIVO_FILL = "cultivo-layer-fill"
 private const val SOURCE_LAYER_ID_CULTIVO = "cultivo_declarado"
 
+// Campos para identificar unívocamente un recinto (según la lógica web)
+private val SIGPAC_KEYS = listOf("provincia", "municipio", "agregado", "zona", "poligono", "parcela", "recinto")
+
 // --- COORDENADAS POR DEFECTO (Comunidad Valenciana) ---
 private val VALENCIA_LAT = 39.4699
 private val VALENCIA_LNG = -0.3763
@@ -126,8 +130,8 @@ private val HighContrastWhite = Color(0xFFFFFFFF)
 private val FieldGray = Color(0xFFB0B0B0)
 private val FieldDivider = Color(0xFF424242)
 
-// Color de resaltado dinámico (Cian Neón para máxima visibilidad en fondo oscuro)
-private val HighlightColor = Color(0xFF00E5FF) 
+// Color de resaltado dinámico (Naranja SIGPAC clásico)
+private val HighlightColor = Color(0xFFF97316) 
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
@@ -168,8 +172,8 @@ fun NativeMap(
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
     var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
     
-    // Control para evitar actualizaciones redundantes del estilo
-    var lastHighlightedId by remember { mutableStateOf<String?>(null) }
+    // Control para evitar actualizaciones de DATOS (Bottom Sheet) innecesarias
+    var lastDataId by remember { mutableStateOf<String?>(null) }
     
     // Estado de expansión del panel
     var isPanelExpanded by remember { mutableStateOf(false) }
@@ -207,7 +211,7 @@ fun NativeMap(
     // --- FUNCIÓN DE BÚSQUEDA ---
     fun performSearch() {
         if (searchQuery.isBlank()) return
-        showCustomKeyboard = false // Ocultar teclado
+        showCustomKeyboard = false
         focusManager.clearFocus()
         isSearching = true
         searchActive = true
@@ -228,11 +232,8 @@ fun NativeMap(
 
         scope.launch {
             val map = mapInstance
+            // En búsqueda manual, usamos el filtro para resaltar lo buscado
             if (map != null && map.style != null) {
-                // LOGCAT: Depuración del filtro
-                Log.d("SIGPAC_FILTER", "Buscando: Prov='$prov', Mun='$mun', Pol='$pol', Parc='$parc', Rec='$rec'")
-
-                // 1. Aplicar Filtro Visual (Highlight) - ESTO USA MVT (Visual)
                 val filterList = mutableListOf<Expression>(
                     Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
                     Expression.eq(Expression.toString(Expression.get("municipio")), Expression.literal(mun)),
@@ -244,27 +245,16 @@ fun NativeMap(
                 }
 
                 val filter = Expression.all(*filterList.toTypedArray())
-
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { layer ->
-                    (layer as FillLayer).setFilter(filter)
-                    layer.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
-                }
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { layer ->
-                    (layer as LineLayer).setFilter(filter)
-                    layer.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
-                }
+                
+                // Actualizamos las capas de Highlight
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(filter) }
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
             }
 
-            // 2. Buscar Geometría y Mover Cámara (API REST CENTROIDE)
+            // 2. Buscar Geometría y Mover Cámara
             val bbox = searchParcelLocation(prov, mun, pol, parc, rec)
-            
             if (bbox != null) {
-                Log.d("SIGPAC_MAP", "Moviendo cámara a BBox centrado: $bbox")
-                // Mover cámara al Bounding Box encontrado con padding
-                mapInstance?.animateCamera(
-                    CameraUpdateFactory.newLatLngBounds(bbox, 100), 
-                    1500 
-                )
+                mapInstance?.animateCamera(CameraUpdateFactory.newLatLngBounds(bbox, 100), 1500)
             } else {
                 Toast.makeText(context, "Ubicación no encontrada", Toast.LENGTH_SHORT).show()
             }
@@ -276,36 +266,33 @@ fun NativeMap(
     fun clearSearch() {
         searchQuery = ""
         searchActive = false
-        lastHighlightedId = null
-        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
-        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
+        lastDataId = null
+        recintoData = null
+        cultivoData = null
+        // Limpiar filtro visual
+        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(Expression.literal(false)) }
+        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(Expression.literal(false)) }
     }
 
-    // --- LÓGICA DE PROCESAMIENTO DE MAPA ---
-    fun updateMapState(map: MapLibreMap, isIdle: Boolean) {
-        if (searchActive) return
-
-        val center = map.cameraPosition.target ?: return
+    // --- LÓGICA DE ACTUALIZACIÓN (ESTILO WEB) ---
+    
+    // 1. VISUAL (Se ejecuta "onMove" - Rápido)
+    fun updateHighlightVisuals(map: MapLibreMap) {
+        if (searchActive) return // Si estamos buscando manualmente, no tocar el filtro
         
         if (map.cameraPosition.zoom < 13) {
-            recintoData = null; cultivoData = null; lastHighlightedId = null
-            val style = map.style
-            style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
-            style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
+            // Zoom muy lejos, apagar highlight
+            val emptyFilter = Expression.literal(false)
+            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
+            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
             return
         }
 
+        val center = map.cameraPosition.target
         val screenPoint = map.projection.toScreenLocation(center)
-        
-        // CORRECCIÓN: Usar un Rectángulo de búsqueda en lugar de un punto único.
-        // Un área de 20x20px (10px radio) facilita "tocar" geometrías complejas.
-        val searchArea = RectF(
-            screenPoint.x - 10f, 
-            screenPoint.y - 10f, 
-            screenPoint.x + 10f, 
-            screenPoint.y + 10f
-        )
+        val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
 
+        // Buscamos features en la capa base (FILL)
         val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
         
         if (features.isNotEmpty()) {
@@ -313,54 +300,98 @@ fun NativeMap(
             val props = feature.properties()
             
             if (props != null) {
-                val prov = props.get("provincia")?.asString ?: ""
-                val mun = props.get("municipio")?.asString ?: ""
-                val pol = props.get("poligono")?.asString ?: ""
-                val parc = props.get("parcela")?.asString ?: ""
-                val rec = props.get("recinto")?.asString ?: ""
+                // Construimos el filtro dinámicamente usando los valores exactos encontrados
+                // Esto replica la lógica JS: ['==', field, foundSigpac[field]]
+                val filterConditions = mutableListOf<Expression>()
                 
-                val uniqueId = "$prov-$mun-$pol-$parc-$rec"
-                
-                if (uniqueId != lastHighlightedId) {
-                    lastHighlightedId = uniqueId
-                    
-                    val style = map.style
-                    if (style != null) {
-                        val filter = Expression.all(
-                            Expression.eq(Expression.get("provincia"), Expression.literal(prov)),
-                            Expression.eq(Expression.get("municipio"), Expression.literal(mun)),
-                            Expression.eq(Expression.get("poligono"), Expression.literal(pol)),
-                            Expression.eq(Expression.get("parcela"), Expression.literal(parc)),
-                            Expression.eq(Expression.get("recinto"), Expression.literal(rec))
-                        )
-                        val fillLayer = style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer
-                        val lineLayer = style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer
-                        
-                        fillLayer?.setFilter(filter)
-                        fillLayer?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
-                        lineLayer?.setFilter(filter)
-                        lineLayer?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+                SIGPAC_KEYS.forEach { key ->
+                    if (props.has(key)) {
+                        val element = props.get(key)
+                        // MapLibre devuelve JsonElement. Es crucial mantener el tipo (Número o String)
+                        // para que el filtro coincida con el Vector Tile.
+                        val value: Any = when {
+                            element.isJsonPrimitive -> {
+                                val prim = element.asJsonPrimitive
+                                when {
+                                    prim.isNumber -> prim.asNumber
+                                    prim.isBoolean -> prim.asBoolean
+                                    else -> prim.asString
+                                }
+                            }
+                            else -> element.toString()
+                        }
+                        filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
                     }
+                }
+                
+                val finalFilter = Expression.all(*filterConditions.toTypedArray())
+                
+                // Aplicamos el filtro a las capas de Highlight (que siempre están VISIBLES)
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(finalFilter) }
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
+            }
+        } else {
+            // No hay nada debajo, apagar highlight
+            val emptyFilter = Expression.literal(false)
+            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
+            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+        }
+    }
 
-                    recintoData = mapOf(
-                        "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
-                        "agregado" to (props.get("agregado")?.asString ?: "0"),
-                        "zona" to (props.get("zona")?.asString ?: "0"),
-                        "superficie" to (props.get("superficie")?.toString() ?: "0"),
-                        "uso_sigpac" to "Cargando...", "pendiente_media" to "-", "altitud" to "-", "region" to "-",
-                        "coef_regadio" to "-", "subvencionabilidad" to "-", "incidencias" to ""
-                    )
+    // 2. DATOS (Se ejecuta "onIdle" - Lento)
+    fun updateDataSheet(map: MapLibreMap) {
+        if (searchActive) return
+        if (map.cameraPosition.zoom < 13) {
+            recintoData = null; cultivoData = null; lastDataId = null
+            return
+        }
+
+        val center = map.cameraPosition.target
+        val screenPoint = map.projection.toScreenLocation(center)
+        val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
+        
+        // Recintos
+        val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
+        if (features.isNotEmpty()) {
+            val props = features[0].properties()
+            val prov = props?.get("provincia")?.asString ?: ""
+            val mun = props?.get("municipio")?.asString ?: ""
+            val pol = props?.get("poligono")?.asString ?: ""
+            val parc = props?.get("parcela")?.asString ?: ""
+            val rec = props?.get("recinto")?.asString ?: ""
+            
+            val uniqueId = "$prov-$mun-$pol-$parc-$rec"
+            
+            // Solo recargar datos API si ha cambiado el recinto seleccionado
+            if (uniqueId != lastDataId) {
+                lastDataId = uniqueId
+                
+                recintoData = mapOf(
+                    "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
+                    "agregado" to (props?.get("agregado")?.asString ?: "0"),
+                    "zona" to (props?.get("zona")?.asString ?: "0"),
+                    "superficie" to (props?.get("superficie")?.toString() ?: "0"),
+                    "uso_sigpac" to "Cargando...", "pendiente_media" to "-", "altitud" to "-", "region" to "-",
+                    "coef_regadio" to "-", "subvencionabilidad" to "-", "incidencias" to ""
+                )
+                
+                // Disparar carga de datos extendidos (API)
+                isLoadingData = true
+                isPanelExpanded = false
+                apiJob?.cancel()
+                apiJob = scope.launch {
+                    delay(200) // Debounce
+                    val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
+                    if (fullData != null) recintoData = fullData
+                    isLoadingData = false
                 }
             }
         } else {
-            if (lastHighlightedId != null) {
-                lastHighlightedId = null
-                val style = map.style
-                style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
-                style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setProperties(PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE))
-            }
+            lastDataId = null
+            // No limpiar inmediatamente para evitar parpadeos si se cruza una línea fina
         }
 
+        // Cultivos (simple, sin API extra)
         val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
         if (cultFeatures.isNotEmpty()) {
              val props = cultFeatures[0].properties()
@@ -371,23 +402,6 @@ fun NativeMap(
             }
         } else {
             cultivoData = null
-        }
-        
-        if (isIdle) {
-            isLoadingData = true
-            isPanelExpanded = false
-            apiJob?.cancel()
-            if (lastHighlightedId != null) {
-                apiJob = scope.launch {
-                    delay(200) 
-                    val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
-                    if (fullData != null) recintoData = fullData
-                    isLoadingData = false
-                }
-            } else { isLoadingData = false }
-        } else {
-            apiJob?.cancel()
-            isLoadingData = false
         }
     }
 
@@ -406,8 +420,16 @@ fun NativeMap(
                     .build()
             }
 
-            map.addOnCameraMoveListener { updateMapState(map, isIdle = false) }
-            map.addOnCameraIdleListener { updateMapState(map, isIdle = true) }
+            // --- LISTENERS SEPARADOS PARA RENDIMIENTO ---
+            map.addOnCameraMoveListener { 
+                // Actualización visual rápida (60fps idealmente)
+                updateHighlightVisuals(map) 
+            }
+            
+            map.addOnCameraIdleListener { 
+                // Actualización de datos pesada (API)
+                updateDataSheet(map)
+            }
 
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
@@ -1020,29 +1042,32 @@ private fun loadMapStyle(
                 val detectionLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 detectionLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 detectionLayer.setProperties(
-                    // IMPORTANTE: NO usar Transparent (Alpha 0) porque el renderer puede descartarlo.
-                    // Usar un color sólido con opacidad mínima.
                     PropertyFactory.fillColor(Color.Black.toArgb()),
                     PropertyFactory.fillOpacity(0.01f) 
                 )
                 style.addLayer(detectionLayer)
 
-                // 2. Capa de Resaltado (Highlight) - Inicialmente oculta
+                // 2. Capa de Resaltado (Highlight) - SIEMPRE VISIBLE, PERO FILTRADA
+                // Inicialmente filtro 'false' (no mostrar nada) para evitar parpadeos
+                val initialFilter = Expression.literal(false)
+
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightFill.setFilter(initialFilter) // Filtro vacío
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.3f), // Semitransparente
-                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE)
+                    PropertyFactory.fillOpacity(0.4f), // Opacidad similar a la web
+                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE)
                 )
                 style.addLayer(highlightFill)
 
                 val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightLine.setFilter(initialFilter) // Filtro vacío
                 highlightLine.setProperties(
                     PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineWidth(3f), // Borde grueso
-                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.NONE)
+                    PropertyFactory.lineWidth(3f), 
+                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE)
                 )
                 style.addLayer(highlightLine)
 
