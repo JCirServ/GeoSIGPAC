@@ -1,6 +1,7 @@
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
+import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -37,49 +38,37 @@ fun WebProjectManager(
                 NavigationBarItem(
                     selected = false,
                     onClick = onNavigateToMap,
-                    icon = { 
-                        Icon(
-                            imageVector = Icons.Default.Map, 
-                            contentDescription = "Mapa"
-                        ) 
-                    },
+                    icon = { Icon(Icons.Default.Map, "Mapa") },
                     label = { Text("Mapa") }
                 )
-                
                 NavigationBarItem(
                     selected = false,
                     onClick = onOpenCamera,
-                    icon = { 
-                        Icon(
-                            imageVector = Icons.Default.CameraAlt, 
-                            contentDescription = "Cámara"
-                        ) 
-                    },
+                    icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
                     label = { Text("Cámara") }
                 )
             }
         }
     ) { innerPadding ->
         AndroidView(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
             factory = { context ->
-                // Configuramos el AssetLoader para mapear el dominio virtual a la carpeta assets
                 val assetLoader = WebViewAssetLoader.Builder()
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
                     .build()
 
                 WebView(context).apply {
+                    // Optimizaciones de rendimiento y estabilidad
+                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                    
                     settings.apply {
                         javaScriptEnabled = true
                         domStorageEnabled = true
                         allowFileAccess = true
                         allowContentAccess = true
-                        // Ya no dependemos críticamente de estas gracias al AssetLoader,
-                        // pero las mantenemos para compatibilidad con el bridge.
-                        allowFileAccessFromFileURLs = false
-                        allowUniversalAccessFromFileURLs = false
+                        databaseEnabled = true
+                        loadWithOverviewMode = true
+                        useWideViewPort = true
                     }
 
                     addJavascriptInterface(webAppInterface, "Android")
@@ -89,19 +78,22 @@ fun WebProjectManager(
                             view: WebView,
                             request: WebResourceRequest
                         ): WebResourceResponse? {
-                            // Interceptamos peticiones a appassets.androidplatform.net
                             return assetLoader.shouldInterceptRequest(request.url)
+                        }
+
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            // Forzamos un render para evitar el parpadeo blanco inicial
+                            view?.visibility = View.VISIBLE
                         }
                     }
                     
                     webChromeClient = WebChromeClient()
-
-                    // Cargamos a través del dominio virtual seguro
                     loadUrl("https://appassets.androidplatform.net/assets/index.html")
-                    
                     onWebViewCreated(this)
                 }
-            }
+            },
+            update = { /* El WebView se mantiene persistente si es necesario */ }
         )
     }
 }
