@@ -23,10 +23,8 @@ import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
 import org.maplibre.android.style.sources.VectorSource
 
-/**
- * Gestiona la carga de estilos y capas del mapa.
- * Se han añadido logs y correcciones en los constructores de TileSet para mayor estabilidad.
- */
+private const val TAG = "GeoSIGPAC_LOG_Style"
+
 fun loadMapStyle(
     map: MapLibreMap,
     baseMap: BaseMap,
@@ -36,18 +34,17 @@ fun loadMapStyle(
     shouldCenterUser: Boolean,
     onLocationEnabled: () -> Unit
 ) {
-    Log.d("MapStyle", "Iniciando carga de estilo: Base=$baseMap, Recinto=$showRecinto, Cultivo=$showCultivo")
-    
+    Log.d(TAG, "Iniciando configuración de estilo: Base=$baseMap, Recinto=$showRecinto, Cultivo=$showCultivo")
     val styleBuilder = Style.Builder()
 
-    // Configuración del Mapa Base (Raster)
     val tileUrl = if (baseMap == BaseMap.OSM) {
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     } else {
         "https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&tilematrixset=GoogleMapsCompatible&tilematrix={z}&tilerow={y}&tilecol={x}"
     }
 
-    val tileSet = TileSet("2.1.0", tileUrl)
+    Log.d(TAG, "Creando RasterSource para mapa base: $tileUrl")
+    val tileSet = TileSet("2.2.0", tileUrl)
     tileSet.attribution = if (baseMap == BaseMap.OSM) "© OpenStreetMap" else "© IGN PNOA"
     
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
@@ -55,17 +52,14 @@ fun loadMapStyle(
     styleBuilder.withLayer(RasterLayer(LAYER_BASE, SOURCE_BASE))
 
     map.setStyle(styleBuilder) { style ->
-        Log.d("MapStyle", "Estilo base cargado correctamente")
+        Log.i(TAG, "Estilo base aplicado. Añadiendo capas vectoriales...")
         
-        // Capa de Cultivos (Vector MVT)
         if (showCultivo) {
             try {
+                Log.d(TAG, "Añadiendo fuente de CULTIVOS (Vector)")
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
-                // El primer parámetro es la versión de TileJSON (p.ej. "2.1.0"), no el formato.
-                val tileSetCultivo = TileSet("2.1.0", cultivoUrl).apply {
-                    minZoom = 5f
-                    maxZoom = 16f
-                }
+                val tileSetCultivo = TileSet("pbf", cultivoUrl)
+                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 15f
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -73,75 +67,51 @@ fun loadMapStyle(
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
-                    PropertyFactory.fillOpacity(0.30f),
-                    PropertyFactory.fillOutlineColor(Color.Yellow.copy(alpha = 0.5f).toArgb())
+                    PropertyFactory.fillOpacity(0.35f),
+                    PropertyFactory.fillOutlineColor(Color.Yellow.toArgb())
                 )
                 style.addLayer(fillLayer)
-                Log.d("MapStyle", "Capa de Cultivo añadida")
+                Log.d(TAG, "Capa de cultivo añadida con éxito")
             } catch (e: Exception) { 
-                Log.e("MapStyle", "Error añadiendo capa Cultivo: ${e.message}")
+                Log.e(TAG, "Error añadiendo fuente de CULTIVOS: ${e.message}", e)
             }
         }
 
-        // Capa de Recintos (Vector MVT)
         if (showRecinto) {
             try {
+                Log.d(TAG, "Añadiendo fuente de RECINTOS (Vector)")
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
-                val tileSetRecinto = TileSet("2.1.0", recintoUrl).apply {
-                    minZoom = 5f
-                    maxZoom = 16f
-                }
+                val tileSetRecinto = TileSet("pbf", recintoUrl)
+                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // 1. Capa invisible para detección de features
+                Log.d(TAG, "Añadiendo capas de dibujo para recintos")
                 val detectionLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 detectionLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                detectionLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOpacity(0.01f) 
-                )
+                detectionLayer.setProperties(PropertyFactory.fillOpacity(0.01f))
                 style.addLayer(detectionLayer)
-
-                // 2. Capas de Resaltado (Highlight)
-                val initialFilter = Expression.literal(false)
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightFill.setFilter(initialFilter)
-                highlightFill.setProperties(
-                    PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.45f)
-                )
+                highlightFill.setFilter(Expression.literal(false))
+                highlightFill.setProperties(PropertyFactory.fillColor(HighlightColor.toArgb()), PropertyFactory.fillOpacity(0.4f))
                 style.addLayer(highlightFill)
 
-                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
-                highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLine.setFilter(initialFilter)
-                highlightLine.setProperties(
-                    PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineWidth(3.5f)
-                )
-                style.addLayer(highlightLine)
-
-                // 3. Capa de Bordes Generales
                 val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                outlineLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb())
-                )
+                outlineLayer.setProperties(PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb()))
                 style.addLayer(outlineLayer)
+                Log.d(TAG, "Capas de recinto añadidas con éxito")
                 
-                Log.d("MapStyle", "Capas de Recinto añadidas")
             } catch (e: Exception) { 
-                Log.e("MapStyle", "Error añadiendo capas Recinto: ${e.message}")
+                Log.e(TAG, "Error añadiendo fuente de RECINTOS: ${e.message}", e)
             }
         }
 
-        // Activación de Ubicación
         if (enableLocation(map, context, shouldCenterUser)) {
+            Log.i(TAG, "Componente de localización activado")
             onLocationEnabled()
         }
     }
@@ -149,7 +119,10 @@ fun loadMapStyle(
 
 @SuppressLint("MissingPermission")
 fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): Boolean {
-    if (map == null || map.style == null) return false
+    if (map == null || map.style == null) {
+        Log.w(TAG, "No se puede habilitar localización: mapa o estilo nulo")
+        return false
+    }
 
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
         try {
@@ -160,27 +133,20 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
             
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
-            locationComponent.renderMode = RenderMode.COMPASS
-
+            
             if (shouldCenter) {
                 locationComponent.cameraMode = CameraMode.TRACKING
-                locationComponent.zoomWhileTracking(USER_TRACKING_ZOOM)
-            } else {
-                locationComponent.cameraMode = CameraMode.NONE
             }
             return true
         } catch (e: Exception) { 
-            Log.e("MapStyle", "Error activando ubicación: ${e.message}")
+            Log.e(TAG, "Fallo al activar LocationComponent: ${e.message}", e)
         }
+    } else {
+        Log.w(TAG, "Permisos de localización no concedidos")
     }
     return false
 }
 
 fun Color.toArgb(): Int {
-    return android.graphics.Color.argb(
-        (alpha * 255).toInt(),
-        (red * 255).toInt(),
-        (green * 255).toInt(),
-        (blue * 255).toInt()
-    )
+    return android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 }
