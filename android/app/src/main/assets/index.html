@@ -1,55 +1,45 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GeoSIGPAC Hybrid</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: '#006d3e',
-                        secondary: '#4c6356',
-                        tertiary: '#f97316',
-                        background: '#f8fafc',
-                        surface: '#ffffff'
-                    }
-                }
-            }
-        }
-    </script>
     <style>
-        body { -webkit-tap-highlight-color: transparent; scrollbar-width: none; -ms-overflow-style: none; }
-        ::-webkit-scrollbar { display: none; }
+        body { 
+            -webkit-tap-highlight-color: transparent; 
+            margin: 0; 
+            background: #f8fafc;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .loader-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: screen;
+            height: 100vh;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #006d3e;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
-    <script type="importmap">
-    {
-      "imports": {
-        "react": "https://esm.sh/react@^19.2.3",
-        "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-        "react/": "https://esm.sh/react@^19.2.3/",
-        "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
-      }
-    }
-    </script>
 </head>
 <body>
     <div id="root">
-        <!-- Loader inicial mientras React hidrata -->
-        <div class="flex flex-col items-center justify-center min-h-screen bg-background">
-            <div class="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p class="text-sm font-bold text-primary animate-pulse uppercase tracking-widest">GeoSIGPAC Cargando</p>
+        <div class="loader-container">
+            <div class="spinner"></div>
+            <p style="color: #006d3e; font-weight: bold; margin-top: 15px; letter-spacing: 1px;">CARGANDO GEOSIGPAC</p>
         </div>
     </div>
-    
-    <!-- En un entorno real, aquí cargaríamos un bundle.js. Para esta demo, usamos el puente directo -->
-    <script type="module">
-        import 'https://esm.sh/react@^19.2.3';
-        import 'https://esm.sh/react-dom@^19.2.3/client';
-        // En este entorno simulado, asumimos que el WebView puede resolver el código de App.tsx si estuviera compilado.
-        // Como solución "enlace", el Android App cargará este HTML que ya tiene el Bridge inyectado.
-    </script>
+    <!-- Vite inyectará aquí los scripts durante el build -->
 </body>
 </html>

@@ -4,25 +4,30 @@ import react from '@vitejs/plugin-react';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-// Fix: Define __dirname for ESM environments as it is not available by default
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
-  // Importante: base relativa para que el WebView encuentre los archivos con file:///android_asset/
+  // Base relativa crítica para que file:///android_asset/ funcione correctamente
   base: './', 
+  define: {
+    // Inyecta la API KEY y previene errores de "process is not defined" en el navegador/WebView
+    'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
+    'process.env': {
+      API_KEY: process.env.API_KEY
+    }
+  },
   build: {
-    // Redirigimos la salida directamente a los assets de Android
     outDir: 'android/app/src/main/assets',
     emptyOutDir: true,
+    target: 'es2020', // Asegura compatibilidad con WebViews modernos
     rollupOptions: {
       input: {
-        // Fix: __dirname reference
         main: resolve(__dirname, 'index.html'),
       },
       output: {
-        // Mantenemos nombres simples para evitar problemas de rutas en Android antiguo
+        // Estructura de archivos plana para evitar problemas de resolución de rutas en Android
         entryFileNames: 'assets/[name].js',
         chunkFileNames: 'assets/[name].js',
         assetFileNames: 'assets/[name].[ext]'
@@ -31,7 +36,6 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // Fix: __dirname reference
       '@': resolve(__dirname, './'),
     },
   },
