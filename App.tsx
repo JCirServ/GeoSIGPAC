@@ -2,47 +2,63 @@ import React from 'react';
 import { Header } from './components/Header';
 import { ProjectCard } from './components/ProjectCard';
 import { useProjectStore } from './store/useProjectStore';
-import { Plus } from 'lucide-react';
+import { Plus, LayoutGrid, Info } from 'lucide-react';
 import { showNativeToast } from './services/bridge';
 
 const App: React.FC = () => {
   const { projects } = useProjectStore();
 
   const handleFabClick = () => {
-    showNativeToast("Crear nuevo proyecto no implementado en demo.");
+    showNativeToast("Añadir nueva parcela: Función habilitada en versión Pro.");
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-slate-50 pb-32">
       <Header />
       
-      <main className="p-4 max-w-xl mx-auto">
-        <div className="mb-4">
-          <h2 className="text-xl font-bold text-gray-800">Proyectos Activos</h2>
-          <p className="text-sm text-gray-500">Sincronizados con SIGPAC</p>
+      <main className="px-4 py-6 max-w-2xl mx-auto">
+        <div className="flex items-end justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">Expedientes</h2>
+            <p className="text-sm text-slate-500 font-medium">Gestionando {projects.length} parcelas activas</p>
+          </div>
+          <div className="bg-white p-2 rounded-lg shadow-sm border border-slate-200">
+            <LayoutGrid size={20} className="text-primary" />
+          </div>
         </div>
 
-        <div className="flex flex-col gap-2">
-          {projects.map(project => (
-            <ProjectCard key={project.id} project={project} />
-          ))}
-        </div>
+        {projects.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+            <Info size={48} className="mb-4 opacity-20" />
+            <p className="font-medium">No hay datos sincronizados</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {projects.map(project => (
+              <ProjectCard key={project.id} project={project} />
+            ))}
+          </div>
+        )}
       </main>
 
-      <div className="fixed bottom-6 right-6">
+      {/* Floating Action Button con diseño moderno */}
+      <div className="fixed bottom-24 right-6 z-50">
         <button 
           onClick={handleFabClick}
-          className="w-14 h-14 bg-tertiary text-white rounded-2xl shadow-lg flex items-center justify-center hover:bg-tertiary/90 transition-all active:scale-95"
+          className="w-16 h-16 bg-primary text-white rounded-2xl shadow-2xl shadow-primary/40 flex items-center justify-center hover:scale-105 transition-all active:scale-95 group"
           aria-label="Nuevo Proyecto"
         >
-          <Plus size={28} />
+          <Plus size={32} className="group-hover:rotate-90 transition-transform duration-300" />
         </button>
       </div>
 
-      <div className="text-center p-8 text-xs text-gray-400">
-        <p>GeoSIGPAC Hybrid v1.0.0</p>
-        <p>Connected to Native Interface: {window.Android ? 'Yes' : 'No (Dev Mode)'}</p>
-      </div>
+      <footer className="text-center py-10 px-6 border-t border-slate-200 mt-10">
+        <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-200 rounded-full text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+            <div className={`w-2 h-2 rounded-full ${window.Android ? 'bg-green-500 animate-pulse' : 'bg-orange-500'}`}></div>
+            {window.Android ? 'Conexión Nativa Activa' : 'Modo Simulación'}
+        </div>
+        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-tighter">GeoSIGPAC Hybrid Engine v2.1 • © 2024</p>
+      </footer>
     </div>
   );
 };
