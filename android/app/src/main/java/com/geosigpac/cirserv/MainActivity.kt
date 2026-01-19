@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv
 
 import android.Manifest
@@ -6,7 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -16,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -37,14 +36,13 @@ import com.geosigpac.cirserv.ui.NativeMap
 import com.geosigpac.cirserv.ui.WebProjectManager
 import kotlinx.coroutines.launch
 
-private const val TAG = "GeoSIGPAC_LOG_Main"
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "onCreate: Iniciando actividad principal")
         enableEdgeToEdge()
 
+        // --- MODO INMERSIVO (OCULTAR BARRAS) ---
+        // Oculta la barra de estado y la barra de navegación para una experiencia Full Screen
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -55,11 +53,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "onDestroy: Actividad destruida")
-    }
 }
 
 @Composable
@@ -67,6 +60,7 @@ fun GeoSigpacApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // --- PERMISOS ---
     var hasPermissions by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
@@ -74,99 +68,151 @@ fun GeoSigpacApp() {
         )
     }
 
-    var isCameraOpen by remember { mutableStateOf(false) }
+    // --- ESTADO DE LA APLICACIÓN ---
+    var isCameraOpen by remember { mutableStateOf(hasPermissions) }
     var currentProjectId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     
-    val sharedPrefs = remember { context.getSharedPreferences("geosigpac_prefs", Context.MODE_PRIVATE) }
+    // --- ESTADO DE SESIÓN DE FOTOS (Persistencia) ---
+    // Inicializamos SharedPreferences
+    val sharedPrefs = remember {
+        context.getSharedPreferences("geosigpac_prefs", Context.MODE_PRIVATE)
+    }
+
+    // Cargamos estado guardado o usamos valores por defecto
     var sessionLastUri by remember {
         val savedUriString = sharedPrefs.getString("last_photo_uri", null)
         mutableStateOf(if (savedUriString != null) Uri.parse(savedUriString) else null)
     }
-    var sessionPhotoCount by remember { mutableIntStateOf(sharedPrefs.getInt("photo_count", 0)) }
+    
+    var sessionPhotoCount by remember {
+        mutableIntStateOf(sharedPrefs.getInt("photo_count", 0))
+    }
+    
+    // Control de Pestañas (0 = Web, 1 = Mapa)
+    // CAMBIO: Iniciamos en 1 para abrir el Mapa primero
     var selectedTab by remember { mutableIntStateOf(1) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { perms ->
             val cameraGranted = perms[Manifest.permission.CAMERA] == true
-            val locGranted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true
-            Log.d(TAG, "Permissions Result: Camera=$cameraGranted, Location=$locGranted")
-            hasPermissions = cameraGranted && locGranted
+            hasPermissions = cameraGranted
+            // Si se conceden los permisos ahora, abrir la cámara automáticamente
+            if (cameraGranted) {
+                isCameraOpen = true
+            }
         }
     )
 
     LaunchedEffect(Unit) {
         if (!hasPermissions) {
-            Log.d(TAG, "Solicitando permisos...")
-            launcher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION))
+            launcher.launch(
+                arrayOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
+    // --- INTERFAZ HÍBRIDA ---
     val webAppInterface = remember {
         WebAppInterface(
             context = context,
             scope = scope,
             onCameraRequested = { projectId ->
-                Log.i(TAG, "Cámara solicitada para proyecto: $projectId")
                 if (hasPermissions) {
                     currentProjectId = projectId
                     isCameraOpen = true
+                } else {
+                    Toast.makeText(context, "Permisos de cámara requeridos", Toast.LENGTH_SHORT).show()
                 }
             },
             onMapFocusRequested = { lat, lng ->
-                Log.i(TAG, "Enfoque de mapa solicitado: $lat, $lng")
+                // 1. Actualizar coordenadas del mapa
                 mapTarget = lat to lng
+                // 2. Cambiar automáticamente a la pestaña del mapa
                 selectedTab = 1
             }
         )
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    // --- RENDERIZADO ---
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
         if (isCameraOpen) {
+            // PANTALLA CÁMARA (Modal Pantalla Completa)
             CameraScreen(
-                projectId = currentProjectId,
-                lastCapturedUri = sessionLastUri,
-                photoCount = sessionPhotoCount,
+                projectId = currentProjectId, // Pasamos el ID del proyecto para la estructura de carpetas
+                lastCapturedUri = sessionLastUri, // Pasamos el estado persistente
+                photoCount = sessionPhotoCount,   // Pasamos el contador
                 onImageCaptured = { uri ->
-                    Log.d(TAG, "Imagen capturada y guardada en: $uri")
+                    // 1. Actualizar Estado en Memoria
                     sessionLastUri = uri
-                    sessionPhotoCount++
-                    sharedPrefs.edit().putString("last_photo_uri", uri.toString()).putInt("photo_count", sessionPhotoCount).apply()
-                    scope.launch {
-                        webViewRef?.evaluateJavascript("if(window.onPhotoCaptured) window.onPhotoCaptured('${currentProjectId}', '$uri');", null)
+                    val newCount = sessionPhotoCount + 1
+                    sessionPhotoCount = newCount
+                    
+                    // 2. Persistir en SharedPreferences
+                    sharedPrefs.edit().apply {
+                        putString("last_photo_uri", uri.toString())
+                        putInt("photo_count", newCount)
+                        apply()
                     }
+                    
+                    val pid = currentProjectId
+                    if (pid != null) {
+                        scope.launch {
+                            val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
+                            webViewRef?.evaluateJavascript(jsCode, null)
+                        }
+                    } 
+                    // Feedback visual para el usuario
+                    Toast.makeText(context, "Foto guardada", Toast.LENGTH_SHORT).show()
                 },
                 onError = { exc ->
-                    Log.e(TAG, "Error en CameraScreen: ${exc.message}", exc)
+                    Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
                     isCameraOpen = false
                 },
                 onClose = { isCameraOpen = false },
-                onGoToMap = { isCameraOpen = false; selectedTab = 1 },
-                onGoToProjects = { isCameraOpen = false; selectedTab = 0 }
+                onGoToMap = {
+                    // Cerrar cámara y navegar al mapa
+                    isCameraOpen = false
+                    selectedTab = 1
+                },
+                onGoToProjects = {
+                    // Cerrar cámara y navegar explícitamente a Proyectos
+                    isCameraOpen = false
+                    selectedTab = 0
+                }
             )
         } else {
+            // NAVEGACIÓN PRINCIPAL
+            // Usamos Box para superponer o cambiar vistas sin BottomBar
             Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
-                    0 -> {
-                        Log.d(TAG, "Renderizando WebProjectManager")
-                        WebProjectManager(
-                            webAppInterface = webAppInterface,
-                            onWebViewCreated = { webViewRef = it },
-                            onNavigateToMap = { selectedTab = 1 },
-                            onOpenCamera = { isCameraOpen = true }
-                        )
-                    }
-                    1 -> {
-                        Log.d(TAG, "Renderizando NativeMap")
-                        NativeMap(
-                            targetLat = mapTarget?.first,
-                            targetLng = mapTarget?.second,
-                            onNavigateToProjects = { selectedTab = 0 },
-                            onOpenCamera = { isCameraOpen = true }
-                        )
-                    }
+                    0 -> WebProjectManager(
+                        webAppInterface = webAppInterface,
+                        onWebViewCreated = { webView -> webViewRef = webView },
+                        onNavigateToMap = { selectedTab = 1 },
+                        onOpenCamera = {
+                            currentProjectId = null
+                            isCameraOpen = true
+                        }
+                    )
+                    1 -> NativeMap(
+                        targetLat = mapTarget?.first,
+                        targetLng = mapTarget?.second,
+                        onNavigateToProjects = { selectedTab = 0 },
+                        onOpenCamera = {
+                            currentProjectId = null // Foto general desde el mapa
+                            isCameraOpen = true
+                        }
+                    )
                 }
             }
         }

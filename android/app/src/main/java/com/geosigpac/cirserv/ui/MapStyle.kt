@@ -1,11 +1,9 @@
-
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.util.Log
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
@@ -23,8 +21,6 @@ import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
 import org.maplibre.android.style.sources.VectorSource
 
-private const val TAG = "GeoSIGPAC_LOG_Style"
-
 fun loadMapStyle(
     map: MapLibreMap,
     baseMap: BaseMap,
@@ -34,7 +30,6 @@ fun loadMapStyle(
     shouldCenterUser: Boolean,
     onLocationEnabled: () -> Unit
 ) {
-    Log.d(TAG, "Iniciando configuración de estilo: Base=$baseMap, Recinto=$showRecinto, Cultivo=$showCultivo")
     val styleBuilder = Style.Builder()
 
     val tileUrl = if (baseMap == BaseMap.OSM) {
@@ -43,7 +38,6 @@ fun loadMapStyle(
         "https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&tilematrixset=GoogleMapsCompatible&tilematrix={z}&tilerow={y}&tilecol={x}"
     }
 
-    Log.d(TAG, "Creando RasterSource para mapa base: $tileUrl")
     val tileSet = TileSet("2.2.0", tileUrl)
     tileSet.attribution = if (baseMap == BaseMap.OSM) "© OpenStreetMap" else "© IGN PNOA"
     
@@ -52,11 +46,9 @@ fun loadMapStyle(
     styleBuilder.withLayer(RasterLayer(LAYER_BASE, SOURCE_BASE))
 
     map.setStyle(styleBuilder) { style ->
-        Log.i(TAG, "Estilo base aplicado. Añadiendo capas vectoriales...")
         
         if (showCultivo) {
             try {
-                Log.d(TAG, "Añadiendo fuente de CULTIVOS (Vector)")
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
                 tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 15f
@@ -71,15 +63,11 @@ fun loadMapStyle(
                     PropertyFactory.fillOutlineColor(Color.Yellow.toArgb())
                 )
                 style.addLayer(fillLayer)
-                Log.d(TAG, "Capa de cultivo añadida con éxito")
-            } catch (e: Exception) { 
-                Log.e(TAG, "Error añadiendo fuente de CULTIVOS: ${e.message}", e)
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
         if (showRecinto) {
             try {
-                Log.d(TAG, "Añadiendo fuente de RECINTOS (Vector)")
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
                 tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
@@ -87,31 +75,53 @@ fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                Log.d(TAG, "Añadiendo capas de dibujo para recintos")
+                // 1. Capa para Detección (Invisible pero Renderizable)
                 val detectionLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 detectionLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                detectionLayer.setProperties(PropertyFactory.fillOpacity(0.01f))
+                detectionLayer.setProperties(
+                    PropertyFactory.fillColor(Color.Black.toArgb()),
+                    PropertyFactory.fillOpacity(0.01f) 
+                )
                 style.addLayer(detectionLayer)
+
+                // 2. Capa de Resaltado (Highlight) - SIEMPRE VISIBLE, PERO FILTRADA
+                val initialFilter = Expression.literal(false)
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightFill.setFilter(Expression.literal(false))
-                highlightFill.setProperties(PropertyFactory.fillColor(HighlightColor.toArgb()), PropertyFactory.fillOpacity(0.4f))
+                highlightFill.setFilter(initialFilter)
+                highlightFill.setProperties(
+                    PropertyFactory.fillColor(HighlightColor.toArgb()),
+                    PropertyFactory.fillOpacity(0.4f),
+                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE)
+                )
                 style.addLayer(highlightFill)
 
+                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightLine.setFilter(initialFilter)
+                highlightLine.setProperties(
+                    PropertyFactory.lineColor(HighlightColor.toArgb()),
+                    PropertyFactory.lineWidth(3f), 
+                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE)
+                )
+                style.addLayer(highlightLine)
+
+                // 3. Capa de Líneas Generales (Bordes)
+                // Usamos FillLayer para evitar artefactos de teselas.
+                // CAMBIO: Color actualizado a RecintoLineColor (Cian) para destacar sobre OSM.
                 val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                outlineLayer.setProperties(PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb()))
+                outlineLayer.setProperties(
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb())
+                )
                 style.addLayer(outlineLayer)
-                Log.d(TAG, "Capas de recinto añadidas con éxito")
                 
-            } catch (e: Exception) { 
-                Log.e(TAG, "Error añadiendo fuente de RECINTOS: ${e.message}", e)
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
         if (enableLocation(map, context, shouldCenterUser)) {
-            Log.i(TAG, "Componente de localización activado")
             onLocationEnabled()
         }
     }
@@ -119,10 +129,7 @@ fun loadMapStyle(
 
 @SuppressLint("MissingPermission")
 fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): Boolean {
-    if (map == null || map.style == null) {
-        Log.w(TAG, "No se puede habilitar localización: mapa o estilo nulo")
-        return false
-    }
+    if (map == null || map.style == null) return false
 
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
         try {
@@ -133,20 +140,26 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
             
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
-            
+            locationComponent.renderMode = RenderMode.COMPASS
+
             if (shouldCenter) {
                 locationComponent.cameraMode = CameraMode.TRACKING
+                locationComponent.zoomWhileTracking(USER_TRACKING_ZOOM)
+            } else {
+                locationComponent.cameraMode = CameraMode.NONE
             }
             return true
-        } catch (e: Exception) { 
-            Log.e(TAG, "Fallo al activar LocationComponent: ${e.message}", e)
-        }
-    } else {
-        Log.w(TAG, "Permisos de localización no concedidos")
+        } catch (e: Exception) { e.printStackTrace() }
     }
     return false
 }
 
+// Extension function helper
 fun Color.toArgb(): Int {
-    return android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
+    return android.graphics.Color.argb(
+        (alpha * 255).toInt(),
+        (red * 255).toInt(),
+        (green * 255).toInt(),
+        (blue * 255).toInt()
+    )
 }
