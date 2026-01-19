@@ -2,6 +2,8 @@ package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewAssetLoader
 import com.geosigpac.cirserv.bridge.WebAppInterface
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -62,26 +65,39 @@ fun WebProjectManager(
                 .fillMaxSize()
                 .padding(innerPadding),
             factory = { context ->
+                // Configuramos el AssetLoader para mapear el dominio virtual a la carpeta assets
+                val assetLoader = WebViewAssetLoader.Builder()
+                    .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+                    .build()
+
                 WebView(context).apply {
                     settings.apply {
                         javaScriptEnabled = true
                         domStorageEnabled = true
                         allowFileAccess = true
                         allowContentAccess = true
-                        // Ajustes críticos para cargar módulos desde file:///
-                        allowFileAccessFromFileURLs = true
-                        allowUniversalAccessFromFileURLs = true
-                        // Forzar el modo oscuro si el sistema lo requiere o mantener claro
-                        databaseEnabled = true
+                        // Ya no dependemos críticamente de estas gracias al AssetLoader,
+                        // pero las mantenemos para compatibilidad con el bridge.
+                        allowFileAccessFromFileURLs = false
+                        allowUniversalAccessFromFileURLs = false
                     }
 
                     addJavascriptInterface(webAppInterface, "Android")
 
-                    webViewClient = WebViewClient()
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldInterceptRequest(
+                            view: WebView,
+                            request: WebResourceRequest
+                        ): WebResourceResponse? {
+                            // Interceptamos peticiones a appassets.androidplatform.net
+                            return assetLoader.shouldInterceptRequest(request.url)
+                        }
+                    }
+                    
                     webChromeClient = WebChromeClient()
 
-                    // Importante: Asegúrate de haber ejecutado 'npm run build' antes
-                    loadUrl("file:///android_asset/index.html")
+                    // Cargamos a través del dominio virtual seguro
+                    loadUrl("https://appassets.androidplatform.net/assets/index.html")
                     
                     onWebViewCreated(this)
                 }
