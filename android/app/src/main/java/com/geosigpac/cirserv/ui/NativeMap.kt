@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.RectF
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -295,8 +296,18 @@ fun NativeMap(
         }
 
         val screenPoint = map.projection.toScreenLocation(center)
+        
+        // CORRECCIÓN: Usar un Rectángulo de búsqueda en lugar de un punto único.
+        // Un área de 20x20px (10px radio) facilita "tocar" geometrías complejas.
+        val searchArea = RectF(
+            screenPoint.x - 10f, 
+            screenPoint.y - 10f, 
+            screenPoint.x + 10f, 
+            screenPoint.y + 10f
+        )
 
-        val features = map.queryRenderedFeatures(screenPoint, LAYER_RECINTO_FILL)
+        val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
+        
         if (features.isNotEmpty()) {
             val feature = features[0]
             val props = feature.properties()
@@ -350,7 +361,7 @@ fun NativeMap(
             }
         }
 
-        val cultFeatures = map.queryRenderedFeatures(screenPoint, LAYER_CULTIVO_FILL)
+        val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
         if (cultFeatures.isNotEmpty()) {
              val props = cultFeatures[0].properties()
              if (props != null) {
@@ -1005,12 +1016,14 @@ private fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // 1. Capa para Detección (Invisible)
+                // 1. Capa para Detección (Invisible pero Renderizable)
                 val detectionLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 detectionLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 detectionLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOpacity(0.01f) // Mínimo para que sea "queryable"
+                    // IMPORTANTE: NO usar Transparent (Alpha 0) porque el renderer puede descartarlo.
+                    // Usar un color sólido con opacidad mínima.
+                    PropertyFactory.fillColor(Color.Black.toArgb()),
+                    PropertyFactory.fillOpacity(0.01f) 
                 )
                 style.addLayer(detectionLayer)
 
