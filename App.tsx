@@ -1,6 +1,8 @@
+
 import React from 'react';
 import { Header } from './components/Header';
 import { ProjectCard } from './components/ProjectCard';
+import { AIAssistant } from './components/AIAssistant';
 import { useProjectStore } from './store/useProjectStore';
 import { Plus, LayoutGrid, Info } from 'lucide-react';
 import { showNativeToast } from './services/bridge';
@@ -41,7 +43,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Floating Action Button con diseño moderno */}
+      {/* Floating Action Button Principal */}
       <div className="fixed bottom-24 right-6 z-50">
         <button 
           onClick={handleFabClick}
@@ -52,12 +54,15 @@ const App: React.FC = () => {
         </button>
       </div>
 
+      {/* Nuevo Asistente IA */}
+      <AIAssistant />
+
       <footer className="text-center py-10 px-6 border-t border-slate-200 mt-10">
         <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-200 rounded-full text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
             <div className={`w-2 h-2 rounded-full ${window.Android ? 'bg-green-500 animate-pulse' : 'bg-orange-500'}`}></div>
             {window.Android ? 'Conexión Nativa Activa' : 'Modo Simulación'}
         </div>
-        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-tighter">GeoSIGPAC Hybrid Engine v2.1 • © 2024</p>
+        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-tighter">GeoSIGPAC AI Engine v3.0 • Powered by Gemini</p>
       </footer>
     </div>
   );
