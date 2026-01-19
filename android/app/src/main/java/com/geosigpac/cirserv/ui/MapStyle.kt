@@ -97,6 +97,7 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightFill)
 
+                // Usamos LineLayer para el borde del resaltado (aquí no importa tanto el grid porque es solo un recinto)
                 val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
@@ -107,14 +108,17 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightLine)
 
-                // 3. Capa de Líneas Generales
-                val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                lineLayer.setProperties(
-                    PropertyFactory.lineColor(Color.White.toArgb()),
-                    PropertyFactory.lineWidth(1.5f)
+                // 3. Capa de Líneas Generales (Bordes Blancos)
+                // CAMBIO: Usamos FillLayer en lugar de LineLayer para evitar "rayas" (grid artifacts) en los bordes de las teselas.
+                // LineLayer dibuja bordes en geometrías recortadas por tiles; FillLayer las une visualmente mejor.
+                val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                outlineLayer.setProperties(
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()), // Interior totalmente transparente
+                    PropertyFactory.fillOutlineColor(Color.White.toArgb()) // Borde blanco fino (1px)
                 )
-                style.addLayer(lineLayer)
+                style.addLayer(outlineLayer)
+                
             } catch (e: Exception) { e.printStackTrace() }
         }
 
