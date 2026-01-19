@@ -1,8 +1,10 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
 import android.graphics.RectF
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -58,6 +60,8 @@ import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import java.util.Locale
 
+private const val TAG = "GeoSIGPAC_LOG_Map"
+
 @SuppressLint("MissingPermission")
 @Composable
 fun NativeMap(
@@ -103,16 +107,26 @@ fun NativeMap(
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    Log.d(TAG, "Inicializando Composable NativeMap")
+
     remember { MapLibre.getInstance(context) }
 
+    // Creamos el MapView. NO llamamos a los métodos del ciclo de vida aquí,
+    // se gestionarán estrictamente en el DisposableEffect para evitar inconsistencias.
     val mapView = remember {
+        Log.d(TAG, "Instanciando nuevo MapView")
         MapView(context).apply {
             onCreate(Bundle())
         }
     }
 
+    // GESTIÓN DEL CICLO DE VIDA DEL MAPA
+    // Es crítico gestionar esto manualmente porque al cambiar de pestañas en Compose,
+    // la vista se desmonta pero la Actividad sigue viva. Si no destruimos el mapa,
+    // el contexto GL se queda colgado y congela la UI.
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
+            Log.d(TAG, "Lifecycle Event: $event")
             when (event) {
                 Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
@@ -123,8 +137,31 @@ fun NativeMap(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        
+        // Sincronización Inmediata: Si la app ya está arrancada (Resumed/Started),
+        // el observer no recibirá esos eventos iniciales, así que los llamamos manualmente.
+        val currentState = lifecycleOwner.lifecycle.currentState
+        Log.d(TAG, "Estado inicial del ciclo de vida: $currentState")
+        
+        if (currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            mapView.onStart()
+        }
+        if (currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            mapView.onResume()
+        }
+
         onDispose {
+            Log.d(TAG, "Desmontando NativeMap (onDispose)")
             lifecycleOwner.lifecycle.removeObserver(observer)
+            // CRÍTICO: Limpieza explícita al salir de la pestaña
+            try {
+                mapView.onPause()
+                mapView.onStop()
+                mapView.onDestroy()
+                Log.d(TAG, "MapView destruido correctamente")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error al destruir MapView: ${e.message}")
+            }
         }
     }
 
@@ -136,7 +173,6 @@ fun NativeMap(
         isSearching = true
         searchActive = true
         
-        // Formato: PROV:MUN:POL:PARC[:REC]
         val parts = searchQuery.split(":").map { it.trim() }
         if (parts.size < 4) {
             Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
@@ -148,7 +184,6 @@ fun NativeMap(
 
         scope.launch {
             val map = mapInstance
-            // En búsqueda manual, usamos el filtro para resaltar lo buscado
             if (map != null && map.style != null) {
                 val filterList = mutableListOf<Expression>(
                     Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
@@ -161,12 +196,10 @@ fun NativeMap(
                 }
                 val filter = Expression.all(*filterList.toTypedArray())
                 
-                // Actualizamos las capas de Highlight
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(filter) }
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
             }
 
-            // 2. Buscar Geometría y Mover Cámara (Desde MapUtils.kt)
             val bbox = searchParcelLocation(prov, mun, pol, parc, rec)
             if (bbox != null) {
                 mapInstance?.animateCamera(CameraUpdateFactory.newLatLngBounds(bbox, 100), 1500)
@@ -184,14 +217,11 @@ fun NativeMap(
         lastDataId = null
         recintoData = null
         cultivoData = null
-        // Limpiar filtro visual
         mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(Expression.literal(false)) }
         mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(Expression.literal(false)) }
     }
 
     // --- LÓGICA DE ACTUALIZACIÓN ---
-    
-    // 1. VISUAL (Se ejecuta "onMove" - Rápido)
     fun updateHighlightVisuals(map: MapLibreMap) {
         if (searchActive) return
         if (map.cameraPosition.zoom < 13) {
@@ -203,42 +233,42 @@ fun NativeMap(
         val center = map.cameraPosition.target ?: return
         val screenPoint = map.projection.toScreenLocation(center)
         val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
-        val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
-        
-        if (features.isNotEmpty()) {
-            val feature = features[0]
-            val props = feature.properties()
-            if (props != null) {
-                val filterConditions = mutableListOf<Expression>()
-                SIGPAC_KEYS.forEach { key ->
-                    if (props.has(key)) {
-                        val element = props.get(key)
-                        val value: Any = when {
-                            element.isJsonPrimitive -> {
-                                val prim = element.asJsonPrimitive
-                                when {
-                                    prim.isNumber -> prim.asNumber
-                                    prim.isBoolean -> prim.asBoolean
-                                    else -> prim.asString
+        try {
+            val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
+            if (features.isNotEmpty()) {
+                val feature = features[0]
+                val props = feature.properties()
+                if (props != null) {
+                    val filterConditions = mutableListOf<Expression>()
+                    SIGPAC_KEYS.forEach { key ->
+                        if (props.has(key)) {
+                            val element = props.get(key)
+                            val value: Any = when {
+                                element.isJsonPrimitive -> {
+                                    val prim = element.asJsonPrimitive
+                                    when {
+                                        prim.isNumber -> prim.asNumber
+                                        prim.isBoolean -> prim.asBoolean
+                                        else -> prim.asString
+                                    }
                                 }
+                                else -> element.toString()
                             }
-                            else -> element.toString()
+                            filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
                         }
-                        filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
                     }
+                    val finalFilter = Expression.all(*filterConditions.toTypedArray())
+                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(finalFilter) }
+                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
                 }
-                val finalFilter = Expression.all(*filterConditions.toTypedArray())
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(finalFilter) }
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
+            } else {
+                val emptyFilter = Expression.literal(false)
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
             }
-        } else {
-            val emptyFilter = Expression.literal(false)
-            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
-            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
-        }
+        } catch (e: Exception) { Log.e(TAG, "Error highlighting: ${e.message}") }
     }
 
-    // 2. DATOS (Se ejecuta "onIdle" - Lento)
     fun updateDataSheet(map: MapLibreMap) {
         if (searchActive) return
         if (map.cameraPosition.zoom < 13) {
@@ -249,57 +279,59 @@ fun NativeMap(
         val screenPoint = map.projection.toScreenLocation(center)
         val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
         
-        // Recintos
-        val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
-        if (features.isNotEmpty()) {
-            val props = features[0].properties()
-            val prov = props?.get("provincia")?.asString ?: ""
-            val mun = props?.get("municipio")?.asString ?: ""
-            val pol = props?.get("poligono")?.asString ?: ""
-            val parc = props?.get("parcela")?.asString ?: ""
-            val rec = props?.get("recinto")?.asString ?: ""
-            val uniqueId = "$prov-$mun-$pol-$parc-$rec"
-            
-            if (uniqueId != lastDataId) {
-                lastDataId = uniqueId
-                recintoData = mapOf(
-                    "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
-                    "agregado" to (props?.get("agregado")?.asString ?: "0"),
-                    "zona" to (props?.get("zona")?.asString ?: "0"),
-                    "superficie" to (props?.get("superficie")?.toString() ?: "0"),
-                    "uso_sigpac" to "Cargando...", "pendiente_media" to "-", "altitud" to "-", "region" to "-",
-                    "coef_regadio" to "-", "subvencionabilidad" to "-", "incidencias" to ""
-                )
-                isLoadingData = true
-                isPanelExpanded = false
-                apiJob?.cancel()
-                apiJob = scope.launch {
-                    delay(200)
-                    // Llamada a API (Desde MapUtils.kt)
-                    val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
-                    if (fullData != null) recintoData = fullData
-                    isLoadingData = false
+        try {
+            val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
+            if (features.isNotEmpty()) {
+                val props = features[0].properties()
+                val prov = props?.get("provincia")?.asString ?: ""
+                val mun = props?.get("municipio")?.asString ?: ""
+                val pol = props?.get("poligono")?.asString ?: ""
+                val parc = props?.get("parcela")?.asString ?: ""
+                val rec = props?.get("recinto")?.asString ?: ""
+                val uniqueId = "$prov-$mun-$pol-$parc-$rec"
+                
+                if (uniqueId != lastDataId) {
+                    lastDataId = uniqueId
+                    recintoData = mapOf(
+                        "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
+                        "agregado" to (props?.get("agregado")?.asString ?: "0"),
+                        "zona" to (props?.get("zona")?.asString ?: "0"),
+                        "superficie" to (props?.get("superficie")?.toString() ?: "0"),
+                        "uso_sigpac" to "Cargando...", "pendiente_media" to "-", "altitud" to "-", "region" to "-",
+                        "coef_regadio" to "-", "subvencionabilidad" to "-", "incidencias" to ""
+                    )
+                    isLoadingData = true
+                    isPanelExpanded = false
+                    apiJob?.cancel()
+                    apiJob = scope.launch {
+                        delay(200)
+                        val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
+                        if (fullData != null) recintoData = fullData
+                        isLoadingData = false
+                    }
                 }
+            } else {
+                lastDataId = null
             }
-        } else {
-            lastDataId = null
-        }
-        // Cultivos
-        val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
-        if (cultFeatures.isNotEmpty()) {
-             val props = cultFeatures[0].properties()
-             if (props != null) {
-                val mapProps = mutableMapOf<String, String>()
-                props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
-                cultivoData = mapProps
+            
+            val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
+            if (cultFeatures.isNotEmpty()) {
+                 val props = cultFeatures[0].properties()
+                 if (props != null) {
+                    val mapProps = mutableMapOf<String, String>()
+                    props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
+                    cultivoData = mapProps
+                }
+            } else {
+                cultivoData = null
             }
-        } else {
-            cultivoData = null
-        }
+        } catch (e: Exception) { Log.e(TAG, "Error querying features: ${e.message}") }
     }
 
     LaunchedEffect(Unit) {
+        Log.d(TAG, "getMapAsync invocado")
         mapView.getMapAsync { map ->
+            Log.d(TAG, "Map instance ready")
             mapInstance = map
             map.uiSettings.isAttributionEnabled = true
             map.uiSettings.isLogoEnabled = false
@@ -313,7 +345,6 @@ fun NativeMap(
             map.addOnCameraMoveListener { updateHighlightVisuals(map) }
             map.addOnCameraIdleListener { updateDataSheet(map) }
 
-            // Carga de estilo (Desde MapStyle.kt)
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
             }
@@ -334,7 +365,10 @@ fun NativeMap(
 
     // --- UI RENDER ---
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        AndroidView(factory = { 
+            Log.d(TAG, "AndroidView Factory: devolviendo mapView")
+            mapView 
+        }, modifier = Modifier.fillMaxSize())
 
         // Cruz central
         if (!isSearching && !showCustomKeyboard) {
