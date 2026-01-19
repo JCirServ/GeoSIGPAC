@@ -42,18 +42,7 @@ fun WebProjectManager(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
             NavigationBar {
-                NavigationBarItem(
-                    selected = false,
-                    onClick = onNavigateToMap,
-                    icon = { 
-                        Icon(
-                            imageVector = Icons.Default.Map, 
-                            contentDescription = "Mapa"
-                        ) 
-                    },
-                    label = { Text("Mapa") }
-                )
-                
+                // Cámara (Izquierda)
                 NavigationBarItem(
                     selected = false,
                     onClick = onOpenCamera,
@@ -64,6 +53,19 @@ fun WebProjectManager(
                         ) 
                     },
                     label = { Text("Cámara") }
+                )
+
+                // Mapa (Derecha)
+                NavigationBarItem(
+                    selected = false,
+                    onClick = onNavigateToMap,
+                    icon = { 
+                        Icon(
+                            imageVector = Icons.Default.Map, 
+                            contentDescription = "Mapa"
+                        ) 
+                    },
+                    label = { Text("Mapa") }
                 )
             }
         }
