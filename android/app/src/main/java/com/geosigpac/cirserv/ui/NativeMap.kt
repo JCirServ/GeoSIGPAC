@@ -477,6 +477,7 @@ fun NativeMap(
             }
 
             // BOTTOM SHEET (Info)
+            // Se muestra solo si el teclado NO está visible
             if (!showCustomKeyboard) {
                 AnimatedVisibility(visible = recintoData != null || (cultivoData != null && showCultivo), enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
                     val displayData = recintoData ?: cultivoData
@@ -552,16 +553,19 @@ fun NativeMap(
                         }
                     }
                 }
+            } // Fin if(!showCustomKeyboard)
 
-                // --- TECLADO PERSONALIZADO ---
-                AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-                    CustomSigpacKeyboard(
-                        onKey = { char -> searchQuery += char },
-                        onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
-                        onSearch = { performSearch() },
-                        onClose = { showCustomKeyboard = false }
-                    )
-                }
-            } // Fin if(isVisible)
-    }
+            // --- TECLADO PERSONALIZADO ---
+            // Se muestra fuera del bloque anterior para que sea visible cuando showCustomKeyboard es true
+            AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
+                CustomSigpacKeyboard(
+                    onKey = { char -> searchQuery += char },
+                    onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
+                    onSearch = { performSearch() },
+                    onClose = { showCustomKeyboard = false }
+                )
+            }
+
+        } // Fin if(isVisible)
+    } // Fin Box
 }
