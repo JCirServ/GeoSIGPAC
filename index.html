@@ -5,16 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GeoSIGPAC Manager</title>
     <style>
+        /* Estilos críticos para evitar pantalla en blanco por falta de CSS */
+        html, body, #root {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #f8fafc; /* slate-50 */
+        }
         body {
             -webkit-tap-highlight-color: transparent;
             user-select: none;
-            scrollbar-width: none;
-            -ms-overflow-style: none;
-            margin: 0;
-            padding: 0;
-            background-color: #f8fafc;
+            overflow-x: hidden;
         }
-        ::-webkit-scrollbar { display: none; }
     </style>
 <script type="importmap">
 {
@@ -32,8 +35,9 @@
 }
 </script>
 </head>
-<body class="bg-[#f8fafc] text-gray-800">
+<body>
     <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
+    <!-- Vite reemplazará esto por el bundle generado durante el build -->
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>

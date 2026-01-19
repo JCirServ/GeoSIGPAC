@@ -1,4 +1,3 @@
-
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve, dirname } from 'path';
@@ -9,10 +8,9 @@ const __dirname = dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
-  // Base relativa crítica para que file:///android_asset/ funcione correctamente
+  // Base relativa indispensable para file:///android_asset/
   base: './', 
   define: {
-    // Inyecta la API KEY y previene errores de "process is not defined" en el navegador/WebView
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
     'process.env': {
       API_KEY: process.env.API_KEY
@@ -21,13 +19,16 @@ export default defineConfig({
   build: {
     outDir: 'android/app/src/main/assets',
     emptyOutDir: true,
-    target: 'es2020', // Asegura compatibilidad con WebViews modernos
+    target: 'es2020',
+    cssCodeSplit: false, // Unifica el CSS en un solo archivo
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
       },
       output: {
-        // Estructura de archivos plana: se elimina la carpeta 'assets/' por petición del usuario
+        // Forzamos un solo bundle para evitar errores de carga de chunks en Android
+        manualChunks: undefined,
+        inlineDynamicImports: true,
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
         assetFileNames: '[name].[ext]'

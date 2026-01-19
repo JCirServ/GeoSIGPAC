@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -7,4 +6,10 @@
   --primary: #006d3e;
   --secondary: #4c6356;
   --tertiary: #f97316;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
