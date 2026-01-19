@@ -14,10 +14,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -29,8 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -46,7 +42,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // --- MODO INMERSIVO (OCULTAR BARRAS) ---
+        // --- MODO INMERSIVO ---
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -78,7 +74,7 @@ fun GeoSigpacApp() {
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     
-    // --- ESTADO DE SESIÓN DE FOTOS (Persistencia) ---
+    // --- ESTADO DE SESIÓN ---
     val sharedPrefs = remember {
         context.getSharedPreferences("geosigpac_prefs", Context.MODE_PRIVATE)
     }
@@ -143,37 +139,54 @@ fun GeoSigpacApp() {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        // Usamos Box para mantener todos los componentes vivos
-        Box(modifier = Modifier.fillMaxSize()) {
+        if (isCameraOpen) {
+            // MODO CÁMARA
+            // Se renderiza sola. Manejamos el botón "Atrás" para salir de la cámara.
+            BackHandler {
+                isCameraOpen = false
+            }
             
-            // 1. CAPA MAPA (Fondo)
-            NativeMap(
-                targetLat = mapTarget?.first,
-                targetLng = mapTarget?.second,
-                isVisible = (!isCameraOpen && selectedTab == 1), 
-                onNavigateToProjects = { selectedTab = 0 },
-                onOpenCamera = {
-                    currentProjectId = null 
-                    isCameraOpen = true
+            CameraScreen(
+                projectId = currentProjectId, 
+                lastCapturedUri = sessionLastUri, 
+                photoCount = sessionPhotoCount,   
+                onImageCaptured = { uri ->
+                    sessionLastUri = uri
+                    val newCount = sessionPhotoCount + 1
+                    sessionPhotoCount = newCount
+                    
+                    sharedPrefs.edit().apply {
+                        putString("last_photo_uri", uri.toString())
+                        putInt("photo_count", newCount)
+                        apply()
+                    }
+                    
+                    val pid = currentProjectId
+                    if (pid != null) {
+                        scope.launch {
+                            val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
+                            webViewRef?.evaluateJavascript(jsCode, null)
+                        }
+                    } 
+                    Toast.makeText(context, "Foto guardada", Toast.LENGTH_SHORT).show()
+                },
+                onError = { exc ->
+                    Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
+                },
+                onClose = { isCameraOpen = false },
+                onGoToMap = {
+                    isCameraOpen = false
+                    selectedTab = 1
+                },
+                onGoToProjects = {
+                    isCameraOpen = false
+                    selectedTab = 0
                 }
             )
-
-            // 2. CAPA WEB (Intermedia)
-            // CAMBIO: Si estamos en la tab de proyectos (0), mantenemos la web visible (alpha 1)
-            // incluso si la cámara se abre. La cámara cubrirá la web al estar en una capa superior (Z-index).
-            // Esto evita que la web desaparezca antes de que la cámara cargue, revelando el mapa de fondo.
-            val isWebVisible = (selectedTab == 0)
-            
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .graphicsLayer {
-                        alpha = if (isWebVisible) 1f else 0f
-                        // Solo la movemos fuera si realmente cambiamos de tab, no por la cámara
-                        translationX = if (isWebVisible) 0f else 9999f
-                    }
-            ) {
+        } else {
+            // MODO NAVEGACIÓN (Web o Mapa)
+            if (selectedTab == 0) {
+                // PESTAÑA WEB (Proyectos)
                 WebProjectManager(
                     webAppInterface = webAppInterface,
                     onWebViewCreated = { webView -> webViewRef = webView },
@@ -183,57 +196,17 @@ fun GeoSigpacApp() {
                         isCameraOpen = true
                     }
                 )
-            }
-            
-            // 3. CAPA CÁMARA (Superior - Modal)
-            if (isCameraOpen) {
-                BackHandler {
-                    isCameraOpen = false
-                }
-                
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black)
-                ) {
-                    CameraScreen(
-                        projectId = currentProjectId, 
-                        lastCapturedUri = sessionLastUri, 
-                        photoCount = sessionPhotoCount,   
-                        onImageCaptured = { uri ->
-                            sessionLastUri = uri
-                            val newCount = sessionPhotoCount + 1
-                            sessionPhotoCount = newCount
-                            
-                            sharedPrefs.edit().apply {
-                                putString("last_photo_uri", uri.toString())
-                                putInt("photo_count", newCount)
-                                apply()
-                            }
-                            
-                            val pid = currentProjectId
-                            if (pid != null) {
-                                scope.launch {
-                                    val jsCode = "if(window.onPhotoCaptured) window.onPhotoCaptured('$pid', '$uri');"
-                                    webViewRef?.evaluateJavascript(jsCode, null)
-                                }
-                            } 
-                            Toast.makeText(context, "Foto guardada", Toast.LENGTH_SHORT).show()
-                        },
-                        onError = { exc ->
-                            Toast.makeText(context, "Error cámara: ${exc.message}", Toast.LENGTH_SHORT).show()
-                        },
-                        onClose = { isCameraOpen = false },
-                        onGoToMap = {
-                            isCameraOpen = false
-                            selectedTab = 1
-                        },
-                        onGoToProjects = {
-                            isCameraOpen = false
-                            selectedTab = 0
-                        }
-                    )
-                }
+            } else {
+                // PESTAÑA MAPA
+                NativeMap(
+                    targetLat = mapTarget?.first,
+                    targetLng = mapTarget?.second,
+                    onNavigateToProjects = { selectedTab = 0 },
+                    onOpenCamera = {
+                        currentProjectId = null 
+                        isCameraOpen = true
+                    }
+                )
             }
         }
     }
