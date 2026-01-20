@@ -45,7 +45,8 @@ class MainActivity : ComponentActivity() {
         // --- MODO INMERSIVO ---
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
+        // No ocultamos las barras por defecto para que el usuario no sienta que la pantalla está "muerta"
+        // windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
         
         setContent {
             MaterialTheme {
@@ -69,7 +70,7 @@ fun GeoSigpacApp() {
     }
 
     // --- ESTADO DE LA APLICACIÓN ---
-    var isCameraOpen by remember { mutableStateOf(hasPermissions) }
+    var isCameraOpen by remember { mutableStateOf(false) }
     var currentProjectId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
@@ -88,17 +89,16 @@ fun GeoSigpacApp() {
         mutableIntStateOf(sharedPrefs.getInt("photo_count", 0))
     }
     
-    // Control de Pestañas (0 = Web, 1 = Mapa)
-    var selectedTab by remember { mutableIntStateOf(1) }
+    // Control de Pestañas (0 = Web/Proyectos, 1 = Mapa)
+    // Cambiado a 0 por defecto para mostrar la lista de proyectos al iniciar.
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { perms ->
             val cameraGranted = perms[Manifest.permission.CAMERA] == true
             hasPermissions = cameraGranted
-            if (cameraGranted) {
-                isCameraOpen = true
-            }
+            // No abrimos la cámara automáticamente para no asustar al usuario
         }
     )
 
@@ -140,11 +140,7 @@ fun GeoSigpacApp() {
         color = MaterialTheme.colorScheme.background
     ) {
         if (isCameraOpen) {
-            // MODO CÁMARA
-            // Se renderiza sola. Manejamos el botón "Atrás" para salir de la cámara.
-            BackHandler {
-                isCameraOpen = false
-            }
+            BackHandler { isCameraOpen = false }
             
             CameraScreen(
                 projectId = currentProjectId, 
@@ -184,9 +180,7 @@ fun GeoSigpacApp() {
                 }
             )
         } else {
-            // MODO NAVEGACIÓN (Web o Mapa)
             if (selectedTab == 0) {
-                // PESTAÑA WEB (Proyectos)
                 WebProjectManager(
                     webAppInterface = webAppInterface,
                     onWebViewCreated = { webView -> webViewRef = webView },
@@ -197,7 +191,6 @@ fun GeoSigpacApp() {
                     }
                 )
             } else {
-                // PESTAÑA MAPA
                 NativeMap(
                     targetLat = mapTarget?.first,
                     targetLng = mapTarget?.second,

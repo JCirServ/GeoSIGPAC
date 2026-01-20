@@ -11,17 +11,26 @@ export const useProjectStore = () => {
 
   // Cargar datos persistidos
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setExpedientes(JSON.parse(saved));
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        setExpedientes(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.warn("No se pudo acceder a localStorage:", error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   // Persistir cambios
   useEffect(() => {
     if (!loading) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(expedientes));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(expedientes));
+      } catch (error) {
+        console.error("Error guardando en localStorage:", error);
+      }
     }
   }, [expedientes, loading]);
 
