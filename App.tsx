@@ -1,16 +1,30 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import { InspectionCard } from './components/InspectionCard';
 import { KmlUploader } from './components/KmlUploader';
+import { ProjectDetails } from './components/ProjectDetails';
 import { useProjectStore } from './store/useProjectStore';
 import { Folder, X } from 'lucide-react';
 
 const App: React.FC = () => {
   const { expedientes, addExpediente, removeExpediente, loading } = useProjectStore();
+  const [selectedExpedienteId, setSelectedExpedienteId] = useState<string | null>(null);
+
+  const selectedExpediente = expedientes.find(e => e.id === selectedExpedienteId);
 
   if (loading) return null;
 
+  if (selectedExpediente) {
+    return (
+      <ProjectDetails 
+        expediente={selectedExpediente} 
+        onBack={() => setSelectedExpedienteId(null)} 
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#07080d] flex flex-col">
+    <div className="min-h-screen bg-[#07080d] flex flex-col font-sans">
       {/* HEADER ESTILO CAPTURA */}
       <header className="p-5 flex justify-between items-center mb-4">
         <div className="flex items-center gap-3">
@@ -34,7 +48,8 @@ const App: React.FC = () => {
             <InspectionCard 
               key={exp.id} 
               expediente={exp} 
-              onDelete={removeExpediente} 
+              onDelete={removeExpediente}
+              onSelect={() => setSelectedExpedienteId(exp.id)}
             />
           ))}
         </div>
