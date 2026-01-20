@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import com.geosigpac.cirserv.bridge.WebAppInterface
@@ -48,7 +49,7 @@ fun WebProjectManager(
     onNavigateToMap: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
-    // Colores exactos del tema Web
+    // Colores exactos del tema Web (GeoSIGPAC3)
     val bgDark = Color(0xFF07080D)
     val surfaceDark = Color(0xFF0D0E1A)
     val accentNeon = Color(0xFF5C60F5)
@@ -86,10 +87,10 @@ fun WebProjectManager(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = bgDark, // Fondo negro profundo
+        containerColor = bgDark, 
         bottomBar = {
             NavigationBar(
-                containerColor = surfaceDark, // Fondo de la barra
+                containerColor = surfaceDark, 
                 contentColor = Color.White,
                 tonalElevation = 0.dp
             ) {
@@ -100,7 +101,7 @@ fun WebProjectManager(
                     colors = NavigationBarItemDefaults.colors(
                         unselectedIconColor = textGray,
                         unselectedTextColor = textGray,
-                        indicatorColor = accentNeon.copy(alpha = 0.1f)
+                        indicatorColor = accentNeon.copy(alpha = 0.15f)
                     ),
                     icon = { 
                         Icon(
@@ -118,7 +119,7 @@ fun WebProjectManager(
                     colors = NavigationBarItemDefaults.colors(
                         unselectedIconColor = textGray,
                         unselectedTextColor = textGray,
-                        indicatorColor = accentNeon.copy(alpha = 0.1f)
+                        indicatorColor = accentNeon.copy(alpha = 0.15f)
                     ),
                     icon = { 
                         Icon(
@@ -143,7 +144,9 @@ fun WebProjectManager(
                     .build()
 
                 WebView(context).apply {
-                    setBackgroundColor(0xFF07080D.toInt()) // Sincroniza fondo del WebView antes de cargar
+                    // Prevenir fondo blanco durante la carga inicial
+                    setBackgroundColor(0xFF07080D.toInt()) 
+                    
                     settings.apply {
                         javaScriptEnabled = true
                         domStorageEnabled = true
