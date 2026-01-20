@@ -3,6 +3,7 @@ package com.geosigpac.cirserv.utils
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.geosigpac.cirserv.model.NativeParcela
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
@@ -13,10 +14,11 @@ import javax.xml.parsers.DocumentBuilderFactory
 object KmlParser {
 
     fun parseUri(context: Context, uri: Uri): List<NativeParcela> {
+        val fileName = getFileName(context, uri) ?: uri.toString()
         val inputStream = context.contentResolver.openInputStream(uri) ?: return emptyList()
         
         return try {
-            if (uri.toString().endsWith(".kmz", true)) {
+            if (fileName.endsWith(".kmz", true)) {
                 parseKmz(inputStream)
             } else {
                 parseKml(inputStream)
@@ -27,11 +29,29 @@ object KmlParser {
         }
     }
 
+    private fun getFileName(context: Context, uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) result = it.getString(index)
+                }
+            }
+        }
+        return result ?: uri.path?.let { path ->
+            val cut = path.lastIndexOf('/')
+            if (cut != -1) path.substring(cut + 1) else path
+        }
+    }
+
     private fun parseKmz(inputStream: InputStream): List<NativeParcela> {
         val zis = ZipInputStream(inputStream)
         var entry = zis.nextEntry
         while (entry != null) {
             if (entry.name.endsWith(".kml", true)) {
+                // No cerramos zis aquí porque parseKml lo consumirá
                 return parseKml(zis)
             }
             entry = zis.nextEntry
@@ -63,7 +83,7 @@ object KmlParser {
                     }
                 }
 
-                // 2. Extraer Coordenadas para posicionar el recinto en el mapa
+                // 2. Extraer Coordenadas
                 var lat = 0.0
                 var lng = 0.0
                 val coordsNodes = element.getElementsByTagName("coordinates")
@@ -79,8 +99,8 @@ object KmlParser {
                     }
                 }
 
-                // 3. Crear el objeto de Parcela Nativa
-                val refSigPac = metadata["Ref_SigPac"] ?: metadata["ID"] ?: "RECINTO_$i"
+                // 3. Crear el objeto
+                val refSigPac = metadata["Ref_SigPac"] ?: metadata["ID"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
                 parcelas.add(
                     NativeParcela(
                         id = "p_${System.currentTimeMillis()}_$i",
