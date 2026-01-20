@@ -75,6 +75,47 @@ fun NativeProjectManager(
                     title = { Text("MIS PROYECTOS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp) },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color(0xFF07080D))
                 )
+            },
+            bottomBar = {
+                NavigationBar(
+                    containerColor = Color(0xFF0D0E1A),
+                    contentColor = Color.White,
+                    tonalElevation = 8.dp
+                ) {
+                    NavigationBarItem(
+                        selected = true,
+                        onClick = { /* Ya estamos aquí */ },
+                        icon = { Icon(Icons.Default.Folder, contentDescription = "Proyectos") },
+                        label = { Text("Proyectos", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFF00FF88),
+                            selectedTextColor = Color(0xFF00FF88),
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray,
+                            indicatorColor = Color.Transparent
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { onOpenCamera(null) },
+                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") },
+                        label = { Text("Cámara", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { onNavigateToMap(null, null) },
+                        icon = { Icon(Icons.Default.Map, contentDescription = "Mapa") },
+                        label = { Text("Mapa", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray
+                        )
+                    )
+                }
             }
         ) { padding ->
             Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -171,7 +212,7 @@ fun ProjectDetailsScreen(
 
 @Composable
 fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(true) }
+    var expanded by remember { mutableStateOf(false) } // Empezar colapsado para ver más recintos
     var isLoading by remember { mutableStateOf(!parcela.isHydrated) }
 
     LaunchedEffect(parcela.referencia) {
