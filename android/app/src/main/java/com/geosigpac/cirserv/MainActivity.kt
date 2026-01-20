@@ -1,16 +1,13 @@
+
 package com.geosigpac.cirserv
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -45,22 +42,15 @@ class MainActivity : ComponentActivity() {
 fun GeoSigpacApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    var hasPermissions by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Proyectos, 1 = Mapa
-    var currentProjectId by remember { mutableStateOf<String?>(null) }
+    var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
     if (isCameraOpen) {
         BackHandler { isCameraOpen = false }
         CameraScreen(
-            projectId = currentProjectId,
+            projectId = currentParcelaId,
             lastCapturedUri = null,
             photoCount = 0,
             onImageCaptured = { isCameraOpen = false },
@@ -70,7 +60,7 @@ fun GeoSigpacApp() {
             onGoToProjects = { isCameraOpen = false; selectedTab = 0 }
         )
     } else {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF07080D)) {
             if (selectedTab == 0) {
                 NativeProjectManager(
                     onNavigateToMap = { lat, lng ->
@@ -78,7 +68,7 @@ fun GeoSigpacApp() {
                         selectedTab = 1
                     },
                     onOpenCamera = { id ->
-                        currentProjectId = id
+                        currentParcelaId = id
                         isCameraOpen = true
                     }
                 )
