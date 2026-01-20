@@ -15,11 +15,12 @@ body {
   color: #f8fafc;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-tap-highlight-color: transparent;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
+  width: 100%;
 }
 
 .glass-panel {
@@ -30,11 +31,17 @@ body {
 
 .neon-border {
   border: 1.5px solid rgba(99, 102, 241, 0.4);
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.05);
+}
+
+/* Scrollbar oculto pero funcional */
+.custom-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;  /* IE and Edge */
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  width: 0px;
+  display: none; /* Chrome, Safari, Opera */
 }
 
 .import-dashed {
@@ -43,13 +50,12 @@ body {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
-/* Animaciones suaves */
 @keyframes pulse-neon {
-  0% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.1); }
-  50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.2); }
-  100% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.1); }
+  0% { border-color: rgba(99, 102, 241, 0.3); box-shadow: 0 0 10px rgba(99, 102, 241, 0.05); }
+  50% { border-color: rgba(99, 102, 241, 0.6); box-shadow: 0 0 20px rgba(99, 102, 241, 0.15); }
+  100% { border-color: rgba(99, 102, 241, 0.3); box-shadow: 0 0 10px rgba(99, 102, 241, 0.05); }
 }
 
 .animate-neon {
-  animation: pulse-neon 3s infinite ease-in-out;
+  animation: pulse-neon 4s infinite ease-in-out;
 }

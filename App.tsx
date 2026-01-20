@@ -11,9 +11,9 @@ const App: React.FC = () => {
   if (loading) return null;
 
   return (
-    <div className="min-h-screen bg-[#07080d] flex flex-col font-sans selection:bg-indigo-500/30">
-      {/* HEADER: Proyectos + Carpeta Amarilla + X */}
-      <header className="px-6 py-5 flex justify-between items-center">
+    <div className="h-screen w-full bg-[#07080d] flex flex-col font-sans overflow-hidden">
+      {/* HEADER: Fijo en la parte superior */}
+      <header className="px-6 pt-8 pb-4 flex justify-between items-center flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="text-yellow-400">
             <Folder size={24} fill="currentColor" />
@@ -25,30 +25,33 @@ const App: React.FC = () => {
         </button>
       </header>
       
-      <main className="flex-1 overflow-y-auto custom-scrollbar pt-2">
-        {/* Sección de Importación con caja punteada */}
-        <KmlUploader onDataParsed={addExpediente} />
+      {/* ÁREA DE SCROLL: flex-1 permite que ocupe todo el espacio y overflow-y-auto habilita el scroll */}
+      <main className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="pb-24"> {/* Padding inferior para que la última tarjeta no quede pegada */}
+            {/* Sección de Importación */}
+            <KmlUploader onDataParsed={addExpediente} />
 
-        {/* Listado de proyectos (Tarjetas Neón) */}
-        <div className="space-y-0.5 pb-24">
-          {expedientes.map(exp => (
-            <InspectionCard 
-              key={exp.id} 
-              expediente={exp} 
-              onDelete={removeExpediente} 
-            />
-          ))}
-          
-          {expedientes.length === 0 && (
-            <div className="px-10 py-20 text-center opacity-30">
-               <p className="text-white text-sm">No hay proyectos importados</p>
+            {/* Listado de proyectos */}
+            <div className="space-y-1">
+              {expedientes.map(exp => (
+                <InspectionCard 
+                  key={exp.id} 
+                  expediente={exp} 
+                  onDelete={removeExpediente} 
+                />
+              ))}
+              
+              {expedientes.length === 0 && (
+                <div className="px-10 py-20 text-center opacity-30">
+                   <p className="text-white text-sm">No hay proyectos importados</p>
+                </div>
+              )}
             </div>
-          )}
         </div>
       </main>
 
-      {/* Margen inferior para navegación nativa */}
-      <div className="h-4" />
+      {/* Margen de seguridad inferior para gestos de Android */}
+      <div className="h-2 bg-[#07080d] flex-shrink-0" />
     </div>
   );
 };
