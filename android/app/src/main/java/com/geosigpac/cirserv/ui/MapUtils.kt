@@ -59,21 +59,24 @@ enum class BaseMap(val title: String) {
 // --- FUNCIONES API (WFS & INFO) ---
 
 /**
- * Busca la ubicación de un recinto utilizando el OGC API.
- * Calcula el LatLngBounds recorriendo la geometría del FeatureCollection devuelto.
+ * Busca la ubicación de un recinto o parcela utilizando el endpoint GeoJSON de recinfoparc.
+ * Si se proporciona 'rec', se calcula el encuadre solo para ese recinto. 
+ * Si no, se calcula para toda la parcela.
  */
 suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): LatLngBounds? = withContext(Dispatchers.IO) {
     try {
-        val targetRec = rec ?: "1"
+        // Valores por defecto para agregado y zona en búsquedas rápidas
+        val ag = "0"
+        val zo = "0"
 
-        // URL OGC API sugerida por el usuario
+        // URL proporcionada por el usuario para localización de parcelas/recintos
         val urlString = String.format(
             Locale.US,
-            "https://sigpac-hubcloud.es/ogcapi/collections/recintos/items?provincia=%s&municipio=%s&poligono=%s&parcela=%s&recinto=%s&f=json",
-            prov, mun, pol, parc, targetRec
+            "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/%s/%s/%s/%s/%s/%s.geojson",
+            prov, mun, ag, zo, pol, parc
         )
 
-        Log.d("SEARCH_OGC_API", "Requesting: $urlString")
+        Log.d("SEARCH_SIGPAC", "Requesting: $urlString")
 
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
@@ -103,16 +106,22 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
 
                 for (i in 0 until features.length()) {
                     val feature = features.getJSONObject(i)
+                    val props = feature.optJSONObject("properties")
+                    
+                    // Si se especificó un recinto, ignoramos los demás features
+                    if (rec != null && props != null) {
+                        val currentRec = props.optString("recinto")
+                        if (currentRec != rec) continue
+                    }
+
                     val geometry = feature.optJSONObject("geometry") ?: continue
-                    val type = geometry.optString("type")
                     val coordinates = geometry.optJSONArray("coordinates") ?: continue
 
-                    // Función recursiva para extraer puntos de cualquier profundidad de anidación (Polygon/MultiPolygon)
+                    // Función recursiva para extraer puntos
                     fun extractPoints(arr: JSONArray) {
                         if (arr.length() == 0) return
                         val first = arr.get(0)
                         if (first is Double || first is Int) {
-                            // Estamos en el nivel de [lng, lat]
                             val lng = arr.getDouble(0)
                             val lat = arr.getDouble(1)
                             if (lat < minLat) minLat = lat
@@ -131,9 +140,9 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
                 }
 
                 if (foundAny) {
-                    // Margen de seguridad del 15% para que no quede pegado al borde
-                    val latPadding = (maxLat - minLat) * 0.15
-                    val lngPadding = (maxLng - minLng) * 0.15
+                    // Margen de seguridad del 20%
+                    val latPadding = (maxLat - minLat) * 0.20
+                    val lngPadding = (maxLng - minLng) * 0.20
                     
                     return@withContext LatLngBounds.from(
                         maxLat + latPadding, 
@@ -143,12 +152,9 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
                     )
                 }
             }
-        } else {
-            Log.e("SEARCH_OGC_API", "Error HTTP: ${connection.responseCode}")
         }
     } catch (e: Exception) {
-        e.printStackTrace()
-        Log.e("SEARCH_OGC_API", "Exception: ${e.message}")
+        Log.e("SEARCH_SIGPAC", "Error: ${e.message}")
     }
     return@withContext null
 }
