@@ -1,35 +1,33 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --primary: #5c60f5;
-  --bg-dark: #07080d;
-  --surface-dark: #0d0e1a;
-  --neon-indigo: #5c60f5;
+  --bg-deep: #07080d;
+  --surface-card: #0d0e1a;
+  --neon-blue: #5c60f5;
   --neon-green: #00ff88;
+  --text-gray: #94a3b8;
 }
 
 body {
-  background-color: var(--bg-dark);
+  background-color: var(--bg-deep);
   color: #ffffff;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  -webkit-tap-highlight-color: transparent;
+  font-family: 'Inter', -apple-system, sans-serif;
   overflow: hidden;
-  position: fixed;
-  width: 100%;
-  height: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #root {
-  height: 100%;
-  width: 100%;
+  height: 100vh;
+  width: 100vw;
 }
 
-.neon-border {
+.neon-card {
+  background: var(--surface-card);
   border: 1px solid rgba(92, 96, 245, 0.4);
-  box-shadow: 0 0 15px rgba(92, 96, 245, 0.1);
+  box-shadow: 0 0 20px rgba(92, 96, 245, 0.1);
+  border-radius: 20px;
 }
 
 .custom-scrollbar {
@@ -41,13 +39,11 @@ body {
   display: none;
 }
 
-/* Efectos de pulso para el progreso */
-@keyframes glow {
-  0% { box-shadow: 0 0 5px rgba(0, 255, 136, 0.2); }
-  50% { box-shadow: 0 0 10px rgba(0, 255, 136, 0.6); }
-  100% { box-shadow: 0 0 5px rgba(0, 255, 136, 0.2); }
+.dashed-border {
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
 }
 
-.progress-glow {
-  animation: glow 2s infinite;
+input[type="file"]::file-selector-button {
+  display: none;
 }

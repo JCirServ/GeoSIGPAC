@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
@@ -32,11 +31,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import com.geosigpac.cirserv.bridge.WebAppInterface
 
+/**
+ * Componente que gestiona el WebView híbrido utilizando WebViewAssetLoader.
+ * Se ha optimizado para cargar los archivos locales de la carpeta assets de forma segura.
+ */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun WebProjectManager(
@@ -45,25 +47,31 @@ fun WebProjectManager(
     onNavigateToMap: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
-    // Sincronización cromática con la WebApp
+    // Colores exactos del tema Web (GeoSIGPAC3)
     val bgDark = Color(0xFF07080D)
     val surfaceDark = Color(0xFF0D0E1A)
     val accentNeon = Color(0xFF5C60F5)
     val textGray = Color(0xFF94A3B8)
 
+    // Variable para retener el callback del archivo seleccionado
     var uploadMessage by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
 
+    // Launcher para abrir el selector de archivos del sistema
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val data = result.data
             var results: Array<Uri>? = null
+            
             if (data != null) {
                 val dataString = data.dataString
                 val clipData = data.clipData
+                
                 if (clipData != null) {
-                    results = Array(clipData.itemCount) { i -> clipData.getItemAt(i).uri }
+                    results = Array(clipData.itemCount) { i ->
+                        clipData.getItemAt(i).uri
+                    }
                 } else if (dataString != null) {
                     results = arrayOf(Uri.parse(dataString))
                 }
@@ -77,13 +85,14 @@ fun WebProjectManager(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = bgDark,
+        containerColor = bgDark, 
         bottomBar = {
             NavigationBar(
-                containerColor = surfaceDark,
+                containerColor = surfaceDark, 
                 contentColor = Color.White,
                 tonalElevation = 0.dp
             ) {
+                // Cámara (Izquierda)
                 NavigationBarItem(
                     selected = false,
                     onClick = onOpenCamera,
@@ -92,9 +101,16 @@ fun WebProjectManager(
                         unselectedTextColor = textGray,
                         indicatorColor = accentNeon.copy(alpha = 0.15f)
                     ),
-                    icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
+                    icon = { 
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt, 
+                            contentDescription = "Cámara"
+                        ) 
+                    },
                     label = { Text("Cámara") }
                 )
+
+                // Mapa (Derecha)
                 NavigationBarItem(
                     selected = false,
                     onClick = onNavigateToMap,
@@ -103,7 +119,12 @@ fun WebProjectManager(
                         unselectedTextColor = textGray,
                         indicatorColor = accentNeon.copy(alpha = 0.15f)
                     ),
-                    icon = { Icon(Icons.Default.Map, "Mapa") },
+                    icon = { 
+                        Icon(
+                            imageVector = Icons.Default.Map, 
+                            contentDescription = "Mapa"
+                        ) 
+                    },
                     label = { Text("Mapa") }
                 )
             }
@@ -117,11 +138,12 @@ fun WebProjectManager(
                 val assetLoader = WebViewAssetLoader.Builder()
                     .setDomain("appassets.androidplatform.net")
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+                    .addPathHandler("/res/", WebViewAssetLoader.ResourcesPathHandler(context))
                     .build()
 
                 WebView(context).apply {
-                    // CRÍTICO: Fondo negro inmediato para evitar pantalla en blanco durante carga
-                    setBackgroundColor(0xFF07080D.toInt())
+                    // Prevenir fondo blanco durante la carga inicial
+                    setBackgroundColor(0xFF07080D.toInt()) 
                     
                     settings.apply {
                         javaScriptEnabled = true
@@ -131,6 +153,7 @@ fun WebProjectManager(
                         allowContentAccess = true
                         loadWithOverviewMode = true
                         useWideViewPort = true
+                        setSupportZoom(false)
                         userAgentString = "$userAgentString GeoSIGPAC/1.0"
                     }
 
@@ -143,31 +166,55 @@ fun WebProjectManager(
                         ): WebResourceResponse? {
                             return assetLoader.shouldInterceptRequest(request.url)
                         }
+
+                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                            super.onPageStarted(view, url, favicon)
+                            view?.setBackgroundColor(0xFF07080D.toInt())
+                        }
                     }
                     
                     webChromeClient = object : WebChromeClient() {
+                        // Gestión de carga de archivos (KML / KMZ)
                         override fun onShowFileChooser(
                             webView: WebView?,
                             filePathCallback: ValueCallback<Array<Uri>>?,
                             fileChooserParams: FileChooserParams?
                         ): Boolean {
-                            if (uploadMessage != null) uploadMessage?.onReceiveValue(null)
+                            if (uploadMessage != null) {
+                                uploadMessage?.onReceiveValue(null)
+                                uploadMessage = null
+                            }
+
                             uploadMessage = filePathCallback
-                            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE)
-                                type = "*/*"
-                                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+
+                            try {
+                                val intent = Intent(Intent.ACTION_GET_CONTENT)
+                                intent.addCategory(Intent.CATEGORY_OPENABLE)
+                                intent.type = "*/*"
+                                
+                                // Filtrar por extensiones KML/KMZ específicamente si es posible
+                                val mimeTypes = arrayOf(
                                     "application/vnd.google-earth.kml+xml",
                                     "application/vnd.google-earth.kmz",
                                     "application/xml",
                                     "text/xml",
-                                    "application/zip"
-                                ))
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/octet-stream"
+                                )
+                                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
+
+                                filePickerLauncher.launch(intent)
+                            } catch (e: Exception) {
+                                uploadMessage?.onReceiveValue(null)
+                                uploadMessage = null
+                                return false
                             }
-                            filePickerLauncher.launch(intent)
                             return true
                         }
                     }
+
+                    // Cargamos vía el dominio virtual del AssetLoader
                     loadUrl("https://appassets.androidplatform.net/assets/index.html")
                     onWebViewCreated(this)
                 }
