@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
@@ -22,6 +21,7 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,14 +30,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import com.geosigpac.cirserv.bridge.WebAppInterface
 
 /**
  * Componente que gestiona el WebView híbrido utilizando WebViewAssetLoader.
- * Esto permite cargar la webapp local bajo un contexto HTTPS seguro, evitando
- * problemas de CORS y Mixed Content.
+ * Optimizado con colores de fondo idénticos para una integración seamless.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -47,6 +48,11 @@ fun WebProjectManager(
     onNavigateToMap: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
+    // Colores de la marca GeoSIGPAC para la interfaz nativa
+    val bgDark = Color(0xFF07080D) // Negro profundo idéntico al CSS
+    val accentNeon = Color(0xFF5C60F5)
+    val textGray = Color(0xFF94A3B8)
+
     // Variable para retener el callback del archivo seleccionado
     var uploadMessage by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
 
@@ -72,7 +78,6 @@ fun WebProjectManager(
             }
             uploadMessage?.onReceiveValue(results)
         } else {
-            // Importante: Si se cancela, debemos devolver null para reiniciar el input del WebView
             uploadMessage?.onReceiveValue(null)
         }
         uploadMessage = null
@@ -80,12 +85,23 @@ fun WebProjectManager(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        containerColor = bgDark,
         bottomBar = {
-            NavigationBar {
-                // Cámara (Izquierda)
+            NavigationBar(
+                // CAMBIO: Ahora el fondo es bgDark para fusionarse con la webview
+                containerColor = bgDark, 
+                contentColor = Color.White,
+                tonalElevation = 0.dp
+            ) {
+                // Cámara
                 NavigationBarItem(
                     selected = false,
                     onClick = onOpenCamera,
+                    colors = NavigationBarItemDefaults.colors(
+                        unselectedIconColor = textGray,
+                        unselectedTextColor = textGray,
+                        indicatorColor = accentNeon.copy(alpha = 0.12f)
+                    ),
                     icon = { 
                         Icon(
                             imageVector = Icons.Default.CameraAlt, 
@@ -95,10 +111,15 @@ fun WebProjectManager(
                     label = { Text("Cámara") }
                 )
 
-                // Mapa (Derecha)
+                // Mapa
                 NavigationBarItem(
                     selected = false,
                     onClick = onNavigateToMap,
+                    colors = NavigationBarItemDefaults.colors(
+                        unselectedIconColor = textGray,
+                        unselectedTextColor = textGray,
+                        indicatorColor = accentNeon.copy(alpha = 0.12f)
+                    ),
                     icon = { 
                         Icon(
                             imageVector = Icons.Default.Map, 
@@ -115,7 +136,6 @@ fun WebProjectManager(
                 .fillMaxSize()
                 .padding(innerPadding),
             factory = { context ->
-                // 1. Configuramos el AssetLoader
                 val assetLoader = WebViewAssetLoader.Builder()
                     .setDomain("appassets.androidplatform.net")
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
@@ -123,25 +143,21 @@ fun WebProjectManager(
                     .build()
 
                 WebView(context).apply {
+                    // Evita el parpadeo blanco al iniciar la carga
+                    setBackgroundColor(0xFF07080D.toInt()) 
+                    
                     settings.apply {
-                        // Seguridad y Funcionalidad
                         javaScriptEnabled = true
                         domStorageEnabled = true
                         databaseEnabled = true
-                        
-                        // Desactivamos acceso a archivos directos pero habilitamos acceso a contenido
                         allowFileAccess = false
                         allowContentAccess = true
-                        
-                        // Optimizaciones de visualización
                         loadWithOverviewMode = true
                         useWideViewPort = true
                         setSupportZoom(false)
-                        
                         userAgentString = "$userAgentString GeoSIGPAC/1.0"
                     }
 
-                    // Inyectamos el puente nativo
                     addJavascriptInterface(webAppInterface, "Android")
 
                     webViewClient = object : WebViewClient() {
@@ -154,62 +170,45 @@ fun WebProjectManager(
 
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
+                            // Reforzamos el fondo negro
+                            view?.setBackgroundColor(0xFF07080D.toInt())
                         }
                     }
                     
                     webChromeClient = object : WebChromeClient() {
-                        // CRÍTICO: Sobrescribir este método para manejar <input type="file"> de forma robusta en Android
                         override fun onShowFileChooser(
                             webView: WebView?,
                             filePathCallback: ValueCallback<Array<Uri>>?,
                             fileChooserParams: FileChooserParams?
                         ): Boolean {
-                            // Cancelar callback anterior si existe
                             if (uploadMessage != null) {
                                 uploadMessage?.onReceiveValue(null)
                                 uploadMessage = null
                             }
-
                             uploadMessage = filePathCallback
-
                             try {
-                                // En lugar de usar fileChooserParams.createIntent() que puede ser muy restrictivo con KML,
-                                // creamos un Intent manual amplio.
                                 val intent = Intent(Intent.ACTION_GET_CONTENT)
                                 intent.addCategory(Intent.CATEGORY_OPENABLE)
-                                intent.type = "*/*" // Permitir todo para evitar que Android deshabilite archivos KML
-                                
-                                // Sugerir tipos MIME correctos
+                                intent.type = "*/*"
                                 val mimeTypes = arrayOf(
                                     "application/vnd.google-earth.kml+xml",
                                     "application/vnd.google-earth.kmz",
-                                    "application/xml",
-                                    "text/xml",
-                                    "application/zip",
-                                    "application/x-zip-compressed",
-                                    "application/octet-stream"
+                                    "application/zip"
                                 )
                                 intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
-
                                 filePickerLauncher.launch(intent)
                             } catch (e: Exception) {
                                 uploadMessage?.onReceiveValue(null)
                                 uploadMessage = null
                                 return false
                             }
-
                             return true
                         }
                     }
 
-                    // Cargamos la URL
                     loadUrl("https://appassets.androidplatform.net/assets/index.html")
-                    
                     onWebViewCreated(this)
                 }
-            },
-            update = { webView ->
-                // Actualizaciones de estado si fueran necesarias
             }
         )
     }
