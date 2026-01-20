@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.utils
 
 import android.content.Context
@@ -14,10 +15,15 @@ object KmlParser {
     fun parseUri(context: Context, uri: Uri): List<NativeParcela> {
         val inputStream = context.contentResolver.openInputStream(uri) ?: return emptyList()
         
-        return if (uri.toString().endsWith(".kmz", true)) {
-            parseKmz(inputStream)
-        } else {
-            parseKml(inputStream)
+        return try {
+            if (uri.toString().endsWith(".kmz", true)) {
+                parseKmz(inputStream)
+            } else {
+                parseKml(inputStream)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
         }
     }
 
@@ -45,45 +51,47 @@ object KmlParser {
                 val element = placemarks.item(i) as Element
                 val metadata = mutableMapOf<String, String>()
 
-                // Parse ExtendedData
+                // 1. Extraer ExtendedData (Campos SIGPAC)
                 val extendedDataList = element.getElementsByTagName("ExtendedData")
                 if (extendedDataList.length > 0) {
                     val dataNodes = (extendedDataList.item(0) as Element).getElementsByTagName("Data")
                     for (j in 0 until dataNodes.length) {
                         val dataElem = dataNodes.item(j) as Element
                         val name = dataElem.getAttribute("name")
-                        val value = dataElem.getElementsByTagName("value").item(0)?.textContent ?: ""
+                        val value = dataElem.getElementsByTagName("value").item(0)?.textContent?.trim() ?: ""
                         metadata[name] = value
                     }
                 }
 
-                // Get Coordinates (Point or Polygon)
+                // 2. Extraer Coordenadas para posicionar el recinto en el mapa
                 var lat = 0.0
                 var lng = 0.0
                 val coordsNodes = element.getElementsByTagName("coordinates")
                 if (coordsNodes.length > 0) {
-                    val rawCoords = coordsNodes.item(0).textContent.trim().split("\\s+".toRegex())
-                    val firstPoint = rawCoords[0].split(",")
-                    if (firstPoint.size >= 2) {
-                        lng = firstPoint[0].toDoubleOrNull() ?: 0.0
-                        lat = firstPoint[1].toDoubleOrNull() ?: 0.0
+                    val coordsText = coordsNodes.item(0).textContent.trim()
+                    val rawCoords = coordsText.split("\\s+".toRegex())
+                    if (rawCoords.isNotEmpty()) {
+                        val firstPoint = rawCoords[0].split(",")
+                        if (firstPoint.size >= 2) {
+                            lng = firstPoint[0].toDoubleOrNull() ?: 0.0
+                            lat = firstPoint[1].toDoubleOrNull() ?: 0.0
+                        }
                     }
                 }
 
-                val refSigPac = metadata["Ref_SigPac"]
-                if (refSigPac != null) {
-                    parcelas.add(
-                        NativeParcela(
-                            id = "p_$i",
-                            referencia = refSigPac,
-                            uso = metadata["USO_SIGPAC"] ?: "N/A",
-                            lat = lat,
-                            lng = lng,
-                            area = metadata["DN_SURFACE"]?.toDoubleOrNull() ?: 0.0,
-                            metadata = metadata
-                        )
+                // 3. Crear el objeto de Parcela Nativa
+                val refSigPac = metadata["Ref_SigPac"] ?: metadata["ID"] ?: "RECINTO_$i"
+                parcelas.add(
+                    NativeParcela(
+                        id = "p_${System.currentTimeMillis()}_$i",
+                        referencia = refSigPac,
+                        uso = metadata["USO_SIGPAC"] ?: metadata["USO"] ?: "N/D",
+                        lat = lat,
+                        lng = lng,
+                        area = metadata["DN_SURFACE"]?.toDoubleOrNull() ?: metadata["Superficie"]?.toDoubleOrNull() ?: 0.0,
+                        metadata = metadata
                     )
-                }
+                )
             }
         } catch (e: Exception) {
             e.printStackTrace()

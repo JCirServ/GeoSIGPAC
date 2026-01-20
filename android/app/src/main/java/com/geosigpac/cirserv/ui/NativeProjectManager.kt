@@ -4,7 +4,10 @@ package com.geosigpac.cirserv.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,7 +55,7 @@ fun NativeProjectManager(
                 val newExp = NativeExpediente(
                     id = UUID.randomUUID().toString(),
                     titular = it.lastPathSegment?.replace(".kml", "")?.replace(".kmz", "") ?: "Nuevo Proyecto",
-                    fechaImportacion = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date()),
+                    fechaImportacion = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
                     parcelas = parcelas
                 )
                 expedientes = listOf(newExp) + expedientes
@@ -61,73 +64,37 @@ fun NativeProjectManager(
     }
 
     val bgDark = Color(0xFF07080D)
-    val navContainerColor = Color(0xFF13141F)
+    val neonBlue = Color(0xFF5C60F5)
 
+    // VISTA DE DETALLE DEL PROYECTO (LISTA DE RECINTOS)
     if (selectedExpediente != null) {
-        NativeProjectDetailsScreen(
+        ProjectDetailsScreen(
             expediente = selectedExpediente!!,
             onBack = { selectedExpediente = null },
             onLocate = { lat, lng -> onNavigateToMap(lat, lng) },
             onCamera = onOpenCamera
         )
     } else {
+        // VISTA PRINCIPAL DE PROYECTOS
         Scaffold(
             containerColor = bgDark,
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("MIS INSPECCIONES", color = Color.White, fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = 16.sp) },
+                    title = { Text("MIS PROYECTOS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp, letterSpacing = 1.sp) },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = bgDark)
                 )
             },
             bottomBar = {
-                NavigationBar(
-                    containerColor = navContainerColor,
-                    contentColor = Color.White,
-                    tonalElevation = 8.dp
-                ) {
-                    NavigationBarItem(
-                        selected = true,
-                        onClick = { /* Ya estamos aquí */ },
-                        icon = { Icon(Icons.Default.Assignment, contentDescription = null) },
-                        label = { Text("Proyectos", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.White,
-                            selectedTextColor = Color.White,
-                            indicatorColor = Color(0xFF5C60F5),
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray
-                        )
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = { onNavigateToMap(null, null) },
-                        icon = { Icon(Icons.Default.Map, contentDescription = null) },
-                        label = { Text("Mapa", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray
-                        )
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = { onOpenCamera(null) },
-                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
-                        label = { Text("Captura", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray
-                        )
-                    )
-                }
+                BottomNavigationBar(onNavigateToMap, onOpenCamera)
             }
         ) { padding ->
             Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                // Tarjeta de Importación (Estilo Neon)
+                // ÁREA DE IMPORTACIÓN
                 Box(
                     modifier = Modifier
-                        .padding(16.dp)
+                        .padding(20.dp)
                         .fillMaxWidth()
-                        .height(130.dp)
+                        .height(150.dp)
                         .clip(RoundedCornerShape(32.dp))
                         .background(Color.White.copy(alpha = 0.03f))
                         .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
@@ -136,27 +103,41 @@ fun NativeProjectManager(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
-                            modifier = Modifier.size(48.dp).background(Color(0xFF5C60F5).copy(0.15f), CircleShape),
+                            modifier = Modifier.size(56.dp).background(neonBlue.copy(alpha = 0.2f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.FileUpload, null, tint = Color(0xFF5C60F5), modifier = Modifier.size(24.dp))
+                            Icon(Icons.Default.Add, null, tint = neonBlue, modifier = Modifier.size(32.dp))
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("Importar KML de Inspección", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Cargar parcelas para control de campo", color = Color.Gray, fontSize = 12.sp)
+                        Text("Nuevo Proyecto", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Importar archivo KML / KMZ", color = Color.Gray, fontSize = 12.sp)
                     }
                 }
+
+                Text(
+                    "RECIENTES",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 20.dp)
                 ) {
                     items(expedientes) { exp ->
-                        ExpedienteItem(
+                        ProjectListItem(
                             expediente = exp,
                             onSelect = { selectedExpediente = exp },
                             onDelete = { expedientes = expedientes.filter { it.id != exp.id } }
                         )
+                    }
+                }
+
+                if (expedientes.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No hay proyectos cargados", color = Color.DarkGray, fontSize = 14.sp)
                     }
                 }
             }
@@ -165,21 +146,27 @@ fun NativeProjectManager(
 }
 
 @Composable
-fun ExpedienteItem(expediente: NativeExpediente, onSelect: () -> Unit, onDelete: () -> Unit) {
+fun ProjectListItem(expediente: NativeExpediente, onSelect: () -> Unit, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clickable { onSelect() },
         colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F)),
-        shape = RoundedCornerShape(24.dp)
+        shape = RoundedCornerShape(24.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(0.05f))
     ) {
         Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(10.dp).background(Color(0xFF5C60F5), CircleShape))
+            Box(
+                modifier = Modifier.size(44.dp).background(Color(0xFF5C60F5).copy(0.1f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Folder, null, tint = Color(0xFF5C60F5), modifier = Modifier.size(24.dp))
+            }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(expediente.titular, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
                 Text("${expediente.parcelas.size} recintos • ${expediente.fechaImportacion}", color = Color.Gray, fontSize = 12.sp)
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, null, tint = Color.Gray.copy(0.5f))
+                Icon(Icons.Default.DeleteOutline, null, tint = Color.Gray.copy(0.4f))
             }
         }
     }
@@ -187,7 +174,7 @@ fun ExpedienteItem(expediente: NativeExpediente, onSelect: () -> Unit, onDelete:
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NativeProjectDetailsScreen(
+fun ProjectDetailsScreen(
     expediente: NativeExpediente,
     onBack: () -> Unit,
     onLocate: (Double, Double) -> Unit,
@@ -199,8 +186,8 @@ fun NativeProjectDetailsScreen(
             TopAppBar(
                 title = { 
                     Column {
-                        Text(expediente.titular, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("${expediente.parcelas.size} Recintos", color = Color.Gray, fontSize = 11.sp)
+                        Text(expediente.titular, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Text("Lista de Recintos", color = Color.Gray, fontSize = 11.sp)
                     }
                 },
                 navigationIcon = {
@@ -215,7 +202,7 @@ fun NativeProjectDetailsScreen(
             contentPadding = PaddingValues(16.dp)
         ) {
             items(expediente.parcelas) { parcela ->
-                RecintoCardNative(parcela, onLocate, onCamera)
+                RecintoDetailCard(parcela, onLocate, onCamera)
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -223,7 +210,7 @@ fun NativeProjectDetailsScreen(
 }
 
 @Composable
-fun RecintoCardNative(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
+fun RecintoDetailCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     var isAnalyzing by remember { mutableStateOf(false) }
     var aiReport by remember { mutableStateOf<String?>(null) }
@@ -232,16 +219,24 @@ fun RecintoCardNative(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1C202D)),
-        shape = RoundedCornerShape(20.dp)
+        shape = RoundedCornerShape(24.dp)
     ) {
         Column {
             Row(
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Place, null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                Box(
+                    modifier = Modifier.size(36.dp).background(Color(0xFFFF5252).copy(0.1f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.LocationOn, null, tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
+                }
                 Spacer(Modifier.width(12.dp))
-                Text(parcela.referencia, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(parcela.referencia, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Uso: ${parcela.uso} • ${String.format("%.4f", parcela.area)} ha", color = Color.Gray, fontSize = 11.sp)
+                }
                 Icon(
                     if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     null, tint = Color.Gray
@@ -250,10 +245,10 @@ fun RecintoCardNative(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
             if (expanded) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // Metadatos dinámicos del KML
-                    parcela.metadata.filter { it.key != "Ref_SigPac" }.forEach { (key, value) ->
+                    // TABLA DE METADATOS
+                    parcela.metadata.filter { it.key != "Ref_SigPac" && it.value.isNotBlank() }.forEach { (key, value) ->
                         Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                            Text(key.replace("_", " ").uppercase(), color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(100.dp))
+                            Text(key.replace("_", " ").uppercase(), color = Color.Gray, fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(90.dp))
                             Text(value, color = Color.White.copy(0.8f), fontSize = 11.sp)
                         }
                     }
@@ -264,18 +259,18 @@ fun RecintoCardNative(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(aiReport!!, color = Color(0xFF00FF88), fontSize = 12.sp)
+                                Text(aiReport!!, color = Color(0xFF00FF88), fontSize = 11.sp)
                             }
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = { onLocate(parcela.lat, parcela.lng) },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1.2f).height(44.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5C60F5)),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(14.dp)
                         ) { Text("MAPA", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                         
                         Button(
@@ -286,33 +281,59 @@ fun RecintoCardNative(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                                     isAnalyzing = false
                                 }
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1.2f).height(44.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(0.08f)),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             enabled = !isAnalyzing
                         ) { 
                             if (isAnalyzing) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                             else Text("IA CHECK", fontSize = 12.sp, fontWeight = FontWeight.Bold) 
                         }
 
-                        IconButton(onClick = { onCamera(parcela.id) }, modifier = Modifier.background(Color.White.copy(0.05f), RoundedCornerShape(12.dp)).size(48.dp)) {
-                            Icon(Icons.Default.CameraAlt, null, tint = Color.White)
+                        IconButton(
+                            onClick = { onCamera(parcela.id) }, 
+                            modifier = Modifier.size(44.dp).background(Color.White.copy(0.05f), RoundedCornerShape(14.dp))
+                        ) {
+                            Icon(Icons.Default.CameraAlt, null, tint = Color.White, modifier = Modifier.size(20.dp))
                         }
                     }
                     Spacer(Modifier.height(12.dp))
                 }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth().background(Color(0xFF161A26)).padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Uso: ${parcela.uso}", color = Color(0xFF00FF88), fontSize = 11.sp, fontWeight = FontWeight.Black)
-                    Spacer(Modifier.weight(1f))
-                    Text("${parcela.area} ha", color = Color.Gray, fontSize = 11.sp)
-                }
             }
         }
+    }
+}
+
+@Composable
+fun BottomNavigationBar(onNavigateToMap: (Double?, Double?) -> Unit, onOpenCamera: (String?) -> Unit) {
+    NavigationBar(
+        containerColor = Color(0xFF13141F),
+        contentColor = Color.White,
+        tonalElevation = 8.dp
+    ) {
+        NavigationBarItem(
+            selected = true,
+            onClick = { },
+            icon = { Icon(Icons.Default.Folder, null) },
+            label = { Text("Proyectos", fontSize = 10.sp) },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = Color.White,
+                indicatorColor = Color(0xFF5C60F5),
+                unselectedIconColor = Color.Gray,
+                unselectedTextColor = Color.Gray
+            )
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = { onNavigateToMap(null, null) },
+            icon = { Icon(Icons.Default.Map, null) },
+            label = { Text("Mapa", fontSize = 10.sp) }
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = { onOpenCamera(null) },
+            icon = { Icon(Icons.Default.CameraAlt, null) },
+            label = { Text("Captura", fontSize = 10.sp) }
+        )
     }
 }
