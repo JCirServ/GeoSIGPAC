@@ -32,6 +32,7 @@ import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.services.GeminiService
 import com.geosigpac.cirserv.utils.KmlParser
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
