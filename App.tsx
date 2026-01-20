@@ -8,31 +8,40 @@ import { Folder, X } from 'lucide-react';
 const App: React.FC = () => {
   const { expedientes, addExpediente, removeExpediente, loading } = useProjectStore();
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="h-screen w-full bg-[#07080d] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#5c60f5] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className="h-screen w-full bg-[#07080d] flex flex-col font-sans overflow-hidden">
-      {/* HEADER: Fijo en la parte superior */}
-      <header className="px-6 pt-8 pb-4 flex justify-between items-center flex-shrink-0">
+    <div className="h-screen w-full bg-[#07080d] flex flex-col font-sans overflow-hidden text-white">
+      {/* HEADER ESTILO NATIVO */}
+      <header className="px-5 pt-8 pb-5 flex justify-between items-center flex-shrink-0 bg-[#07080d]">
         <div className="flex items-center gap-3">
           <div className="text-yellow-400">
             <Folder size={24} fill="currentColor" />
           </div>
-          <h1 className="text-white font-bold text-xl tracking-wide">Proyectos</h1>
+          <h1 className="text-white font-bold text-xl tracking-tight">Proyectos</h1>
         </div>
-        <button className="w-10 h-10 flex items-center justify-center bg-white/5 rounded-full text-white/70 hover:bg-white/10 active:scale-90 transition-all">
+        <button 
+          onClick={() => window.Android?.showToast("Cerrando...")}
+          className="w-10 h-10 flex items-center justify-center bg-white/10 rounded-full text-white/80 hover:bg-white/20 active:scale-90 transition-all"
+        >
           <X size={20} />
         </button>
       </header>
       
-      {/* ÁREA DE SCROLL: flex-1 permite que ocupe todo el espacio y overflow-y-auto habilita el scroll */}
+      {/* CONTENEDOR DE SCROLL */}
       <main className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="pb-24"> {/* Padding inferior para que la última tarjeta no quede cortada por el menú de Android */}
-            {/* Sección de Importación */}
+        <div className="pb-32">
+            {/* Importación: Exactamente como en la imagen */}
             <KmlUploader onDataParsed={addExpediente} />
 
-            {/* Listado de proyectos */}
-            <div className="space-y-1">
+            {/* Lista de Proyectos con el espaciado y bordes neón */}
+            <div className="px-4 space-y-4">
               {expedientes.map(exp => (
                 <InspectionCard 
                   key={exp.id} 
@@ -42,16 +51,17 @@ const App: React.FC = () => {
               ))}
               
               {expedientes.length === 0 && (
-                <div className="px-10 py-20 text-center opacity-30">
-                   <p className="text-white text-sm">No hay proyectos importados</p>
+                <div className="py-20 text-center flex flex-col items-center opacity-20">
+                   <Folder size={48} className="mb-4" />
+                   <p className="text-sm font-medium">No hay proyectos activos</p>
                 </div>
               )}
             </div>
         </div>
       </main>
 
-      {/* Margen de seguridad inferior para gestos de navegación de Android */}
-      <div className="h-2 bg-[#07080d] flex-shrink-0" />
+      {/* Gradiente inferior decorativo */}
+      <div className="h-4 bg-gradient-to-t from-[#07080d] to-transparent pointer-events-none absolute bottom-0 left-0 right-0 z-10" />
     </div>
   );
 };

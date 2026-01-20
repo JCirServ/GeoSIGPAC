@@ -4,18 +4,22 @@
 @tailwind utilities;
 
 :root {
-  --primary: #6366f1;
+  --primary: #5c60f5;
   --bg-dark: #07080d;
   --surface-dark: #0d0e1a;
-  --neon-blue: #6366f1;
+  --neon-indigo: #5c60f5;
+  --neon-green: #00ff88;
 }
 
 body {
   background-color: var(--bg-dark);
-  color: #f8fafc;
+  color: #ffffff;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-tap-highlight-color: transparent;
   overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
 }
 
 #root {
@@ -23,29 +27,27 @@ body {
   width: 100%;
 }
 
-.glass-panel {
-  background: rgba(13, 14, 26, 0.9);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.03);
-}
-
 .neon-border {
-  border: 1.5px solid rgba(99, 102, 241, 0.4);
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(92, 96, 245, 0.4);
+  box-shadow: 0 0 15px rgba(92, 96, 245, 0.1);
 }
 
-/* Ocultar scrollbar visualmente pero mantener funcionalidad */
 .custom-scrollbar {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Opera */
+  display: none;
 }
 
-.import-dashed {
-  border-style: dashed;
-  border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.15);
+/* Efectos de pulso para el progreso */
+@keyframes glow {
+  0% { box-shadow: 0 0 5px rgba(0, 255, 136, 0.2); }
+  50% { box-shadow: 0 0 10px rgba(0, 255, 136, 0.6); }
+  100% { box-shadow: 0 0 5px rgba(0, 255, 136, 0.2); }
+}
+
+.progress-glow {
+  animation: glow 2s infinite;
 }
