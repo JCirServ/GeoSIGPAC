@@ -1,11 +1,10 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   --primary: #8b5cf6;
-  --bg-dark: #0a0b10;
+  --bg-dark: #07080d;
   --surface-dark: #12141c;
   --neon-blue: #3b82f6;
   --neon-purple: #8b5cf6;

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { InspectionCard } from './components/InspectionCard';
 import { KmlUploader } from './components/KmlUploader';
@@ -11,7 +10,7 @@ const App: React.FC = () => {
   if (loading) return null;
 
   return (
-    <div className="min-h-screen bg-[#0a0b10] flex flex-col">
+    <div className="min-h-screen bg-[#07080d] flex flex-col">
       {/* HEADER ESTILO CAPTURA */}
       <header className="p-5 flex justify-between items-center mb-4">
         <div className="flex items-center gap-3">
