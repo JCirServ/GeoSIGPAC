@@ -5,13 +5,14 @@ import { SigpacInfo, CultivoInfo } from '../types';
  * Parsea la referencia SIGPAC (soporta guiones o dos puntos)
  */
 const parseRef = (ref: string) => {
+  // Soporta 46:900:0:0:60:9000:1 o 46-900-0-0-60-9000-1
   const parts = ref.split(/[-:]/);
   return {
     prov: parts[0],
     mun: parts[1],
-    pol: parts[4] || parts[2],
-    par: parts[5] || parts[3],
-    rec: parts[6] || parts[4]
+    pol: parts[parts.length - 3] || parts[2],
+    par: parts[parts.length - 2] || parts[3],
+    rec: parts[parts.length - 1] || parts[4]
   };
 };
 
@@ -23,11 +24,11 @@ export const fetchParcelaDetails = async (referencia: string): Promise<{ sigpac?
 
   try {
     const [resRecinto, resCultivo] = await Promise.all([
-      fetch(`${baseUrl}/recintos/items?${query}`).then(r => r.json()),
-      fetch(`${baseUrl}/cultivo_declarado/items?${query}`).then(r => r.json())
+      fetch(`${baseUrl}/recintos/items?${query}`).then(r => r.json()).catch(() => null),
+      fetch(`${baseUrl}/cultivo_declarado/items?${query}`).then(r => r.json()).catch(() => null)
     ]);
 
-    const sigpac: SigpacInfo | undefined = resRecinto.features?.[0]?.properties ? {
+    const sigpac: SigpacInfo | undefined = resRecinto?.features?.[0]?.properties ? {
       pendiente: resRecinto.features[0].properties.pendiente_media,
       altitud: resRecinto.features[0].properties.altitud,
       municipio: resRecinto.features[0].properties.municipio,
@@ -37,7 +38,7 @@ export const fetchParcelaDetails = async (referencia: string): Promise<{ sigpac?
       provincia: resRecinto.features[0].properties.provincia
     } : undefined;
 
-    const cultivo: CultivoInfo | undefined = resCultivo.features?.[0]?.properties ? {
+    const cultivo: CultivoInfo | undefined = resCultivo?.features?.[0]?.properties ? {
       expNum: resCultivo.features[0].properties.exp_num,
       producto: resCultivo.features[0].properties.parc_producto,
       sistExp: resCultivo.features[0].properties.parc_sistexp === 'R' ? 'Regadío' : 'Secano',
