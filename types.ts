@@ -9,6 +9,8 @@ export interface Parcela {
   lng: number;
   area: number; // hectáreas
   status: 'pendiente' | 'conforme' | 'incidencia';
+  aiReport?: string; // Nuevo: Informe breve de la IA
+  aiConfidence?: number; // Nuevo: Nivel de confianza
 }
 
 export interface Expediente {

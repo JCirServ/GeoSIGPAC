@@ -27,7 +27,6 @@ export const useProjectStore = () => {
 
   const addExpediente = (expediente: Expediente) => {
     setExpedientes(prev => [expediente, ...prev]);
-    // Sincronización automática con Android al importar
     syncInspectionWithNative(expediente);
   };
 
@@ -47,5 +46,25 @@ export const useProjectStore = () => {
     }));
   };
 
-  return { expedientes, addExpediente, removeExpediente, updateParcelaStatus, loading };
+  // NUEVO: Guardar el informe de la IA
+  const setParcelaReport = (expId: string, parcelaId: string, report: string) => {
+    setExpedientes(prev => prev.map(exp => {
+      if (exp.id === expId) {
+        return {
+            ...exp,
+            parcelas: exp.parcelas.map(p => {
+                if (p.id === parcelaId) {
+                    // Actualizamos status basado en el texto de la IA
+                    const newStatus = report.toUpperCase().includes("INCIDENCIA") ? 'incidencia' : 'conforme';
+                    return { ...p, aiReport: report, status: newStatus };
+                }
+                return p;
+            })
+        };
+      }
+      return exp;
+    }));
+  };
+
+  return { expedientes, addExpediente, removeExpediente, updateParcelaStatus, setParcelaReport, loading };
 };

@@ -1,75 +1,45 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { Project } from "../types";
+import { Parcela } from "../types";
+
+const SYSTEM_AGRONOMIST = `Eres un inspector técnico de la PAC (Política Agraria Común) en España. 
+Tu trabajo es validar la coherencia de los datos declarados.
+Analiza la referencia SIGPAC y el uso declarado.
+Si el uso es coherente con una parcela agrícola estándar, responde "CONFORME: [Breve explicación]".
+Si detectas algo raro (ej: cultivo tropical en zona de montaña, o uso desconocido), responde "INCIDENCIA: [Explicación]".
+Sé extremadamente conciso. Máximo 20 palabras.`;
 
 /**
- * Servicio de Inteligencia Artificial para GeoSIGPAC.
- * Utiliza los modelos de Google AI Studio (Gemini).
+ * Analiza una parcela específica para validar su declaración.
  */
-
-/**
- * Genera un análisis agronómico basado en los datos de la parcela.
- * Actualizado a gemini-3-pro-preview para tareas de razonamiento experto.
- */
-export const analyzeProjectWithAI = async (project: Project): Promise<string> => {
+export const analyzeParcelaCompliance = async (parcela: Parcela): Promise<string> => {
   try {
-    // Instanciamos el cliente justo antes de la llamada asegurando el uso de la API KEY actualizada
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
+    const prompt = `Analiza esta parcela:
+    Ref: ${parcela.referencia}
+    Uso Declarado: ${parcela.uso}
+    Superficie: ${parcela.area} ha.
+    ¿Es un uso agrícola válido y coherente?`;
+
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Analiza esta parcela agrícola y dame 3 consejos técnicos breves para el cuaderno de campo:
-      Nombre: ${project.name}
-      Descripción: ${project.description}
-      Estado actual: ${project.status}
-      Fecha: ${project.date}`,
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
       config: {
-        systemInstruction: "Eres un ingeniero agrónomo experto en SIGPAC y normativa PAC en España. Sé muy técnico, profesional y breve. Máximo 250 caracteres.",
-        temperature: 0.7,
-      },
-    });
-
-    // La propiedad .text extrae el contenido generado directamente (no es un método)
-    return response.text || "No se ha podido generar el análisis técnico.";
-  } catch (error) {
-    console.error("Error AI Studio:", error);
-    return "Error al conectar con Google AI Studio. Verifica la API Key.";
-  }
-};
-
-/**
- * Analiza una imagen capturada por el agricultor para detectar problemas.
- * Utiliza gemini-3-pro-preview para análisis multimodal avanzado.
- */
-export const analyzeProjectPhoto = async (photoBase64: string, projectName: string): Promise<string> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: {
-        parts: [
-          { text: `Identifica el estado de salud de este cultivo en la parcela ${projectName} y detecta anomalías (plagas, clorosis, estrés hídrico).` },
-          { 
-            inlineData: { 
-              mimeType: "image/jpeg", 
-              data: photoBase64.includes(',') ? photoBase64.split(',')[1] : photoBase64 
-            } 
-          }
-        ]
+        systemInstruction: SYSTEM_AGRONOMIST,
+        temperature: 0.3, // Baja temperatura para respuestas más deterministas y técnicas
       }
     });
-
-    return response.text || "No se pudo analizar la imagen visualmente.";
+    
+    return response.text?.trim() || "No se pudo generar el informe.";
   } catch (error) {
-    console.error("Error Vision AI Studio:", error);
-    return "Error en el análisis visual de la imagen.";
+    console.error("Error AI Analysis:", error);
+    return "Error de conexión con el servicio de análisis.";
   }
 };
 
 /**
  * Chat interactivo con el asistente agrónomo.
- * Mantenemos gemini-3-flash-preview para tareas de asistencia general y Q&A básico.
  */
 export const askGeminiAssistant = async (prompt: string): Promise<string> => {
   try {
@@ -88,4 +58,12 @@ export const askGeminiAssistant = async (prompt: string): Promise<string> => {
     console.error("Error Chat AI Studio:", error);
     return "Servicio de asistencia temporalmente no disponible.";
   }
+};
+
+// Legacy functions kept for compatibility if needed, but analyzeParcelaCompliance is preferred.
+export const analyzeProjectWithAI = async (project: any): Promise<string> => {
+    return "Función deprecada. Use análisis por parcela.";
+};
+export const analyzeProjectPhoto = async (photoBase64: string, projectName: string): Promise<string> => {
+    return "Función pendiente de migración a Parcela.";
 };
