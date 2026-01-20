@@ -6,7 +6,9 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -14,6 +16,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -41,10 +44,36 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun GeoSigpacApp() {
+    val context = LocalContext.current
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Proyectos, 1 = Mapa
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+
+    // GESTIÓN DE PERMISOS EN TIEMPO DE EJECUCIÓN
+    val permissionsToRequest = arrayOf(
+        Manifest.permission.CAMERA,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    )
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.entries.all { it.value }
+        if (!allGranted) {
+            // Aquí se podría mostrar un diálogo informativo si el usuario deniega
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val needsRequest = permissionsToRequest.any {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (needsRequest) {
+            permissionLauncher.launch(permissionsToRequest)
+        }
+    }
 
     if (isCameraOpen) {
         BackHandler { isCameraOpen = false }
