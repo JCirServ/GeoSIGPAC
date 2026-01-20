@@ -73,13 +73,13 @@ fun NativeProjectManager(
             containerColor = bgDark,
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("MIS INSPECCIONES", color = Color.White, fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = 16.sp) },
+                    title = { Text("PROYECTOS SIGPAC", color = Color.White, fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = 16.sp) },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = bgDark)
                 )
             }
         ) { padding ->
             Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                // Import Card
+                // Tarjeta de Importación (Estilo Neon)
                 Box(
                     modifier = Modifier
                         .padding(16.dp)
@@ -87,29 +87,29 @@ fun NativeProjectManager(
                         .height(140.dp)
                         .clip(RoundedCornerShape(32.dp))
                         .background(Color.White.copy(alpha = 0.03f))
-                        .border(2.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(32.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
                         .clickable { filePickerLauncher.launch("*/*") },
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
-                            modifier = Modifier.size(56.dp).background(Color(0xFF5C60F5).copy(0.1f), CircleShape),
+                            modifier = Modifier.size(50.dp).background(Color(0xFF5C60F5).copy(0.15f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.FileUpload, null, tint = Color(0xFF5C60F5), modifier = Modifier.size(28.dp))
+                            Icon(Icons.Default.UploadFile, null, tint = Color(0xFF5C60F5), modifier = Modifier.size(28.dp))
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("Importar KML / KMZ", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Los datos se guardarán localmente", color = Color.Gray, fontSize = 12.sp)
+                        Text("Cargar KML de Inspección", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Soporta archivos .kml y .kmz", color = Color.Gray, fontSize = 12.sp)
                     }
                 }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 100.dp)
+                    contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
                     items(expedientes) { exp ->
-                        ExpedienteListItem(
+                        ExpedienteItem(
                             expediente = exp,
                             onSelect = { selectedExpediente = exp },
                             onDelete = { expedientes = expedientes.filter { it.id != exp.id } }
@@ -122,22 +122,21 @@ fun NativeProjectManager(
 }
 
 @Composable
-fun ExpedienteListItem(expediente: NativeExpediente, onSelect: () -> Unit, onDelete: () -> Unit) {
+fun ExpedienteItem(expediente: NativeExpediente, onSelect: () -> Unit, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clickable { onSelect() },
         colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F)),
-        shape = RoundedCornerShape(24.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(0.05f))
+        shape = RoundedCornerShape(24.dp)
     ) {
         Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(12.dp).background(Color(0xFF5C60F5), CircleShape))
+            Box(modifier = Modifier.size(10.dp).background(Color(0xFF5C60F5), CircleShape))
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(expediente.titular, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                Text(expediente.titular, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
                 Text("${expediente.parcelas.size} recintos • ${expediente.fechaImportacion}", color = Color.Gray, fontSize = 12.sp)
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, null, tint = Color.Gray.copy(0.4f))
+                Icon(Icons.Default.DeleteOutline, null, tint = Color.Gray.copy(0.5f))
             }
         }
     }
@@ -158,7 +157,7 @@ fun NativeProjectDetailsScreen(
                 title = { 
                     Column {
                         Text(expediente.titular, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("${expediente.parcelas.size} Recintos encontrados", color = Color.Gray, fontSize = 11.sp)
+                        Text("${expediente.parcelas.size} Recintos", color = Color.Gray, fontSize = 11.sp)
                     }
                 },
                 navigationIcon = {
@@ -173,7 +172,7 @@ fun NativeProjectDetailsScreen(
             contentPadding = PaddingValues(16.dp)
         ) {
             items(expediente.parcelas) { parcela ->
-                RecintoExpandableCard(parcela, onLocate, onCamera)
+                RecintoCardNative(parcela, onLocate, onCamera)
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -181,10 +180,10 @@ fun NativeProjectDetailsScreen(
 }
 
 @Composable
-fun RecintoExpandableCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
+fun RecintoCardNative(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    var aiChecking by remember { mutableStateOf(false) }
-    var aiResult by remember { mutableStateOf<String?>(null) }
+    var isAnalyzing by remember { mutableStateOf(false) }
+    var aiReport by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     Card(
@@ -197,89 +196,78 @@ fun RecintoExpandableCard(parcela: NativeParcela, onLocate: (Double, Double) -> 
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Place, null, tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.Map, null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(parcela.referencia, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
                 Icon(
-                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     null, tint = Color.Gray
                 )
             }
 
             if (expanded) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // Tabla de metadatos ExtendedData
-                    parcela.metadata.forEach { (key, value) ->
-                        if (value.isNotBlank() && key != "Ref_SigPac" && key != "descripción") {
-                            Row(modifier = Modifier.padding(vertical = 4.dp)) {
-                                Text(
-                                    key.replace("_", " ").uppercase(), 
-                                    color = Color.Gray, 
-                                    fontSize = 9.sp, 
-                                    fontWeight = FontWeight.Bold, 
-                                    modifier = Modifier.width(110.dp)
-                                )
-                                Text(value, color = Color.White.copy(0.9f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            }
+                    // Metadatos dinámicos del KML
+                    parcela.metadata.filter { it.key != "Ref_SigPac" }.forEach { (key, value) ->
+                        Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                            Text(key.replace("_", " ").uppercase(), color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(100.dp))
+                            Text(value, color = Color.White.copy(0.8f), fontSize = 11.sp)
                         }
                     }
 
-                    if (aiResult != null) {
+                    if (aiReport != null) {
                         Spacer(Modifier.height(12.dp))
                         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF00FF88).copy(0.1f)).padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(aiResult!!, color = Color(0xFF00FF88), fontSize = 11.sp)
+                                Text(aiReport!!, color = Color(0xFF00FF88), fontSize = 12.sp)
                             }
                         }
                     }
 
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = { onLocate(parcela.lat, parcela.lng) },
-                            modifier = Modifier.weight(1f).height(42.dp),
+                            modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5C60F5)),
                             shape = RoundedCornerShape(12.dp)
-                        ) { Text("IR AL MAPA", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        ) { Text("MAPA", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                         
                         Button(
                             onClick = { 
-                                aiChecking = true
+                                isAnalyzing = true
                                 scope.launch {
-                                    aiResult = GeminiService.analyzeParcela(parcela)
-                                    aiChecking = false
+                                    aiReport = GeminiService.analyzeParcela(parcela)
+                                    isAnalyzing = false
                                 }
                             },
-                            modifier = Modifier.weight(1f).height(42.dp),
+                            modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(0.08f)),
                             shape = RoundedCornerShape(12.dp),
-                            enabled = !aiChecking
+                            enabled = !isAnalyzing
                         ) { 
-                            if (aiChecking) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                            else Text("IA CHECK", fontSize = 11.sp, fontWeight = FontWeight.Bold) 
+                            if (isAnalyzing) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            else Text("IA CHECK", fontSize = 12.sp, fontWeight = FontWeight.Bold) 
                         }
 
-                        IconButton(
-                            onClick = { onCamera(parcela.id) },
-                            modifier = Modifier.size(42.dp).background(Color.White.copy(0.05f), RoundedCornerShape(12.dp))
-                        ) {
-                            Icon(Icons.Default.CameraAlt, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        IconButton(onClick = { onCamera(parcela.id) }, modifier = Modifier.background(Color.White.copy(0.05f), RoundedCornerShape(12.dp)).size(48.dp)) {
+                            Icon(Icons.Default.CameraAlt, null, tint = Color.White)
                         }
                     }
                     Spacer(Modifier.height(12.dp))
                 }
             } else {
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(Color(0xFF161A26)).padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().background(Color(0xFF161A26)).padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("USO SIGPAC: ${parcela.uso}", color = Color(0xFF00FF88), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Uso: ${parcela.uso}", color = Color(0xFF00FF88), fontSize = 11.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
-                    Text("${parcela.area.takeIf { it > 0 }?.let { String.format("%.4f ha", it) } ?: ""}", color = Color.Gray, fontSize = 10.sp)
+                    Text("${parcela.area} ha", color = Color.Gray, fontSize = 11.sp)
                 }
             }
         }
