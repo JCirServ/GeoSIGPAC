@@ -2,21 +2,22 @@
 export type InspectionStatus = 'pendiente' | 'en_curso' | 'finalizado' | 'enviado';
 
 export interface Parcela {
-  id: string; // UUID o referencia catastral
-  referencia: string; // Prov:Mun:Pol:Parc:Rec
-  uso: string; // Uso declarado (ej: TA, OV, VI)
+  id: string;
+  referencia: string; // Ref_SigPac
+  uso: string; // USO_SIGPAC
   lat: number;
   lng: number;
-  area: number; // hectáreas
+  area: number; // DN_SURFACE o similar
   status: 'pendiente' | 'conforme' | 'incidencia';
-  aiReport?: string; // Nuevo: Informe breve de la IA
-  aiConfidence?: number; // Nuevo: Nivel de confianza
+  aiReport?: string;
+  aiConfidence?: number;
+  metadata: Record<string, string>; // Todos los campos del ExtendedData
 }
 
 export interface Expediente {
   id: string;
-  titular: string; // Nombre del agricultor o campaña
-  campana: number; // Año (ej: 2024)
+  titular: string;
+  campana: number;
   fechaImportacion: string;
   descripcion: string;
   status: InspectionStatus;
@@ -38,7 +39,7 @@ export interface AndroidBridge {
   openCamera: (parcelaId: string) => void;
   onProjectSelected: (lat: number, lng: number) => void; 
   showToast: (message: string) => void;
-  importInspectionData: (jsonData: string) => void; // NUEVO: Enviar datos a Room
+  importInspectionData: (jsonData: string) => void;
 }
 
 declare global {

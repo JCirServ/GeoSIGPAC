@@ -24,9 +24,9 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#07080d] flex flex-col font-sans">
+    <div className="h-screen bg-[#07080d] flex flex-col font-sans overflow-hidden">
       {/* HEADER ESTILO CAPTURA */}
-      <header className="p-5 flex justify-between items-center mb-4">
+      <header className="p-5 flex justify-between items-center flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="text-yellow-400">
             <Folder size={24} fill="currentColor" />
@@ -38,12 +38,12 @@ const App: React.FC = () => {
         </button>
       </header>
       
-      <main className="flex-1 overflow-y-auto custom-scrollbar">
+      <main className="flex-1 overflow-y-auto custom-scrollbar touch-pan-y">
         {/* Importador Punteado */}
         <KmlUploader onDataParsed={addExpediente} />
 
         {/* Lista de Tarjetas Estilo Neon */}
-        <div className="space-y-1">
+        <div className="space-y-1 pb-24">
           {expedientes.map(exp => (
             <InspectionCard 
               key={exp.id} 
@@ -61,8 +61,8 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Footer oculto o minimalista */}
-      <div className="h-20" />
+      {/* Margen de seguridad para el menú inferior nativo de Android */}
+      <div className="h-1 flex-shrink-0 bg-[#07080d]" />
     </div>
   );
 };
