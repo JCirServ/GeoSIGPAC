@@ -133,7 +133,7 @@ fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () ->
                 trackColor = Color.White.copy(0.05f)
             )
             Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("OBTENCIÓN DE DATOS OGC", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                Text("SINCRO OGC", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Black)
                 Text("${(progress * 100).toInt()}%", color = Color(0xFF00FF88), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
@@ -205,23 +205,20 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
             if (expanded) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // Grid Técnico Extendido (Nuevo Endpoint)
                     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
-                        // Columna SIGPAC (Yellow - Detalle Técnico)
+                        // Columna SIGPAC (Amarillo)
                         Column(modifier = Modifier.weight(1f).background(Color(0xFF13141F)).padding(12.dp)) {
-                            Text("DETALLE SIGPAC", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("RECINTO SIGPAC", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             Divider(color = Color(0xFFFBBF24).copy(0.2f), modifier = Modifier.padding(vertical = 4.dp))
                             
                             val s = parcela.sigpacInfo
-                            DataField("REF COMPLETA", "${s?.provincia ?: "-"}:${s?.municipio ?: "-"}:${s?.agregado ?: 0}:${s?.zona ?: 0}:${s?.poligono ?: "-"}:${s?.parcela ?: "-"}:${s?.recinto ?: "-"}", isLoading)
                             DataField("SUPERFICIE", "${s?.superficie ?: "-"} ha", isLoading)
-                            DataField("USO", s?.uso ?: "-", isLoading)
-                            DataField("ALTITUD", "${s?.altitud ?: "-"} m", isLoading)
-                            DataField("PENDIENTE", "${s?.pendiente ?: "-"} %", isLoading)
+                            DataField("PENDIENTE", "${s?.pendienteMedia ?: "-"} %", isLoading)
                             DataField("COEF REGADIO", s?.coefRegadio?.toString() ?: "N/D", isLoading)
                             DataField("ADMISIBILIDAD", s?.admisibilidad?.toString() ?: "N/D", isLoading)
-                            DataField("REGION", s?.region ?: "N/D", isLoading)
-                            DataField("SRID", s?.srid?.toString() ?: "-", isLoading)
+                            DataField("USO SIGPAC", s?.usoSigpac ?: "-", isLoading)
+                            DataField("REGION", s?.region ?: "-", isLoading)
+                            DataField("ALTITUD", "${s?.altitud ?: "-"} m", isLoading)
                             
                             if (s?.incidencias?.isNotEmpty() == true) {
                                 Spacer(Modifier.height(8.dp))
@@ -232,23 +229,25 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
                         Spacer(Modifier.width(1.dp))
 
-                        // Columna DECLARACIÓN (Cyan)
+                        // Columna DECLARACIÓN (Cian)
                         Column(modifier = Modifier.weight(1f).background(Color(0xFF13141F)).padding(12.dp)) {
-                            Text("DECLARACIÓN PAC", color = Color(0xFF22D3EE), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("CULTIVO DECLARADO", color = Color(0xFF22D3EE), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             Divider(color = Color(0xFF22D3EE).copy(0.2f), modifier = Modifier.padding(vertical = 4.dp))
                             
                             val c = parcela.cultivoInfo
                             if (c == null && !isLoading) {
-                                Text("SIN DATOS DECLARADOS", color = Color.Gray, fontSize = 9.sp, modifier = Modifier.padding(top = 20.dp))
+                                Text("SIN DECLARACIÓN", color = Color.Gray, fontSize = 9.sp, modifier = Modifier.padding(top = 20.dp))
                             } else {
                                 DataField("EXP NUM", c?.expNum ?: "-", isLoading, highlight = true)
                                 DataField("PRODUCTO", c?.producto?.toString() ?: "-", isLoading)
                                 DataField("SIST EXP", c?.sistExp ?: "-", isLoading)
                                 DataField("SUP CULT", "${c?.supCult ?: "-"} m2", isLoading)
-                                DataField("AYUDA", c?.ayudaSol ?: "-", isLoading)
-                                DataField("PDR", c?.pdrRec ?: "-", isLoading)
-                                DataField("IND CULT", c?.indCultApro?.toString() ?: "-", isLoading)
-                                DataField("TIPO APROV", c?.tipoAprovecha ?: "-", isLoading)
+                                DataField("AYUDA SOL", c?.ayudaSol ?: "-", isLoading)
+                                DataField("PDR REC", c?.pdrRec ?: "-", isLoading)
+                                DataField("CULT SEC PROD", c?.cultSecunProducto?.toString() ?: "-", isLoading)
+                                DataField("CULT SEC AYUDA", c?.cultSecunAyudaSol ?: "-", isLoading)
+                                DataField("IND CULT APRO", c?.indCultApro?.toString() ?: "-", isLoading)
+                                DataField("TIPO APROVECHA", c?.tipoAprovecha ?: "-", isLoading)
                             }
                         }
                     }
@@ -260,7 +259,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(0.04f)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("LOCALIZAR RECINTO", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Text("LOCALIZAR", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                     }
                 }
             }
