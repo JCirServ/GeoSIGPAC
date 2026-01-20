@@ -1,35 +1,32 @@
 
-export type InspectionStatus = 'planned' | 'in_progress' | 'completed' | 'paused';
+export type InspectionStatus = 'pendiente' | 'en_curso' | 'finalizado' | 'enviado';
 
 export interface Parcela {
-  id: string;
-  name: string;
+  id: string; // UUID o referencia catastral
+  referencia: string; // Prov:Mun:Pol:Parc:Rec
+  uso: string; // Uso declarado (ej: TA, OV, VI)
   lat: number;
   lng: number;
-  area: number; // en hectáreas
-  status: 'pending' | 'verified';
-  imageUrl?: string;
+  area: number; // hectáreas
+  status: 'pendiente' | 'conforme' | 'incidencia';
 }
 
-export interface Inspection {
+export interface Expediente {
   id: string;
-  title: string;
-  description: string;
-  date: string;
+  titular: string; // Nombre del agricultor o campaña
+  campana: number; // Año (ej: 2024)
+  fechaImportacion: string;
+  descripcion: string;
   status: InspectionStatus;
   parcelas: Parcela[];
 }
 
-/**
- * Added Project interface to support legacy or specialized components 
- * like ProjectCard and native bridge functions.
- */
 export interface Project {
   id: string;
   name: string;
   description: string;
-  date: string;
   status: 'pending' | 'verified' | 'completed';
+  date: string;
   lat: number;
   lng: number;
   imageUrl?: string;
@@ -39,7 +36,7 @@ export interface AndroidBridge {
   openCamera: (parcelaId: string) => void;
   onProjectSelected: (lat: number, lng: number) => void; 
   showToast: (message: string) => void;
-  getProjects: () => string; 
+  importInspectionData: (jsonData: string) => void; // NUEVO: Enviar datos a Room
 }
 
 declare global {

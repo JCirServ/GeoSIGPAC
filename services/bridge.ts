@@ -1,33 +1,25 @@
-import { Project } from '../types';
+
+import { Expediente } from '../types';
 
 /**
- * Sends a command to the native Android map to focus on specific coordinates.
- * Maps the internal 'focusNativeMap' call to the requested 'onProjectSelected' native method.
+ * Mueve la cámara del mapa nativo (MapLibre) a las coordenadas indicadas.
  */
 export const focusNativeMap = (lat: number, lng: number) => {
   if (window.Android && window.Android.onProjectSelected) {
     window.Android.onProjectSelected(lat, lng);
   } else {
-    console.warn("Bridge not found: Mocking onProjectSelected", { lat, lng });
-    // Fallback for browser testing
     console.log(`[DEV] Native Map Focus: ${lat}, ${lng}`);
   }
 };
 
 /**
- * Triggers the native Android CameraX activity.
+ * Abre la cámara nativa (CameraX) vinculada a una parcela específica.
  */
-export const openNativeCamera = (projectId: string) => {
+export const openNativeCamera = (parcelaId: string) => {
   if (window.Android && window.Android.openCamera) {
-    window.Android.openCamera(projectId);
+    window.Android.openCamera(parcelaId);
   } else {
-    console.warn("Bridge not found: Mocking openCamera", projectId);
-    setTimeout(() => {
-      const mockPhoto = "https://picsum.photos/800/600?random=" + Date.now();
-      if (window.onPhotoCaptured) {
-        window.onPhotoCaptured(projectId, mockPhoto);
-      }
-    }, 1500);
+    console.warn("[DEV] Bridge not found. Mocking camera.");
   }
 };
 
@@ -40,17 +32,28 @@ export const showNativeToast = (message: string) => {
 };
 
 /**
- * Fetches initial projects from Android native database/storage
+ * Sincroniza el expediente parseado con la base de datos nativa (Room).
+ * Esto permite que el Mapa Nativo funcione Offline con estos datos.
  */
-export const getNativeProjects = (): Project[] | null => {
-  if (window.Android && window.Android.getProjects) {
-    try {
-      const jsonString = window.Android.getProjects();
-      return JSON.parse(jsonString);
-    } catch (e) {
-      console.error("Failed to parse projects from Android", e);
-      return null;
-    }
+export const syncInspectionWithNative = (expediente: Expediente) => {
+  if (window.Android && window.Android.importInspectionData) {
+    // Transformamos al formato DTO que espera Kotlin (JsInspection)
+    const dto = {
+        title: expediente.titular,
+        description: expediente.descripcion,
+        date: expediente.fechaImportacion,
+        parcelas: expediente.parcelas.map(p => ({
+            name: p.referencia,
+            lat: p.lat,
+            lng: p.lng,
+            area: p.area,
+            // En el futuro aquí iría la geometría completa del KML
+            geometry: [] 
+        }))
+    };
+    
+    window.Android.importInspectionData(JSON.stringify(dto));
+  } else {
+    console.log("[DEV] Syncing with native DB:", expediente);
   }
-  return null;
 };

@@ -1,32 +1,19 @@
 
 import { useState, useCallback, useEffect } from 'react';
-import { Inspection, Parcela } from '../types';
+import { Expediente, Parcela } from '../types';
+import { syncInspectionWithNative } from '../services/bridge';
 
-const STORAGE_KEY = 'geosigpac_inspections_v2';
+const STORAGE_KEY = 'geosigpac_expedientes_v3';
 
 export const useProjectStore = () => {
-  const [inspections, setInspections] = useState<Inspection[]>([]);
+  const [expedientes, setExpedientes] = useState<Expediente[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Cargar datos persistidos
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      setInspections(JSON.parse(saved));
-    } else {
-      // Datos iniciales demo
-      const demo: Inspection[] = [{
-        id: 'ins-1',
-        title: 'Campaña Olivar 2024',
-        description: 'Control de cubiertas vegetales y erosión.',
-        date: new Date().toISOString().split('T')[0],
-        status: 'in_progress',
-        parcelas: [
-          { id: 'p1', name: 'Recinto 102', lat: 37.3891, lng: -5.9845, area: 4.5, status: 'pending' },
-          { id: 'p2', name: 'Recinto 105', lat: 37.3885, lng: -5.9830, area: 2.1, status: 'verified' }
-        ]
-      }];
-      setInspections(demo);
+      setExpedientes(JSON.parse(saved));
     }
     setLoading(false);
   }, []);
@@ -34,42 +21,31 @@ export const useProjectStore = () => {
   // Persistir cambios
   useEffect(() => {
     if (!loading) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(inspections));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(expedientes));
     }
-  }, [inspections, loading]);
+  }, [expedientes, loading]);
 
-  const addInspection = (inspection: Inspection) => {
-    setInspections(prev => [inspection, ...prev]);
+  const addExpediente = (expediente: Expediente) => {
+    setExpedientes(prev => [expediente, ...prev]);
+    // Sincronización automática con Android al importar
+    syncInspectionWithNative(expediente);
   };
 
-  const removeInspection = (id: string) => {
-    setInspections(prev => prev.filter(i => i.id !== id));
+  const removeExpediente = (id: string) => {
+    setExpedientes(prev => prev.filter(i => i.id !== id));
   };
 
-  const updateInspectionStatus = (id: string, status: Inspection['status']) => {
-    setInspections(prev => prev.map(i => i.id === id ? { ...i, status } : i));
-  };
-
-  const removeParcela = (inspectionId: string, parcelaId: string) => {
-    setInspections(prev => prev.map(i => {
-      if (i.id === inspectionId) {
-        return { ...i, parcelas: i.parcelas.filter(p => p.id !== parcelaId) };
+  const updateParcelaStatus = (expId: string, parcelaId: string, status: Parcela['status']) => {
+    setExpedientes(prev => prev.map(exp => {
+      if (exp.id === expId) {
+        return {
+          ...exp,
+          parcelas: exp.parcelas.map(p => p.id === parcelaId ? { ...p, status } : p)
+        };
       }
-      return i;
+      return exp;
     }));
   };
 
-  const handlePhotoCaptured = useCallback((parcelaId: string, photoUri: string) => {
-    setInspections(prev => prev.map(ins => ({
-      ...ins,
-      parcelas: ins.parcelas.map(p => p.id === parcelaId ? { ...p, imageUrl: photoUri, status: 'verified' } : p)
-    })));
-  }, []);
-
-  useEffect(() => {
-    window.onPhotoCaptured = handlePhotoCaptured;
-    return () => { window.onPhotoCaptured = undefined; };
-  }, [handlePhotoCaptured]);
-
-  return { inspections, addInspection, removeInspection, removeParcela, updateInspectionStatus, loading };
+  return { expedientes, addExpediente, removeExpediente, updateParcelaStatus, loading };
 };
