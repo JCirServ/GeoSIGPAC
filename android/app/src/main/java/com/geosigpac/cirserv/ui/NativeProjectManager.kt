@@ -164,7 +164,7 @@ fun ProjectDetailsScreen(
 
 @Composable
 fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) } // Empezar colapsado para ver más recintos
+    var expanded by remember { mutableStateOf(false) } 
     var isLoading by remember { mutableStateOf(!parcela.isHydrated) }
 
     LaunchedEffect(parcela.referencia) {
@@ -199,7 +199,6 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
             if (expanded) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
-                        // Columna SIGPAC (Amarillo)
                         Column(modifier = Modifier.weight(1f).background(Color(0xFF13141F)).padding(12.dp)) {
                             Text("RECINTO SIGPAC", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             Divider(color = Color(0xFFFBBF24).copy(0.2f), modifier = Modifier.padding(vertical = 4.dp))
@@ -222,7 +221,6 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
                         Spacer(Modifier.width(1.dp))
 
-                        // Columna DECLARACIÓN (Cian)
                         Column(modifier = Modifier.weight(1f).background(Color(0xFF13141F)).padding(12.dp)) {
                             Text("CULTIVO DECLARADO", color = Color(0xFF22D3EE), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             Divider(color = Color(0xFF22D3EE).copy(0.2f), modifier = Modifier.padding(vertical = 4.dp))
@@ -256,6 +254,36 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun DataField(label: String, value: String, isLoading: Boolean, highlight: Boolean = false) {
+    Column(modifier = Modifier.padding(vertical = 2.dp)) {
+        Text(
+            text = label,
+            color = Color.Gray,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.5.sp
+        )
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .width(60.dp)
+                    .height(14.dp)
+                    .background(Color.White.copy(0.05f), RoundedCornerShape(2.dp))
+            )
+        } else {
+            Text(
+                text = value,
+                color = if (highlight) Color(0xFF22D3EE) else Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
         }
     }
 }
