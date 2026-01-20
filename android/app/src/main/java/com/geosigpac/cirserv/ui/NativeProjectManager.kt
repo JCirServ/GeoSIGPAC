@@ -4,7 +4,6 @@ package com.geosigpac.cirserv.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,7 +29,6 @@ import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.services.SigpacApiService
 import com.geosigpac.cirserv.utils.KmlParser
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -80,7 +78,6 @@ fun NativeProjectManager(
             }
         ) { padding ->
             Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                // Importador Estilo Punteado
                 Box(
                     modifier = Modifier.padding(20.dp).fillMaxWidth().height(140.dp).clip(RoundedCornerShape(32.dp))
                         .background(Color.White.copy(0.02f))
@@ -92,16 +89,12 @@ fun NativeProjectManager(
                         Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88), modifier = Modifier.size(40.dp))
                         Spacer(Modifier.height(8.dp))
                         Text("Cargar KML de Inspección", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Soporte completo para KMZ", color = Color.Gray, fontSize = 11.sp)
                     }
                 }
 
-                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(expedientes) { exp ->
-                        ProjectListItem(exp, 
-                            onSelect = { selectedExpediente = exp }, 
-                            onDelete = { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) }
-                        )
+                        ProjectListItem(exp, { selectedExpediente = exp }, { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) })
                     }
                 }
             }
@@ -111,24 +104,35 @@ fun NativeProjectManager(
 
 @Composable
 fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () -> Unit) {
+    val hydratedCount = exp.parcelas.count { it.isHydrated }
+    val progress = if (exp.parcelas.isEmpty()) 0f else hydratedCount.toFloat() / exp.parcelas.size
+
     Card(
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth().clickable { onSelect() },
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0D0E1A)),
         shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(0.05f))
     ) {
-        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(48.dp).background(Color(0xFF5C60F5).copy(0.1f), CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Folder, null, tint = Color(0xFF5C60F5))
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(40.dp).background(Color(0xFF5C60F5).copy(0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Folder, null, tint = Color(0xFF5C60F5), modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(exp.titular, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 11.sp)
+                }
+                IconButton(onClick = onDelete) { Icon(Icons.Default.DeleteOutline, null, tint = Color.Gray) }
             }
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(exp.titular, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 12.sp)
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, null, tint = Color.Gray)
-            }
+            Spacer(Modifier.height(12.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = Color(0xFF00FF88),
+                trackColor = Color.White.copy(0.05f)
+            )
+            Text("Sincronización OGC: ${(progress * 100).toInt()}%", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }
@@ -153,30 +157,10 @@ fun ProjectDetailsScreen(
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
-            // Panel de Sincronización OGC
-            val hydratedCount = expediente.parcelas.count { it.isHydrated }
-            val progress = if (expediente.parcelas.isEmpty()) 0f else hydratedCount.toFloat() / expediente.parcelas.size
-
-            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Sincronización OGC", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text("${(progress * 100).toInt()}%", color = Color(0xFF5C60F5), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-                    color = Color(0xFF5C60F5),
-                    trackColor = Color.White.copy(0.05f)
-                )
-            }
-
-            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
-                items(expediente.parcelas) { parcela ->
-                    NativeRecintoCard(parcela, onLocate, onCamera)
-                    Spacer(Modifier.height(16.dp))
-                }
+        LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+            items(expediente.parcelas) { parcela ->
+                NativeRecintoCard(parcela, onLocate, onCamera)
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -186,7 +170,6 @@ fun ProjectDetailsScreen(
 fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
     var expanded by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(!parcela.isHydrated) }
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(parcela.referencia) {
         if (!parcela.isHydrated) {
@@ -212,83 +195,59 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
             ) {
                 Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = Color.Gray)
                 Spacer(Modifier.width(8.dp))
-                Icon(Icons.Default.Map, null, tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(parcela.referencia, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(parcela.referencia, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                Box(
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(0.05f))
-                        .clickable { onCamera(parcela.id) }.padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CameraAlt, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("0/2", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
+                IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.CameraAlt, null, tint = Color.Gray) }
             }
 
             if (expanded) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // Barra Compatibilidad
-                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF00FF88).copy(0.1f)).padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("CONFORME: ", color = Color(0xFF00FF88), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Text("Uso ${parcela.uso} validado por IA.", color = Color(0xFF00FF88).copy(0.8f), fontSize = 11.sp)
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    // Grid de dos columnas (SIGPAC vs DECLARACIÓN)
+                    // Grid Técnico Extendido
                     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
-                        // Columna RECINTO (Amarillo)
+                        // Columna SIGPAC (Yellow)
                         Column(modifier = Modifier.weight(1f).background(Color(0xFF13141F)).padding(12.dp)) {
-                            Text("RECINTO (SIGPAC)", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("DATOS RECINTO", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             Divider(color = Color(0xFFFBBF24).copy(0.2f), modifier = Modifier.padding(vertical = 4.dp))
                             
-                            DataField("MUNICIPIO", parcela.sigpacInfo?.municipio ?: "-", isLoading)
-                            DataField("PENDIENTE", parcela.sigpacInfo?.pendiente?.toString() ?: "-", isLoading)
-                            DataField("ALTITUD", parcela.sigpacInfo?.altitud?.toString()?.plus(" m") ?: "-", isLoading)
-                            
-                            Spacer(Modifier.height(8.dp))
-                            Text("INCIDENCIAS", color = Color.Gray.copy(0.5f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                            Text("• Ninguna detectada", color = Color.White.copy(0.4f), fontSize = 9.sp)
+                            val s = parcela.sigpacInfo
+                            DataField("PROV/MUN", "${s?.provincia ?: "-"}/${s?.municipio ?: "-"}", isLoading)
+                            DataField("AG/ZO/PO", "${s?.agregado ?: 0}/${s?.zona ?: 0}/${s?.poligono ?: "-"}", isLoading)
+                            DataField("PARC/REC", "${s?.parcela ?: "-"}/${s?.recinto ?: "-"}", isLoading)
+                            DataField("PENDIENTE", "${s?.pendiente ?: "-"} %", isLoading)
+                            DataField("ALTITUD", "${s?.altitud ?: "-"} m", isLoading)
                         }
 
                         Spacer(Modifier.width(1.dp))
 
                         // Columna DECLARACIÓN (Cyan)
                         Column(modifier = Modifier.weight(1f).background(Color(0xFF13141F)).padding(12.dp)) {
-                            Text("DECLARACIÓN", color = Color(0xFF22D3EE), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("DECLARACIÓN PAC", color = Color(0xFF22D3EE), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             Divider(color = Color(0xFF22D3EE).copy(0.2f), modifier = Modifier.padding(vertical = 4.dp))
                             
-                            if (parcela.cultivoInfo == null && !isLoading) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.Info, null, tint = Color.Gray.copy(0.2f))
-                                        Text("SIN DATOS", color = Color.Gray.copy(0.4f), fontSize = 8.sp)
-                                    }
-                                }
+                            val c = parcela.cultivoInfo
+                            if (c == null && !isLoading) {
+                                Text("SIN DATOS", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(top = 20.dp))
                             } else {
-                                DataField("PRODUCTO", parcela.cultivoInfo?.producto ?: "-", isLoading, highlight = true)
-                                DataField("SIST EXP", parcela.cultivoInfo?.sistExp ?: "-", isLoading)
-                                DataField("SUPERFICIE", parcela.cultivoInfo?.superficie?.toString()?.plus(" ha") ?: "-", isLoading)
-                                DataField("AYUDA", parcela.cultivoInfo?.ayudaSol ?: "-", isLoading)
+                                DataField("EXP NUM", c?.expNum ?: "-", isLoading, highlight = true)
+                                DataField("PRODUCTO", c?.producto?.toString() ?: "-", isLoading)
+                                DataField("SIST EXP", c?.sistExp ?: "-", isLoading)
+                                DataField("SUP CULT", "${c?.supCult ?: "-"} m2", isLoading)
+                                DataField("AYUDA", c?.ayudaSol ?: "-", isLoading)
+                                DataField("PDR", c?.pdrRec ?: "-", isLoading)
+                                DataField("IND CULT", c?.indCultApro?.toString() ?: "-", isLoading)
+                                DataField("TIPO APROV", c?.tipoAprovecha ?: "-", isLoading)
                             }
                         }
                     }
                     
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = { onLocate(parcela.lat, parcela.lng) },
-                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(0.04f)),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("VER EN MAPA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Text("LOCALIZAR", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                     }
                 }
             }
@@ -296,59 +255,14 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
     }
 }
 
-/**
- * Componente de visualización de datos individuales con soporte para Skeleton Loading.
- */
 @Composable
 fun DataField(label: String, value: String, isLoading: Boolean, highlight: Boolean = false) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(
-            text = label, 
-            color = Color.Gray.copy(alpha = 0.8f), 
-            fontSize = 8.sp, 
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.5.sp
-        )
+    Column(modifier = Modifier.padding(vertical = 3.dp)) {
+        Text(label, color = Color.Gray.copy(0.7f), fontSize = 8.sp, fontWeight = FontWeight.Black)
         if (isLoading) {
-            Box(
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .width(60.dp)
-                    .height(14.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color.White.copy(0.05f))
-            )
+            Box(modifier = Modifier.width(50.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(0.05f)))
         } else {
-            Text(
-                text = value, 
-                color = if (highlight) Color(0xFF22D3EE) else Color.White, 
-                fontSize = 12.sp, 
-                fontWeight = FontWeight.Bold
-            )
+            Text(value, color = if (highlight) Color(0xFF22D3EE) else Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
-    }
-}
-
-@Composable
-fun BottomNavigationBar(onNavigateToMap: (Double?, Double?) -> Unit, onOpenCamera: (String?) -> Unit) {
-    NavigationBar(containerColor = Color(0xFF0D0E1A), contentColor = Color.White) {
-        NavigationBarItem(
-            selected = true,
-            onClick = { },
-            icon = { Icon(Icons.Default.List, null) },
-            label = { Text("Proyectos") }
-        )
-        NavigationBarItem(
-            selected = false,
-            onClick = { onNavigateToMap(null, null) },
-            icon = { Icon(Icons.Default.Map, null) },
-            label = { Text("Mapa") }
-        )
-        NavigationBarItem(
-            selected = false,
-            onClick = { onOpenCamera(null) },
-            icon = { Icon(Icons.Default.CameraAlt, null) },
-            label = { Text("Cámara") }
-        )
     }
 }

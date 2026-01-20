@@ -8,7 +8,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject as JSONNative
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.Locale
 
 object SigpacApiService {
 
@@ -32,13 +31,15 @@ object SigpacApiService {
                 if (features != null && features.length() > 0) {
                     val props = features.getJSONObject(0).getJSONObject("properties")
                     SigpacData(
+                        provincia = props.optInt("provincia"),
+                        municipio = props.optInt("municipio"),
+                        agregado = props.optInt("agregado"),
+                        zona = props.optInt("zona"),
+                        poligono = props.optInt("poligono"),
+                        parcela = props.optInt("parcela"),
+                        recinto = props.optInt("recinto"),
                         pendiente = props.optDouble("pendiente_media"),
-                        altitud = props.optDouble("altitud"),
-                        municipio = props.optString("municipio"),
-                        poligono = props.optString("poligono"),
-                        parcela = props.optString("parcela"),
-                        recinto = props.optString("recinto"),
-                        provincia = props.optString("provincia")
+                        altitud = props.optDouble("altitud")
                     )
                 } else null
             } catch (e: Exception) { null }
@@ -52,10 +53,13 @@ object SigpacApiService {
                     val props = features.getJSONObject(0).getJSONObject("properties")
                     CultivoData(
                         expNum = props.optString("exp_num"),
-                        producto = props.optString("parc_producto"),
-                        sistExp = if (props.optString("parc_sistexp") == "R") "Regadío" else "Secano",
+                        producto = props.optInt("parc_producto"),
+                        sistExp = props.optString("parc_sistexp"),
+                        supCult = props.optDouble("parc_supcult"),
                         ayudaSol = props.optString("parc_ayudasol"),
-                        superficie = props.optDouble("parc_supcult") / 10000.0
+                        pdrRec = props.optString("pdr_rec"),
+                        indCultApro = props.optInt("parc_indcultapro"),
+                        tipoAprovecha = props.optString("tipo_aprovecha")
                     )
                 } else null
             } catch (e: Exception) { null }
