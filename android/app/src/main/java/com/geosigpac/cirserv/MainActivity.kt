@@ -21,9 +21,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.NativeMap
 import com.geosigpac.cirserv.ui.NativeProjectManager
+import com.geosigpac.cirserv.utils.ProjectStorage
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,7 +52,22 @@ fun GeoSigpacApp() {
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
-    // GESTIÓN DE PERMISOS EN TIEMPO DE EJECUCIÓN
+    // --- ESTADO PERSISTENTE DE EXPEDIENTES ---
+    var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
+    
+    // Carga inicial desde disco
+    LaunchedEffect(Unit) {
+        expedientes = ProjectStorage.loadExpedientes(context)
+    }
+
+    // Guardado automático al cambiar la lista
+    LaunchedEffect(expedientes) {
+        if (expedientes.isNotEmpty() || ProjectStorage.loadExpedientes(context).isNotEmpty()) {
+            ProjectStorage.saveExpedientes(context, expedientes)
+        }
+    }
+
+    // GESTIÓN DE PERMISOS
     val permissionsToRequest = arrayOf(
         Manifest.permission.CAMERA,
         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -61,9 +78,6 @@ fun GeoSigpacApp() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.entries.all { it.value }
-        if (!allGranted) {
-            // Aquí se podría mostrar un diálogo informativo si el usuario deniega
-        }
     }
 
     LaunchedEffect(Unit) {
@@ -91,6 +105,8 @@ fun GeoSigpacApp() {
         Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF07080D)) {
             if (selectedTab == 0) {
                 NativeProjectManager(
+                    expedientes = expedientes,
+                    onUpdateExpedientes = { newList -> expedientes = newList },
                     onNavigateToMap = { lat, lng ->
                         if (lat != null && lng != null) {
                             mapTarget = lat to lng
@@ -108,7 +124,7 @@ fun GeoSigpacApp() {
                     targetLng = mapTarget?.second,
                     onNavigateToProjects = { selectedTab = 0 },
                     onOpenCamera = { 
-                        currentParcelaId = null // Cámara libre
+                        currentParcelaId = null
                         isCameraOpen = true 
                     }
                 )
