@@ -46,6 +46,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.style.expressions.Expression
@@ -100,7 +101,7 @@ fun NativeMap(
 
     fun selectParcela(parcela: NativeParcela) {
         selectedParcelaId = parcela.id
-        isPanelExpanded = false // Empezar colapsado
+        isPanelExpanded = false
         isLoadingData = true
         
         recintoData = mapOf(
@@ -135,17 +136,27 @@ fun NativeMap(
                 false
             }
 
-            // CRÍTICO: Solo centrar en el usuario si NO tenemos un objetivo (targetLat)
-            val shouldCenterUserOnStart = targetLat == null
+            // Solo activar tracking inicial si no hay un objetivo específico (viniendo de cámara o menú general)
+            val shouldTracking = targetLat == null
             
-            loadMapStyle(map, currentBaseMap, showRecinto, false, context, shouldCenterUserOnStart) {
+            loadMapStyle(map, currentBaseMap, showRecinto, false, context, shouldTracking) {
                 updateKmlSource(map, kmlParcelas)
-                
-                // Si hay un objetivo, forzamos el salto inmediato o animado
-                if (targetLat != null && targetLng != null) {
-                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(targetLat, targetLng), 18.0), 1500)
-                }
             }
+        }
+    }
+
+    // Efecto de navegación unificado y reactivo
+    LaunchedEffect(mapInstance, targetLat, targetLng) {
+        val map = mapInstance ?: return@LaunchedEffect
+        
+        if (targetLat != null && targetLng != null) {
+            // Caso 1: Hay un objetivo (Localizar desde proyecto)
+            map.locationComponent.cameraMode = CameraMode.NONE
+            map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(targetLat, targetLng), 18.0), 1000)
+        } else {
+            // Caso 2: No hay objetivo (Viniendo de cámara o botón general o barra navegación)
+            // Forzamos el seguimiento del usuario
+            enableLocation(map, context, true)
         }
     }
 
@@ -153,25 +164,13 @@ fun NativeMap(
         mapInstance?.let { updateKmlSource(it, kmlParcelas) }
     }
 
-    // Escucha cambios en el target para re-centrar si el usuario pulsa "Localizar" otra vez
-    LaunchedEffect(targetLat, targetLng) {
-        if (targetLat != null && targetLng != null) {
-            mapInstance?.let { map ->
-                // Desactivar tracking para permitir movimiento manual/automático al recinto
-                map.locationComponent.cameraMode = org.maplibre.android.location.modes.CameraMode.NONE
-                map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(targetLat, targetLng), 18.0), 1000)
-            }
-        }
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
         // Botonera Lateral
         Column(modifier = Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = Color.White, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.List, null) }
+            // Eliminamos el botón de lista porque ya está en la barra inferior
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = Color.White, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.CameraAlt, null) }
-            // Este botón sí debe enviarnos a nuestra posición explícitamente
             SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, true) }, containerColor = Color(0xFF006D3E), contentColor = Color.White, shape = CircleShape) { Icon(Icons.Default.MyLocation, null) }
         }
 
