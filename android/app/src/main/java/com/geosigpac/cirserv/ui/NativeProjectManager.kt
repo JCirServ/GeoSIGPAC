@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.net.Uri
@@ -35,8 +36,8 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NativeProjectManager(
-    onNavigateToMap: (Double, Double) -> Unit,
-    onOpenCamera: (String) -> Unit
+    onNavigateToMap: (Double?, Double?) -> Unit,
+    onOpenCamera: (String?) -> Unit
 ) {
     val context = LocalContext.current
     var expedientes by remember { mutableStateOf(listOf<NativeExpediente>()) }
@@ -60,12 +61,13 @@ fun NativeProjectManager(
     }
 
     val bgDark = Color(0xFF07080D)
+    val navContainerColor = Color(0xFF13141F)
 
     if (selectedExpediente != null) {
         NativeProjectDetailsScreen(
             expediente = selectedExpediente!!,
             onBack = { selectedExpediente = null },
-            onLocate = onNavigateToMap,
+            onLocate = { lat, lng -> onNavigateToMap(lat, lng) },
             onCamera = onOpenCamera
         )
     } else {
@@ -73,9 +75,50 @@ fun NativeProjectManager(
             containerColor = bgDark,
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("PROYECTOS SIGPAC", color = Color.White, fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = 16.sp) },
+                    title = { Text("MIS INSPECCIONES", color = Color.White, fontWeight = FontWeight.Black, letterSpacing = 1.sp, fontSize = 16.sp) },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = bgDark)
                 )
+            },
+            bottomBar = {
+                NavigationBar(
+                    containerColor = navContainerColor,
+                    contentColor = Color.White,
+                    tonalElevation = 8.dp
+                ) {
+                    NavigationBarItem(
+                        selected = true,
+                        onClick = { /* Ya estamos aquí */ },
+                        icon = { Icon(Icons.Default.Assignment, contentDescription = null) },
+                        label = { Text("Proyectos", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color.White,
+                            selectedTextColor = Color.White,
+                            indicatorColor = Color(0xFF5C60F5),
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { onNavigateToMap(null, null) },
+                        icon = { Icon(Icons.Default.Map, contentDescription = null) },
+                        label = { Text("Mapa", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray
+                        )
+                    )
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { onOpenCamera(null) },
+                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
+                        label = { Text("Captura", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray
+                        )
+                    )
+                }
             }
         ) { padding ->
             Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -84,7 +127,7 @@ fun NativeProjectManager(
                     modifier = Modifier
                         .padding(16.dp)
                         .fillMaxWidth()
-                        .height(140.dp)
+                        .height(130.dp)
                         .clip(RoundedCornerShape(32.dp))
                         .background(Color.White.copy(alpha = 0.03f))
                         .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
@@ -93,20 +136,20 @@ fun NativeProjectManager(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
-                            modifier = Modifier.size(50.dp).background(Color(0xFF5C60F5).copy(0.15f), CircleShape),
+                            modifier = Modifier.size(48.dp).background(Color(0xFF5C60F5).copy(0.15f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.UploadFile, null, tint = Color(0xFF5C60F5), modifier = Modifier.size(28.dp))
+                            Icon(Icons.Default.FileUpload, null, tint = Color(0xFF5C60F5), modifier = Modifier.size(24.dp))
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("Cargar KML de Inspección", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text("Soporta archivos .kml y .kmz", color = Color.Gray, fontSize = 12.sp)
+                        Text("Importar KML de Inspección", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Cargar parcelas para control de campo", color = Color.Gray, fontSize = 12.sp)
                     }
                 }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 80.dp)
+                    contentPadding = PaddingValues(bottom = 20.dp)
                 ) {
                     items(expedientes) { exp ->
                         ExpedienteItem(
@@ -196,7 +239,7 @@ fun RecintoCardNative(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Map, null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.Place, null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(12.dp))
                 Text(parcela.referencia, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
                 Icon(

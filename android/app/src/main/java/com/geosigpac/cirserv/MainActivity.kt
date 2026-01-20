@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv
 
 import android.Manifest
@@ -40,8 +41,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun GeoSigpacApp() {
-    val context = androidx.compose.ui.platform.LocalContext.current
-
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Proyectos, 1 = Mapa
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
@@ -64,7 +63,9 @@ fun GeoSigpacApp() {
             if (selectedTab == 0) {
                 NativeProjectManager(
                     onNavigateToMap = { lat, lng ->
-                        mapTarget = lat to lng
+                        if (lat != null && lng != null) {
+                            mapTarget = lat to lng
+                        }
                         selectedTab = 1
                     },
                     onOpenCamera = { id ->
@@ -77,7 +78,10 @@ fun GeoSigpacApp() {
                     targetLat = mapTarget?.first,
                     targetLng = mapTarget?.second,
                     onNavigateToProjects = { selectedTab = 0 },
-                    onOpenCamera = { isCameraOpen = true }
+                    onOpenCamera = { 
+                        currentParcelaId = null // Cámara libre
+                        isCameraOpen = true 
+                    }
                 )
             }
         }
