@@ -58,18 +58,22 @@ enum class BaseMap(val title: String) {
 
 // --- FUNCIONES API (WFS & INFO) ---
 
+/**
+ * Busca la ubicación de un recinto utilizando el OGC API.
+ * Calcula el LatLngBounds recorriendo la geometría del FeatureCollection devuelto.
+ */
 suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): LatLngBounds? = withContext(Dispatchers.IO) {
     try {
-        val ag = "0"
-        val zo = "0"
         val targetRec = rec ?: "1"
 
+        // URL OGC API sugerida por el usuario
         val urlString = String.format(
-            "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recincentroid/%s/%s/%s/%s/%s/%s/%s.json",
-            prov, mun, ag, zo, pol, parc, targetRec
+            Locale.US,
+            "https://sigpac-hubcloud.es/ogcapi/collections/recintos/items?provincia=%s&municipio=%s&poligono=%s&parcela=%s&recinto=%s&f=json",
+            prov, mun, pol, parc, targetRec
         )
 
-        Log.d("SEARCH_API", "Requesting: $urlString")
+        Log.d("SEARCH_OGC_API", "Requesting: $urlString")
 
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
@@ -87,28 +91,64 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
             connection.disconnect()
 
             val responseString = response.toString()
-            val json = JSONObject(responseString)
-            
-            var coords: JSONArray? = null
-            if (json.has("coordinates")) {
-                coords = json.getJSONArray("coordinates")
-            } else if (json.has("geometry")) {
-                val geom = json.getJSONObject("geometry")
-                if (geom.has("coordinates")) {
-                    coords = geom.getJSONArray("coordinates")
+            val featureCollection = JSONObject(responseString)
+            val features = featureCollection.optJSONArray("features")
+
+            if (features != null && features.length() > 0) {
+                var minLat = Double.MAX_VALUE
+                var maxLat = -Double.MAX_VALUE
+                var minLng = Double.MAX_VALUE
+                var maxLng = -Double.MAX_VALUE
+                var foundAny = false
+
+                for (i in 0 until features.length()) {
+                    val feature = features.getJSONObject(i)
+                    val geometry = feature.optJSONObject("geometry") ?: continue
+                    val type = geometry.optString("type")
+                    val coordinates = geometry.optJSONArray("coordinates") ?: continue
+
+                    // Función recursiva para extraer puntos de cualquier profundidad de anidación (Polygon/MultiPolygon)
+                    fun extractPoints(arr: JSONArray) {
+                        if (arr.length() == 0) return
+                        val first = arr.get(0)
+                        if (first is Double || first is Int) {
+                            // Estamos en el nivel de [lng, lat]
+                            val lng = arr.getDouble(0)
+                            val lat = arr.getDouble(1)
+                            if (lat < minLat) minLat = lat
+                            if (lat > maxLat) maxLat = lat
+                            if (lng < minLng) minLng = lng
+                            if (lng > maxLng) maxLng = lng
+                            foundAny = true
+                        } else if (first is JSONArray) {
+                            for (j in 0 until arr.length()) {
+                                extractPoints(arr.getJSONArray(j))
+                            }
+                        }
+                    }
+
+                    extractPoints(coordinates)
+                }
+
+                if (foundAny) {
+                    // Margen de seguridad del 15% para que no quede pegado al borde
+                    val latPadding = (maxLat - minLat) * 0.15
+                    val lngPadding = (maxLng - minLng) * 0.15
+                    
+                    return@withContext LatLngBounds.from(
+                        maxLat + latPadding, 
+                        maxLng + lngPadding, 
+                        minLat - latPadding, 
+                        minLng - lngPadding
+                    )
                 }
             }
-
-            if (coords != null && coords.length() >= 2) {
-                val lon = coords.getDouble(0)
-                val lat = coords.getDouble(1)
-                val offset = 0.0025 
-                return@withContext LatLngBounds.from(lat + offset, lon + offset, lat - offset, lon - offset)
-            }
+        } else {
+            Log.e("SEARCH_OGC_API", "Error HTTP: ${connection.responseCode}")
         }
     } catch (e: Exception) {
         e.printStackTrace()
-        Log.e("SEARCH_API", "Exception: ${e.message}")
+        Log.e("SEARCH_OGC_API", "Exception: ${e.message}")
     }
     return@withContext null
 }
