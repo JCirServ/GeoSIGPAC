@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.model.NativeParcela
-import com.geosigpac.cirserv.services.GeminiService
 import com.geosigpac.cirserv.services.SigpacApiService
 import com.geosigpac.cirserv.utils.KmlParser
 import kotlinx.coroutines.launch
@@ -274,7 +273,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                                     }
                                 }
                             } else {
-                                DataField("PRODUCTO", parcela.cultivoInfo?.producto ?: "-", isLoading)
+                                DataField("PRODUCTO", parcela.cultivoInfo?.producto ?: "-", isLoading, highlight = true)
                                 DataField("SIST EXP", parcela.cultivoInfo?.sistExp ?: "-", isLoading)
                                 DataField("SUPERFICIE", parcela.cultivoInfo?.superficie?.toString()?.plus(" ha") ?: "-", isLoading)
                                 DataField("AYUDA", parcela.cultivoInfo?.ayudaSol ?: "-", isLoading)
@@ -293,6 +292,39 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Componente de visualización de datos individuales con soporte para Skeleton Loading.
+ */
+@Composable
+fun DataField(label: String, value: String, isLoading: Boolean, highlight: Boolean = false) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(
+            text = label, 
+            color = Color.Gray.copy(alpha = 0.8f), 
+            fontSize = 8.sp, 
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.5.sp
+        )
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .width(60.dp)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.White.copy(0.05f))
+            )
+        } else {
+            Text(
+                text = value, 
+                color = if (highlight) Color(0xFF22D3EE) else Color.White, 
+                fontSize = 12.sp, 
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
