@@ -1,49 +1,46 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg-deep: #07080d;
-  --surface-card: #0d0e1a;
-  --neon-blue: #5c60f5;
-  --neon-green: #00ff88;
-  --text-gray: #94a3b8;
+  --primary: #8b5cf6;
+  --bg-dark: #0a0b10;
+  --surface-dark: #12141c;
+  --neon-blue: #3b82f6;
+  --neon-purple: #8b5cf6;
 }
 
 body {
-  background-color: var(--bg-deep);
-  color: #ffffff;
-  font-family: 'Inter', -apple-system, sans-serif;
-  overflow: hidden;
+  background-color: var(--bg-dark);
+  color: #f8fafc;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
 }
 
 #root {
-  height: 100vh;
-  width: 100vw;
+  min-height: 100vh;
 }
 
-.neon-card {
-  background: var(--surface-card);
-  border: 1px solid rgba(92, 96, 245, 0.4);
-  box-shadow: 0 0 20px rgba(92, 96, 245, 0.1);
-  border-radius: 20px;
+.glass-panel {
+  background: rgba(18, 20, 28, 0.8);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.custom-scrollbar {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+.neon-border {
+  border: 1px solid rgba(139, 92, 246, 0.5);
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  display: none;
+  width: 4px;
 }
-
-.dashed-border {
-  border: 1px dashed rgba(255, 255, 255, 0.15);
-  border-radius: 16px;
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
 }
-
-input[type="file"]::file-selector-button {
-  display: none;
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
 }

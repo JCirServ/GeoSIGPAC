@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
@@ -21,7 +22,6 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,14 +30,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import com.geosigpac.cirserv.bridge.WebAppInterface
 
 /**
  * Componente que gestiona el WebView híbrido utilizando WebViewAssetLoader.
- * Se ha optimizado para cargar los archivos locales de la carpeta assets de forma segura.
+ * Esto permite cargar la webapp local bajo un contexto HTTPS seguro, evitando
+ * problemas de CORS y Mixed Content.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -47,12 +47,6 @@ fun WebProjectManager(
     onNavigateToMap: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
-    // Colores exactos del tema Web (GeoSIGPAC3)
-    val bgDark = Color(0xFF07080D)
-    val surfaceDark = Color(0xFF0D0E1A)
-    val accentNeon = Color(0xFF5C60F5)
-    val textGray = Color(0xFF94A3B8)
-
     // Variable para retener el callback del archivo seleccionado
     var uploadMessage by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
 
@@ -78,6 +72,7 @@ fun WebProjectManager(
             }
             uploadMessage?.onReceiveValue(results)
         } else {
+            // Importante: Si se cancela, debemos devolver null para reiniciar el input del WebView
             uploadMessage?.onReceiveValue(null)
         }
         uploadMessage = null
@@ -85,22 +80,12 @@ fun WebProjectManager(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = bgDark, 
         bottomBar = {
-            NavigationBar(
-                containerColor = surfaceDark, 
-                contentColor = Color.White,
-                tonalElevation = 0.dp
-            ) {
+            NavigationBar {
                 // Cámara (Izquierda)
                 NavigationBarItem(
                     selected = false,
                     onClick = onOpenCamera,
-                    colors = NavigationBarItemDefaults.colors(
-                        unselectedIconColor = textGray,
-                        unselectedTextColor = textGray,
-                        indicatorColor = accentNeon.copy(alpha = 0.15f)
-                    ),
                     icon = { 
                         Icon(
                             imageVector = Icons.Default.CameraAlt, 
@@ -114,11 +99,6 @@ fun WebProjectManager(
                 NavigationBarItem(
                     selected = false,
                     onClick = onNavigateToMap,
-                    colors = NavigationBarItemDefaults.colors(
-                        unselectedIconColor = textGray,
-                        unselectedTextColor = textGray,
-                        indicatorColor = accentNeon.copy(alpha = 0.15f)
-                    ),
                     icon = { 
                         Icon(
                             imageVector = Icons.Default.Map, 
@@ -135,6 +115,7 @@ fun WebProjectManager(
                 .fillMaxSize()
                 .padding(innerPadding),
             factory = { context ->
+                // 1. Configuramos el AssetLoader
                 val assetLoader = WebViewAssetLoader.Builder()
                     .setDomain("appassets.androidplatform.net")
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
@@ -142,21 +123,25 @@ fun WebProjectManager(
                     .build()
 
                 WebView(context).apply {
-                    // Prevenir fondo blanco durante la carga inicial
-                    setBackgroundColor(0xFF07080D.toInt()) 
-                    
                     settings.apply {
+                        // Seguridad y Funcionalidad
                         javaScriptEnabled = true
                         domStorageEnabled = true
                         databaseEnabled = true
+                        
+                        // Desactivamos acceso a archivos directos pero habilitamos acceso a contenido
                         allowFileAccess = false
                         allowContentAccess = true
+                        
+                        // Optimizaciones de visualización
                         loadWithOverviewMode = true
                         useWideViewPort = true
                         setSupportZoom(false)
+                        
                         userAgentString = "$userAgentString GeoSIGPAC/1.0"
                     }
 
+                    // Inyectamos el puente nativo
                     addJavascriptInterface(webAppInterface, "Android")
 
                     webViewClient = object : WebViewClient() {
@@ -169,17 +154,17 @@ fun WebProjectManager(
 
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
-                            view?.setBackgroundColor(0xFF07080D.toInt())
                         }
                     }
                     
                     webChromeClient = object : WebChromeClient() {
-                        // Gestión de carga de archivos (KML / KMZ)
+                        // CRÍTICO: Sobrescribir este método para manejar <input type="file"> de forma robusta en Android
                         override fun onShowFileChooser(
                             webView: WebView?,
                             filePathCallback: ValueCallback<Array<Uri>>?,
                             fileChooserParams: FileChooserParams?
                         ): Boolean {
+                            // Cancelar callback anterior si existe
                             if (uploadMessage != null) {
                                 uploadMessage?.onReceiveValue(null)
                                 uploadMessage = null
@@ -188,11 +173,13 @@ fun WebProjectManager(
                             uploadMessage = filePathCallback
 
                             try {
+                                // En lugar de usar fileChooserParams.createIntent() que puede ser muy restrictivo con KML,
+                                // creamos un Intent manual amplio.
                                 val intent = Intent(Intent.ACTION_GET_CONTENT)
                                 intent.addCategory(Intent.CATEGORY_OPENABLE)
-                                intent.type = "*/*"
+                                intent.type = "*/*" // Permitir todo para evitar que Android deshabilite archivos KML
                                 
-                                // Filtrar por extensiones KML/KMZ específicamente si es posible
+                                // Sugerir tipos MIME correctos
                                 val mimeTypes = arrayOf(
                                     "application/vnd.google-earth.kml+xml",
                                     "application/vnd.google-earth.kmz",
@@ -210,14 +197,19 @@ fun WebProjectManager(
                                 uploadMessage = null
                                 return false
                             }
+
                             return true
                         }
                     }
 
-                    // Cargamos vía el dominio virtual del AssetLoader
+                    // Cargamos la URL
                     loadUrl("https://appassets.androidplatform.net/assets/index.html")
+                    
                     onWebViewCreated(this)
                 }
+            },
+            update = { webView ->
+                // Actualizaciones de estado si fueran necesarias
             }
         )
     }
