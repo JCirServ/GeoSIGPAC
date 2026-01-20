@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,14 +31,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import com.geosigpac.cirserv.bridge.WebAppInterface
 
 /**
  * Componente que gestiona el WebView híbrido utilizando WebViewAssetLoader.
- * Esto permite cargar la webapp local bajo un contexto HTTPS seguro, evitando
- * problemas de CORS y Mixed Content.
+ * Colores sincronizados con el tema GeoSIGPAC3 (Negro profundo y Neón).
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -47,6 +48,12 @@ fun WebProjectManager(
     onNavigateToMap: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
+    // Colores exactos del tema Web
+    val bgDark = Color(0xFF07080D)
+    val surfaceDark = Color(0xFF0D0E1A)
+    val accentNeon = Color(0xFF5C60F5)
+    val textGray = Color(0xFF94A3B8)
+
     // Variable para retener el callback del archivo seleccionado
     var uploadMessage by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
 
@@ -72,7 +79,6 @@ fun WebProjectManager(
             }
             uploadMessage?.onReceiveValue(results)
         } else {
-            // Importante: Si se cancela, debemos devolver null para reiniciar el input del WebView
             uploadMessage?.onReceiveValue(null)
         }
         uploadMessage = null
@@ -80,12 +86,22 @@ fun WebProjectManager(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        containerColor = bgDark, // Fondo negro profundo
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = surfaceDark, // Fondo de la barra
+                contentColor = Color.White,
+                tonalElevation = 0.dp
+            ) {
                 // Cámara (Izquierda)
                 NavigationBarItem(
                     selected = false,
                     onClick = onOpenCamera,
+                    colors = NavigationBarItemDefaults.colors(
+                        unselectedIconColor = textGray,
+                        unselectedTextColor = textGray,
+                        indicatorColor = accentNeon.copy(alpha = 0.1f)
+                    ),
                     icon = { 
                         Icon(
                             imageVector = Icons.Default.CameraAlt, 
@@ -99,6 +115,11 @@ fun WebProjectManager(
                 NavigationBarItem(
                     selected = false,
                     onClick = onNavigateToMap,
+                    colors = NavigationBarItemDefaults.colors(
+                        unselectedIconColor = textGray,
+                        unselectedTextColor = textGray,
+                        indicatorColor = accentNeon.copy(alpha = 0.1f)
+                    ),
                     icon = { 
                         Icon(
                             imageVector = Icons.Default.Map, 
@@ -115,7 +136,6 @@ fun WebProjectManager(
                 .fillMaxSize()
                 .padding(innerPadding),
             factory = { context ->
-                // 1. Configuramos el AssetLoader
                 val assetLoader = WebViewAssetLoader.Builder()
                     .setDomain("appassets.androidplatform.net")
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
@@ -123,25 +143,19 @@ fun WebProjectManager(
                     .build()
 
                 WebView(context).apply {
+                    setBackgroundColor(0xFF07080D.toInt()) // Sincroniza fondo del WebView antes de cargar
                     settings.apply {
-                        // Seguridad y Funcionalidad
                         javaScriptEnabled = true
                         domStorageEnabled = true
                         databaseEnabled = true
-                        
-                        // Desactivamos acceso a archivos directos pero habilitamos acceso a contenido
                         allowFileAccess = false
                         allowContentAccess = true
-                        
-                        // Optimizaciones de visualización
                         loadWithOverviewMode = true
                         useWideViewPort = true
                         setSupportZoom(false)
-                        
                         userAgentString = "$userAgentString GeoSIGPAC/1.0"
                     }
 
-                    // Inyectamos el puente nativo
                     addJavascriptInterface(webAppInterface, "Android")
 
                     webViewClient = object : WebViewClient() {
@@ -151,35 +165,23 @@ fun WebProjectManager(
                         ): WebResourceResponse? {
                             return assetLoader.shouldInterceptRequest(request.url)
                         }
-
-                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                            super.onPageStarted(view, url, favicon)
-                        }
                     }
                     
                     webChromeClient = object : WebChromeClient() {
-                        // CRÍTICO: Sobrescribir este método para manejar <input type="file"> de forma robusta en Android
                         override fun onShowFileChooser(
                             webView: WebView?,
                             filePathCallback: ValueCallback<Array<Uri>>?,
                             fileChooserParams: FileChooserParams?
                         ): Boolean {
-                            // Cancelar callback anterior si existe
                             if (uploadMessage != null) {
                                 uploadMessage?.onReceiveValue(null)
                                 uploadMessage = null
                             }
-
                             uploadMessage = filePathCallback
-
                             try {
-                                // En lugar de usar fileChooserParams.createIntent() que puede ser muy restrictivo con KML,
-                                // creamos un Intent manual amplio.
                                 val intent = Intent(Intent.ACTION_GET_CONTENT)
                                 intent.addCategory(Intent.CATEGORY_OPENABLE)
-                                intent.type = "*/*" // Permitir todo para evitar que Android deshabilite archivos KML
-                                
-                                // Sugerir tipos MIME correctos
+                                intent.type = "*/*"
                                 val mimeTypes = arrayOf(
                                     "application/vnd.google-earth.kml+xml",
                                     "application/vnd.google-earth.kmz",
@@ -190,26 +192,19 @@ fun WebProjectManager(
                                     "application/octet-stream"
                                 )
                                 intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
-
                                 filePickerLauncher.launch(intent)
                             } catch (e: Exception) {
                                 uploadMessage?.onReceiveValue(null)
                                 uploadMessage = null
                                 return false
                             }
-
                             return true
                         }
                     }
 
-                    // Cargamos la URL
                     loadUrl("https://appassets.androidplatform.net/assets/index.html")
-                    
                     onWebViewCreated(this)
                 }
-            },
-            update = { webView ->
-                // Actualizaciones de estado si fueran necesarias
             }
         )
     }
