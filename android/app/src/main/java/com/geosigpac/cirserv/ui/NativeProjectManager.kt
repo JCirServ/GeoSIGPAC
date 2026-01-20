@@ -128,11 +128,14 @@ fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () ->
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
                 progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
                 color = Color(0xFF00FF88),
                 trackColor = Color.White.copy(0.05f)
             )
-            Text("Sincronización OGC: ${(progress * 100).toInt()}%", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("OBTENCIÓN DE DATOS OGC", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                Text("${(progress * 100).toInt()}%", color = Color(0xFF00FF88), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -202,19 +205,29 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
             if (expanded) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // Grid Técnico Extendido
+                    // Grid Técnico Extendido (Nuevo Endpoint)
                     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
-                        // Columna SIGPAC (Yellow)
+                        // Columna SIGPAC (Yellow - Detalle Técnico)
                         Column(modifier = Modifier.weight(1f).background(Color(0xFF13141F)).padding(12.dp)) {
-                            Text("DATOS RECINTO", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("DETALLE SIGPAC", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             Divider(color = Color(0xFFFBBF24).copy(0.2f), modifier = Modifier.padding(vertical = 4.dp))
                             
                             val s = parcela.sigpacInfo
-                            DataField("PROV/MUN", "${s?.provincia ?: "-"}/${s?.municipio ?: "-"}", isLoading)
-                            DataField("AG/ZO/PO", "${s?.agregado ?: 0}/${s?.zona ?: 0}/${s?.poligono ?: "-"}", isLoading)
-                            DataField("PARC/REC", "${s?.parcela ?: "-"}/${s?.recinto ?: "-"}", isLoading)
-                            DataField("PENDIENTE", "${s?.pendiente ?: "-"} %", isLoading)
+                            DataField("REF COMPLETA", "${s?.provincia ?: "-"}:${s?.municipio ?: "-"}:${s?.agregado ?: 0}:${s?.zona ?: 0}:${s?.poligono ?: "-"}:${s?.parcela ?: "-"}:${s?.recinto ?: "-"}", isLoading)
+                            DataField("SUPERFICIE", "${s?.superficie ?: "-"} ha", isLoading)
+                            DataField("USO", s?.uso ?: "-", isLoading)
                             DataField("ALTITUD", "${s?.altitud ?: "-"} m", isLoading)
+                            DataField("PENDIENTE", "${s?.pendiente ?: "-"} %", isLoading)
+                            DataField("COEF REGADIO", s?.coefRegadio?.toString() ?: "N/D", isLoading)
+                            DataField("ADMISIBILIDAD", s?.admisibilidad?.toString() ?: "N/D", isLoading)
+                            DataField("REGION", s?.region ?: "N/D", isLoading)
+                            DataField("SRID", s?.srid?.toString() ?: "-", isLoading)
+                            
+                            if (s?.incidencias?.isNotEmpty() == true) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("INCIDENCIAS", color = Color.Red.copy(0.7f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                Text(s.incidencias ?: "", color = Color.White.copy(0.7f), fontSize = 9.sp)
+                            }
                         }
 
                         Spacer(Modifier.width(1.dp))
@@ -226,7 +239,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                             
                             val c = parcela.cultivoInfo
                             if (c == null && !isLoading) {
-                                Text("SIN DATOS", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(top = 20.dp))
+                                Text("SIN DATOS DECLARADOS", color = Color.Gray, fontSize = 9.sp, modifier = Modifier.padding(top = 20.dp))
                             } else {
                                 DataField("EXP NUM", c?.expNum ?: "-", isLoading, highlight = true)
                                 DataField("PRODUCTO", c?.producto?.toString() ?: "-", isLoading)
@@ -247,7 +260,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(0.04f)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("LOCALIZAR", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Text("LOCALIZAR RECINTO", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                     }
                 }
             }
@@ -258,11 +271,11 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 @Composable
 fun DataField(label: String, value: String, isLoading: Boolean, highlight: Boolean = false) {
     Column(modifier = Modifier.padding(vertical = 3.dp)) {
-        Text(label, color = Color.Gray.copy(0.7f), fontSize = 8.sp, fontWeight = FontWeight.Black)
+        Text(label, color = Color.Gray.copy(0.7f), fontSize = 7.sp, fontWeight = FontWeight.Black)
         if (isLoading) {
-            Box(modifier = Modifier.width(50.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(0.05f)))
+            Box(modifier = Modifier.width(60.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(0.05f)))
         } else {
-            Text(value, color = if (highlight) Color(0xFF22D3EE) else Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(value, color = if (highlight) Color(0xFF22D3EE) else Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

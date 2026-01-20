@@ -9,8 +9,15 @@ data class SigpacData(
     val poligono: Int? = null,
     val parcela: Int? = null,
     val recinto: Int? = null,
+    val superficie: Double? = null,
     val pendiente: Double? = null,
-    val altitud: Double? = null
+    val coefRegadio: Double? = null,
+    val admisibilidad: Double? = null,
+    val incidencias: String? = null,
+    val uso: String? = null,
+    val region: String? = null,
+    val altitud: Int? = null,
+    val srid: Int? = null
 )
 
 data class CultivoData(
@@ -26,7 +33,7 @@ data class CultivoData(
 
 data class NativeParcela(
     val id: String,
-    val referencia: String, // Prov:Mun:Pol:Parc:Rec
+    val referencia: String, // Prov:Mun:Ag:Zo:Pol:Parc:Rec
     val uso: String,
     val lat: Double,
     val lng: Double,
