@@ -1,8 +1,6 @@
 
 package com.geosigpac.cirserv
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -12,12 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.NativeMap
 import com.geosigpac.cirserv.ui.NativeProjectManager
@@ -45,6 +44,9 @@ fun GeoSigpacApp() {
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Proyectos, 1 = Mapa
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    
+    // Elevamos el estado para que persista entre pestañas
+    var expedientes by remember { mutableStateOf(listOf<NativeExpediente>()) }
 
     if (isCameraOpen) {
         BackHandler { isCameraOpen = false }
@@ -62,6 +64,9 @@ fun GeoSigpacApp() {
         Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF07080D)) {
             if (selectedTab == 0) {
                 NativeProjectManager(
+                    expedientes = expedientes,
+                    onAddExpediente = { newExp -> expedientes = listOf(newExp) + expedientes },
+                    onDeleteExpediente = { id -> expedientes = expedientes.filter { it.id != id } },
                     onNavigateToMap = { lat, lng ->
                         if (lat != null && lng != null) {
                             mapTarget = lat to lng
