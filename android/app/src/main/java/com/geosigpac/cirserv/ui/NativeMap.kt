@@ -13,23 +13,16 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,7 +31,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,9 +38,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import com.geosigpac.cirserv.data.AppDatabase
+import com.geosigpac.cirserv.data.RecintoEntity
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -58,9 +54,14 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
-import java.util.Locale
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
 
-private const val TAG = "GeoSIGPAC_LOG_Map"
+// IDs para fuentes GeoJSON dinámicas
+const val SOURCE_DECLARED = "source-declared-geojson"
+const val LAYER_DECLARED_FILL = "layer-declared-fill"
+const val LAYER_DECLARED_LINE = "layer-declared-line"
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -72,465 +73,314 @@ fun NativeMap(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
-    
-    // --- ESTADO ---
+    val dao = remember { AppDatabase.getInstance(context).inspectionDao() }
+
+    // --- ESTADO MAPA ---
     var mapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
     var currentBaseMap by remember { mutableStateOf(BaseMap.PNOA) }
-    var showRecinto by remember { mutableStateOf(true) }
-    var showCultivo by remember { mutableStateOf(true) }
-    var showLayerMenu by remember { mutableStateOf(false) }
-
-    var initialLocationSet by remember { mutableStateOf(false) }
-
-    // Estado Búsqueda
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearching by remember { mutableStateOf(false) }
-    var searchActive by remember { mutableStateOf(false) }
     
-    // TECLADO PERSONALIZADO
-    var showCustomKeyboard by remember { mutableStateOf(false) }
-
-    // Estado de datos SIGPAC
-    var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
-    var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
+    // --- ESTADO DATOS ---
+    // Cargamos todos los recintos declarados de la DB para mostrarlos en el mapa
+    val declaredRecintos by dao.getAllExpedientes().collectAsState(initial = emptyList())
+    var activeRecintosList by remember { mutableStateOf<List<RecintoEntity>>(emptyList()) }
     
-    // Control para evitar actualizaciones de DATOS (Bottom Sheet) innecesarias
-    var lastDataId by remember { mutableStateOf<String?>(null) }
+    // Selección Actual
+    var selectedRecinto by remember { mutableStateOf<RecintoEntity?>(null) }
+    var sigpacData by remember { mutableStateOf<Map<String, String>?>(null) }
     
-    // Estado de expansión del panel
+    // UI Estado
     var isPanelExpanded by remember { mutableStateOf(false) }
+    var activeTab by remember { mutableIntStateOf(0) } // 0: Comparativa, 1: Oficial, 2: Declarado
     
-    var isLoadingData by remember { mutableStateOf(false) }
-    var apiJob by remember { mutableStateOf<Job?>(null) }
-
-    var selectedTab by remember { mutableIntStateOf(0) }
-
-    // Inicializar MapLibre (Singleton)
-    remember { MapLibre.getInstance(context) }
-
-    // Creamos la instancia del MapView dentro de remember.
-    // Usamos apply para inicializarlo inmediatamente (onCreate).
-    val mapView = remember {
-        MapView(context).apply {
-            onCreate(Bundle())
+    // Carga inicial de recintos (si hay expedientes)
+    LaunchedEffect(declaredRecintos) {
+        if (declaredRecintos.isNotEmpty()) {
+            // Por simplicidad, cargamos los recintos del último expediente importado
+            val lastExp = declaredRecintos.first()
+            activeRecintosList = dao.getRecintosList(lastExp.id)
+            updateDeclaredLayer(mapInstance, activeRecintosList)
         }
     }
 
-    // --- GESTIÓN ROBUSTA DEL CICLO DE VIDA ---
+    remember { MapLibre.getInstance(context) }
+    val mapView = remember { MapView(context).apply { onCreate(Bundle()) } }
+
     DisposableEffect(lifecycleOwner) {
-        // Observer: Maneja eventos del sistema (minimizar app, rotar pantalla)
         val observer = LifecycleEventObserver { _, event ->
-            try {
-                when (event) {
-                    Lifecycle.Event.ON_START -> mapView.onStart()
-                    Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                    Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                    Lifecycle.Event.ON_STOP -> mapView.onStop()
-                    Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
-                    else -> {}
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error en ciclo de vida MapView: ${e.message}")
+            when (event) {
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-
-        // Iniciamos el mapa inmediatamente si el ciclo de vida lo permite
-        mapView.onStart()
-        mapView.onResume()
-
+        mapView.onStart(); mapView.onResume()
         onDispose {
-            Log.d(TAG, "NativeMap Disposing... Starting clean shutdown sequence.")
             lifecycleOwner.lifecycle.removeObserver(observer)
-            try {
-                // CRÍTICO: MapLibre crashea si pasas de Resume a Destroy.
-                // Debemos bajar los estados manualmente al salir de la composición.
-                mapView.onPause()
-                mapView.onStop()
-                mapView.onDestroy()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error cleaning up MapView in onDispose: ${e.message}")
-            }
+            mapView.onPause(); mapView.onStop(); mapView.onDestroy()
         }
     }
 
-    // --- FUNCIÓN DE BÚSQUEDA ---
-    fun performSearch() {
-        if (searchQuery.isBlank()) return
-        showCustomKeyboard = false
-        focusManager.clearFocus()
-        isSearching = true
-        searchActive = true
+    // --- MANEJO DE CLICS EN MAPA ---
+    fun handleMapClick(map: MapLibreMap, point: android.graphics.PointF) {
+        val latLng = map.projection.fromScreenLocation(point)
         
-        val parts = searchQuery.split(":").map { it.trim() }
-        if (parts.size < 4) {
-            Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
-            isSearching = false
-            return
+        // 1. Buscar en capa GeoJSON (Declarado)
+        // Como es GeoJSON local, podemos buscar en memoria o con queryRenderedFeatures si es poly
+        // Simplificación: Buscar por distancia mínima al punto en la lista local
+        val clickedDeclared = activeRecintosList.minByOrNull { 
+            val json = JsonParser.parseString(it.geomDeclaradaJson).asJsonObject
+            val coords = json.getAsJsonObject("geometry").getAsJsonArray("coordinates")
+            // Distancia euclídea simple (solo válida para demo/puntos cercanos)
+            val rLat = coords[1].asDouble
+            val rLng = coords[0].asDouble
+            val d = Math.pow(rLat - latLng.latitude, 2.0) + Math.pow(rLng - latLng.longitude, 2.0)
+            d
         }
-
-        val prov = parts[0]; val mun = parts[1]; val pol = parts[2]; val parc = parts[3]; val rec = parts.getOrNull(4)
+        
+        // Umbral de clic (aprox)
+        val isDeclaredHit = clickedDeclared != null // En app real, comprobar distancia < X metros
 
         scope.launch {
-            val map = mapInstance
-            if (map != null && map.style != null) {
-                val filterList = mutableListOf<Expression>(
-                    Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
-                    Expression.eq(Expression.toString(Expression.get("municipio")), Expression.literal(mun)),
-                    Expression.eq(Expression.toString(Expression.get("poligono")), Expression.literal(pol)),
-                    Expression.eq(Expression.toString(Expression.get("parcela")), Expression.literal(parc))
-                )
-                if (rec != null) {
-                    filterList.add(Expression.eq(Expression.toString(Expression.get("recinto")), Expression.literal(rec)))
-                }
-                val filter = Expression.all(*filterList.toTypedArray())
-                
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(filter) }
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
-            }
-
-            val bbox = searchParcelLocation(prov, mun, pol, parc, rec)
-            if (bbox != null) {
-                mapInstance?.animateCamera(CameraUpdateFactory.newLatLngBounds(bbox, 100), 1500)
-            } else {
-                Toast.makeText(context, "Ubicación no encontrada", Toast.LENGTH_SHORT).show()
-            }
+            // 2. Buscar datos Oficiales SIGPAC (WFS/API)
+            val oficialInfo = fetchFullSigpacInfo(latLng.latitude, latLng.longitude)
             
-            isSearching = false
-        }
-    }
-
-    fun clearSearch() {
-        searchQuery = ""
-        searchActive = false
-        lastDataId = null
-        recintoData = null
-        cultivoData = null
-        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(Expression.literal(false)) }
-        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(Expression.literal(false)) }
-    }
-
-    // --- LÓGICA DE ACTUALIZACIÓN VISUAL ---
-    fun updateHighlightVisuals(map: MapLibreMap) {
-        if (searchActive) return
-        if (map.cameraPosition.zoom < 13) {
-            val emptyFilter = Expression.literal(false)
-            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
-            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
-            return
-        }
-        val center = map.cameraPosition.target ?: return
-        val screenPoint = map.projection.toScreenLocation(center)
-        val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
-        try {
-            val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
-            if (features.isNotEmpty()) {
-                val feature = features[0]
-                val props = feature.properties()
-                if (props != null) {
-                    val filterConditions = mutableListOf<Expression>()
-                    SIGPAC_KEYS.forEach { key ->
-                        if (props.has(key)) {
-                            val element = props.get(key)
-                            val value: Any = when {
-                                element.isJsonPrimitive -> {
-                                    val prim = element.asJsonPrimitive
-                                    when {
-                                        prim.isNumber -> prim.asNumber
-                                        prim.isBoolean -> prim.asBoolean
-                                        else -> prim.asString
-                                    }
-                                }
-                                else -> element.toString()
-                            }
-                            filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
-                        }
-                    }
-                    val finalFilter = Expression.all(*filterConditions.toTypedArray())
-                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(finalFilter) }
-                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
-                }
+            if (oficialInfo != null || isDeclaredHit) {
+                selectedRecinto = clickedDeclared
+                sigpacData = oficialInfo
+                activeTab = 0
             } else {
-                val emptyFilter = Expression.literal(false)
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+                selectedRecinto = null
+                sigpacData = null
             }
-        } catch (e: Exception) { Log.e(TAG, "Error highlighting: ${e.message}") }
-    }
-
-    fun updateDataSheet(map: MapLibreMap) {
-        if (searchActive) return
-        if (map.cameraPosition.zoom < 13) {
-            recintoData = null; cultivoData = null; lastDataId = null
-            return
         }
-        val center = map.cameraPosition.target ?: return
-        val screenPoint = map.projection.toScreenLocation(center)
-        val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
-        
-        try {
-            val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
-            if (features.isNotEmpty()) {
-                val props = features[0].properties()
-                val prov = props?.get("provincia")?.asString ?: ""
-                val mun = props?.get("municipio")?.asString ?: ""
-                val pol = props?.get("poligono")?.asString ?: ""
-                val parc = props?.get("parcela")?.asString ?: ""
-                val rec = props?.get("recinto")?.asString ?: ""
-                val uniqueId = "$prov-$mun-$pol-$parc-$rec"
-                
-                if (uniqueId != lastDataId) {
-                    lastDataId = uniqueId
-                    recintoData = mapOf(
-                        "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
-                        "agregado" to (props?.get("agregado")?.asString ?: "0"),
-                        "zona" to (props?.get("zona")?.asString ?: "0"),
-                        "superficie" to (props?.get("superficie")?.toString() ?: "0"),
-                        "uso_sigpac" to "Cargando...", "pendiente_media" to "-", "altitud" to "-", "region" to "-",
-                        "coef_regadio" to "-", "subvencionabilidad" to "-", "incidencias" to ""
-                    )
-                    isLoadingData = true
-                    isPanelExpanded = false
-                    apiJob?.cancel()
-                    apiJob = scope.launch {
-                        delay(200)
-                        val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
-                        if (fullData != null) recintoData = fullData
-                        isLoadingData = false
-                    }
-                }
-            } else {
-                lastDataId = null
-            }
-            
-            val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
-            if (cultFeatures.isNotEmpty()) {
-                 val props = cultFeatures[0].properties()
-                 if (props != null) {
-                    val mapProps = mutableMapOf<String, String>()
-                    props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
-                    cultivoData = mapProps
-                }
-            } else {
-                cultivoData = null
-            }
-        } catch (e: Exception) { Log.e(TAG, "Error querying features: ${e.message}") }
     }
 
     LaunchedEffect(Unit) {
         mapView.getMapAsync { map ->
             mapInstance = map
-            map.uiSettings.isAttributionEnabled = true
+            map.uiSettings.isAttributionEnabled = false
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isCompassEnabled = true
-            map.uiSettings.isTiltGesturesEnabled = false
 
-            if (!initialLocationSet) {
-                map.cameraPosition = CameraPosition.Builder().target(LatLng(VALENCIA_LAT, VALENCIA_LNG)).zoom(DEFAULT_ZOOM).build()
+            // Cargar Estilo Base
+            loadMapStyle(map, currentBaseMap, true, true, context, true) {}
+
+            // Añadir Fuente para "Declarado" (GeoJSON vacío inicial)
+            map.getStyle { style ->
+                if (style.getSource(SOURCE_DECLARED) == null) {
+                    style.addSource(GeoJsonSource(SOURCE_DECLARED))
+                    
+                    // Capa Relleno Azul Transparente (Declarado)
+                    val fill = FillLayer(LAYER_DECLARED_FILL, SOURCE_DECLARED)
+                    fill.setProperties(
+                        PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), // Azul
+                        PropertyFactory.fillOpacity(0.4f)
+                    )
+                    style.addLayer(fill)
+
+                    // Capa Borde Azul (Declarado)
+                    val line = LineLayer(LAYER_DECLARED_LINE, SOURCE_DECLARED)
+                    line.setProperties(
+                        PropertyFactory.lineColor(Color(0xFF1565C0).toArgb()),
+                        PropertyFactory.lineWidth(2f),
+                        PropertyFactory.lineDasharray(arrayOf(2f, 2f)) // Punteado
+                    )
+                    style.addLayer(line)
+                }
             }
 
-            map.addOnCameraMoveListener { updateHighlightVisuals(map) }
-            map.addOnCameraIdleListener { updateDataSheet(map) }
-
-            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
-                initialLocationSet = true
+            map.addOnMapClickListener { point ->
+                val screenPoint = map.projection.toScreenLocation(point)
+                handleMapClick(map, screenPoint)
+                true
+            }
+            
+            // Si ya teníamos datos cargados, actualizamos
+            if (activeRecintosList.isNotEmpty()) {
+                updateDeclaredLayer(map, activeRecintosList)
             }
         }
     }
 
+    // Efecto de enfoque desde WebView
     LaunchedEffect(targetLat, targetLng) {
         if (targetLat != null && targetLng != null) {
-            mapInstance?.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(LatLng(targetLat, targetLng)).zoom(18.0).tilt(0.0).build()), 1500)
+            mapInstance?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(targetLat, targetLng), 17.0), 1500)
+            // Simular clic para cargar datos
+            scope.launch {
+                val oficial = fetchFullSigpacInfo(targetLat, targetLng)
+                sigpacData = oficial
+            }
         }
     }
 
-    LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
-        mapInstance?.let { map ->
-            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) { }
-        }
-    }
-
-    // --- UI RENDER ---
+    // --- RENDER UI ---
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { mapView }, 
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Cruz central
-        if (!isSearching && !showCustomKeyboard) {
-            Box(modifier = Modifier.align(Alignment.Center), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Add, null, tint = Color.Black.copy(0.5f), modifier = Modifier.size(38.dp))
-                Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
-            }
+        AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        
+        // Botones flotantes (mantener los existentes)
+        Column(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = FieldSurface, contentColor = FieldGreen) { Icon(Icons.Default.List, "Lista") }
+            SmallFloatingActionButton(onClick = onOpenCamera, containerColor = FieldSurface, contentColor = FieldGreen) { Icon(Icons.Default.CameraAlt, "Foto") }
         }
 
-        // --- BUSCADOR (TOP LEFT) ---
-        Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 16.dp, start = 16.dp, end = 16.dp).fillMaxWidth(0.65f)) {
-            val interactionSource = remember { MutableInteractionSource() }
-            LaunchedEffect(interactionSource) {
-                interactionSource.interactions.collect { interaction ->
-                    if (interaction is PressInteraction.Release) {
-                        showCustomKeyboard = true
-                        isPanelExpanded = false 
-                    }
-                }
-            }
-            TextField(
-                value = searchQuery,
-                onValueChange = { },
-                placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 12.sp) },
-                singleLine = true,
-                maxLines = 1,
-                readOnly = true,
-                interactionSource = interactionSource,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
-                    unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
-                    focusedIndicatorColor = if(showCustomKeyboard) FieldGreen else Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    cursorColor = FieldGreen
-                ),
-                shape = RoundedCornerShape(8.dp),
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { clearSearch(); showCustomKeyboard = false }) { Icon(Icons.Default.Close, "Borrar", tint = Color.Gray) }
-                    } else {
-                        IconButton(onClick = { showCustomKeyboard = true }) { Icon(Icons.Default.Search, "Buscar", tint = FieldGreen) }
+        // PANEL DE INSPECCIÓN (BottomSheet)
+        AnimatedVisibility(
+            visible = selectedRecinto != null || sigpacData != null,
+            enter = slideInVertically(initialOffsetY = { it }),
+            exit = slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            InspectionBottomSheet(
+                recinto = selectedRecinto,
+                sigpac = sigpacData,
+                activeTab = activeTab,
+                onTabChange = { activeTab = it },
+                onClose = { selectedRecinto = null; sigpacData = null },
+                onDiscrepancy = { type ->
+                    scope.launch {
+                        selectedRecinto?.let { r ->
+                            dao.updateRecintoStatus(r.id, "discrepancia", type)
+                            Toast.makeText(context, "Discrepancia '$type' registrada", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                onValidate = {
+                    scope.launch {
+                        selectedRecinto?.let { r ->
+                            dao.updateRecintoStatus(r.id, "conforme", null)
+                            Toast.makeText(context, "Recinto Validado Correctamente", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
             )
         }
+    }
+}
 
-        // --- BOTONES (TOP END) ---
-        Column(modifier = Modifier.align(Alignment.TopEnd).padding(top = 90.dp, end = 16.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu }, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary, shape = CircleShape) { Icon(Icons.Default.Settings, "Capas") }
+// Función auxiliar para actualizar la capa GeoJSON
+fun updateDeclaredLayer(map: MapLibreMap?, recintos: List<RecintoEntity>) {
+    map?.getStyle { style ->
+        val source = style.getSourceAs<GeoJsonSource>(SOURCE_DECLARED)
+        if (source != null) {
+            // Construir FeatureCollection
+            val features = recintos.map { it.geomDeclaradaJson }.joinToString(",")
+            val geoJson = """
+                {
+                    "type": "FeatureCollection",
+                    "features": [$features]
+                }
+            """.trimIndent()
+            source.setGeoJson(geoJson)
+        }
+    }
+}
 
-            AnimatedVisibility(visible = showLayerMenu) {
-                Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Mapa Base", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        BaseMap.values().forEach { base ->
-                            Row(modifier = Modifier.fillMaxWidth().clickable { currentBaseMap = base }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = (currentBaseMap == base), onClick = { currentBaseMap = base }, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(base.title, fontSize = 13.sp)
+@Composable
+fun InspectionBottomSheet(
+    recinto: RecintoEntity?,
+    sigpac: Map<String, String>?,
+    activeTab: Int,
+    onTabChange: (Int) -> Unit,
+    onClose: () -> Unit,
+    onDiscrepancy: (String) -> Unit,
+    onValidate: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().height(380.dp),
+        colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.95f)),
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+    ) {
+        Column {
+            // Cabecera
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("INSPECCIÓN DE CAMPO", style = MaterialTheme.typography.labelSmall, color = FieldGray)
+                    val ref = if (sigpac != null) 
+                        "${sigpac["poligono"]}-${sigpac["parcela"]}-${sigpac["recinto"]}" 
+                        else "Declarado: ${recinto?.parcela ?: "?"}"
+                    Text("Ref: $ref", style = MaterialTheme.typography.titleMedium, color = FieldGreen, fontWeight = FontWeight.Bold)
+                }
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, null, tint = Color.White) }
+            }
+
+            // Pestañas
+            TabRow(selectedTabIndex = activeTab, containerColor = Color.Transparent, contentColor = FieldGreen) {
+                Tab(selected = activeTab == 0, onClick = { onTabChange(0) }, text = { Text("COMPARATIVA") })
+                Tab(selected = activeTab == 1, onClick = { onTabChange(1) }, text = { Text("SIGPAC") })
+                Tab(selected = activeTab == 2, onClick = { onTabChange(2) }, text = { Text("DECLARADO") })
+            }
+            
+            Divider(color = FieldDivider)
+
+            // Contenido
+            Column(modifier = Modifier.weight(1f).padding(16.dp).verticalScroll(rememberScrollState())) {
+                when (activeTab) {
+                    0 -> { // COMPARATIVA
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f)) {
+                                Text("OFICIAL (SIGPAC)", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text("Uso: ${sigpac?.get("uso_sigpac") ?: "N/D"}", color = FieldGray)
+                                Text("Sup: ${sigpac?.get("superficie") ?: "-"} ha", color = FieldGray)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text("DECLARADO", color = Color(0xFF2196F3), fontWeight = FontWeight.Bold)
+                                Text("Uso: ${recinto?.usoDeclarado ?: "N/D"}", color = FieldGray)
+                                Text("Sup: ${recinto?.superficieDeclarada ?: "-"} ha", color = FieldGray)
                             }
                         }
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-                        Text("Capas SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showRecinto = !showRecinto }) {
-                            Checkbox(checked = showRecinto, onCheckedChange = { showRecinto = it }, modifier = Modifier.size(30.dp).padding(4.dp)); Text("Recintos", fontSize = 13.sp)
+                        
+                        Spacer(Modifier.height(20.dp))
+                        Text("Acciones de Inspección", style = MaterialTheme.typography.labelSmall, color = FieldGray)
+                        Spacer(Modifier.height(8.dp))
+                        
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = onValidate, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = FieldGreen)) {
+                                Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("CONFORME")
+                            }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }) {
-                            Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it }, modifier = Modifier.size(30.dp).padding(4.dp)); Text("Cultivos", fontSize = 13.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { onDiscrepancy("uso") }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100))) {
+                                Text("Disc. USO", fontSize = 12.sp)
+                            }
+                            Button(onClick = { onDiscrepancy("geometria") }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))) {
+                                Text("Disc. LINDE", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    1 -> { // SIGPAC DETALLE
+                         if (sigpac != null) {
+                             AttributeItem("Región", sigpac["region"], Modifier.fillMaxWidth())
+                             AttributeItem("Coef. Regadío", "${sigpac["coef_regadio"]}%", Modifier.fillMaxWidth())
+                             AttributeItem("Pendiente", "${sigpac["pendiente_media"]}%", Modifier.fillMaxWidth())
+                             AttributeItem("Incidencias", sigpac["incidencias"], Modifier.fillMaxWidth())
+                         } else {
+                             Text("No hay datos oficiales cargados en este punto.", color = FieldGray)
+                         }
+                    }
+                    2 -> { // DECLARADO DETALLE
+                        if (recinto != null) {
+                            AttributeItem("Expediente ID", recinto.expedienteId, Modifier.fillMaxWidth())
+                            AttributeItem("Geometría", "Punto/Polígono cargado", Modifier.fillMaxWidth())
+                            AttributeItem("Estado Actual", recinto.estadoInspeccion.uppercase(), Modifier.fillMaxWidth())
+                        } else {
+                            Text("Este punto no coincide con ninguna parcela declarada.", color = FieldGray)
                         }
                     }
                 }
             }
-            SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
-            SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
-            SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, shouldCenter = true) }, containerColor = MaterialTheme.colorScheme.secondary, contentColor = Color.White, shape = CircleShape) { Icon(Icons.Default.MyLocation, "Ubicación") }
-        }
-
-        // Loading
-        if (isLoadingData || isSearching) {
-            Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
-                CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
-            }
-        }
-
-        // BOTTOM SHEET (Info)
-        if (!showCustomKeyboard) {
-            AnimatedVisibility(visible = recintoData != null || (cultivoData != null && showCultivo), enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-                val displayData = recintoData ?: cultivoData
-                displayData?.let { data ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(0.dp).animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-                            .pointerInput(Unit) { detectVerticalDragGestures { change, dragAmount -> change.consume(); if (dragAmount < -20) isPanelExpanded = true else if (dragAmount > 20) isPanelExpanded = false } },
-                        colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
-                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
-                                Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
-                            }
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                                Column {
-                                    Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
-                                    Text(text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FieldGreen)
-                                }
-                                IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
-                            }
-                            Divider(color = FieldDivider)
-
-                            val hasCultivo = cultivoData != null
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).background(FieldSurface).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
-                                }
-                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
-                                }
-                            }
-                            
-                            if (isPanelExpanded) {
-                                Divider(color = FieldDivider)
-                                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
-                                    if (selectedTab == 0) {
-                                        if (recintoData != null) {
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f)); AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f)); AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f)); AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f)); AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f)) }
-                                        }
-                                    } else {
-                                        if (cultivoData != null) {
-                                            val c = cultivoData!!
-                                            Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f)); AttributeItem("Año", c["exp_ano"], Modifier.weight(1f)) }
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                            Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f)); val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0; val supCultHa = supCultRaw / 10000.0; AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(8.dp))
-                                            Row(Modifier.fillMaxWidth()) { val sist = c["parc_sistexp"]; val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }; AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f)); AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(8.dp))
-                                            AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                            Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
-                                            Spacer(Modifier.height(4.dp))
-                                            AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                            Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f)) }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // TECLADO PERSONALIZADO
-        AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-            CustomSigpacKeyboard(
-                onKey = { char -> searchQuery += char },
-                onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
-                onSearch = { performSearch() },
-                onClose = { showCustomKeyboard = false }
-            )
         }
     }
 }
