@@ -51,7 +51,6 @@ object KmlParser {
         var entry = zis.nextEntry
         while (entry != null) {
             if (entry.name.endsWith(".kml", true)) {
-                // No cerramos zis aquí porque parseKml lo consumirá
                 return parseKml(zis)
             }
             entry = zis.nextEntry
@@ -71,7 +70,7 @@ object KmlParser {
                 val element = placemarks.item(i) as Element
                 val metadata = mutableMapOf<String, String>()
 
-                // 1. Extraer ExtendedData (Campos SIGPAC)
+                // Extraer ExtendedData
                 val extendedDataList = element.getElementsByTagName("ExtendedData")
                 if (extendedDataList.length > 0) {
                     val dataNodes = (extendedDataList.item(0) as Element).getElementsByTagName("Data")
@@ -83,33 +82,42 @@ object KmlParser {
                     }
                 }
 
-                // 2. Extraer Coordenadas
-                var lat = 0.0
-                var lng = 0.0
+                // Extraer Coordenadas y Construir WKT
+                var wkt: String? = null
+                var centerLat = 0.0
+                var centerLng = 0.0
+                
                 val coordsNodes = element.getElementsByTagName("coordinates")
                 if (coordsNodes.length > 0) {
-                    val coordsText = coordsNodes.item(0).textContent.trim()
-                    val rawCoords = coordsText.split("\\s+".toRegex())
-                    if (rawCoords.isNotEmpty()) {
-                        val firstPoint = rawCoords[0].split(",")
-                        if (firstPoint.size >= 2) {
-                            lng = firstPoint[0].toDoubleOrNull() ?: 0.0
-                            lat = firstPoint[1].toDoubleOrNull() ?: 0.0
+                    val rawText = coordsNodes.item(0).textContent.trim()
+                    val points = rawText.split("\\s+".toRegex()).filter { it.contains(",") }
+                    
+                    if (points.isNotEmpty()) {
+                        // Construir Polígono WKT: POLYGON((lng lat, lng lat, ...))
+                        val formattedPoints = points.joinToString(", ") { p ->
+                            val parts = p.split(",")
+                            "${parts[0]} ${parts[1]}"
                         }
+                        wkt = "POLYGON(($formattedPoints))"
+                        
+                        // Punto central aproximado para navegación
+                        val first = points[0].split(",")
+                        centerLng = first[0].toDoubleOrNull() ?: 0.0
+                        centerLat = first[1].toDoubleOrNull() ?: 0.0
                     }
                 }
 
-                // 3. Crear el objeto
                 val refSigPac = metadata["Ref_SigPac"] ?: metadata["ID"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
                 parcelas.add(
                     NativeParcela(
                         id = "p_${System.currentTimeMillis()}_$i",
                         referencia = refSigPac,
                         uso = metadata["USO_SIGPAC"] ?: metadata["USO"] ?: "N/D",
-                        lat = lat,
-                        lng = lng,
+                        lat = centerLat,
+                        lng = centerLng,
                         area = metadata["DN_SURFACE"]?.toDoubleOrNull() ?: metadata["Superficie"]?.toDoubleOrNull() ?: 0.0,
-                        metadata = metadata
+                        metadata = metadata,
+                        geometryWkt = wkt
                     )
                 )
             }

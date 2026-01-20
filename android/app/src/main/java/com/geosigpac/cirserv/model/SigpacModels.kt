@@ -33,6 +33,7 @@ data class NativeParcela(
     val lng: Double,
     val area: Double,
     val metadata: Map<String, String>,
+    var geometryWkt: String? = null, // Geometría del KML
     var sigpacInfo: SigpacData? = null,
     var cultivoInfo: CultivoData? = null,
     var isHydrated: Boolean = false

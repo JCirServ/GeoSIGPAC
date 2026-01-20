@@ -48,26 +48,24 @@ class MainActivity : ComponentActivity() {
 fun GeoSigpacApp() {
     val context = LocalContext.current
     var isCameraOpen by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Proyectos, 1 = Mapa
+    var selectedTab by remember { mutableIntStateOf(0) } 
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var activeExpedienteId by remember { mutableStateOf<String?>(null) }
 
-    // --- ESTADO PERSISTENTE DE EXPEDIENTES ---
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
     
-    // Carga inicial desde disco
     LaunchedEffect(Unit) {
         expedientes = ProjectStorage.loadExpedientes(context)
+        if (expedientes.isNotEmpty()) activeExpedienteId = expedientes.first().id
     }
 
-    // Guardado automático al cambiar la lista
     LaunchedEffect(expedientes) {
-        if (expedientes.isNotEmpty() || ProjectStorage.loadExpedientes(context).isNotEmpty()) {
+        if (expedientes.isNotEmpty()) {
             ProjectStorage.saveExpedientes(context, expedientes)
         }
     }
 
-    // GESTIÓN DE PERMISOS
     val permissionsToRequest = arrayOf(
         Manifest.permission.CAMERA,
         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -76,17 +74,13 @@ fun GeoSigpacApp() {
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.entries.all { it.value }
-    }
+    ) { _ -> }
 
     LaunchedEffect(Unit) {
         val needsRequest = permissionsToRequest.any {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (needsRequest) {
-            permissionLauncher.launch(permissionsToRequest)
-        }
+        if (needsRequest) permissionLauncher.launch(permissionsToRequest)
     }
 
     if (isCameraOpen) {
@@ -106,11 +100,12 @@ fun GeoSigpacApp() {
             if (selectedTab == 0) {
                 NativeProjectManager(
                     expedientes = expedientes,
-                    onUpdateExpedientes = { newList -> expedientes = newList },
+                    onUpdateExpedientes = { newList -> 
+                        expedientes = newList
+                        if (newList.isNotEmpty() && activeExpedienteId == null) activeExpedienteId = newList.first().id
+                    },
                     onNavigateToMap = { lat, lng ->
-                        if (lat != null && lng != null) {
-                            mapTarget = lat to lng
-                        }
+                        if (lat != null && lng != null) mapTarget = lat to lng
                         selectedTab = 1
                     },
                     onOpenCamera = { id ->
@@ -119,9 +114,11 @@ fun GeoSigpacApp() {
                     }
                 )
             } else {
+                val activeParcelas = expedientes.find { it.id == activeExpedienteId }?.parcelas ?: emptyList()
                 NativeMap(
                     targetLat = mapTarget?.first,
                     targetLng = mapTarget?.second,
+                    kmlParcelas = activeParcelas,
                     onNavigateToProjects = { selectedTab = 0 },
                     onOpenCamera = { 
                         currentParcelaId = null
