@@ -30,6 +30,7 @@ import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.services.GeminiService
 import com.geosigpac.cirserv.services.SigpacApiService
 import com.geosigpac.cirserv.utils.KmlParser
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -44,46 +45,47 @@ fun NativeProjectManager(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedExpediente by remember { mutableStateOf<NativeExpediente?>(null) }
+    var selectedExpedienteId by remember { mutableStateOf<String?>(null) }
 
-    // Referencia actualizada del estado para el proceso de hidratación
+    // Siempre mantenemos una referencia al estado más reciente para las corrutinas
     val currentExpedientesState = rememberUpdatedState(expedientes)
 
-    // Función para hidratar parcelas de forma reactiva
+    // Función de hidratación mejorada: siempre busca el siguiente pendiente en el estado actual
     fun startHydrationSequence(targetExpId: String) {
         scope.launch {
-            // Buscamos el expediente inicial
-            val targetExp = currentExpedientesState.value.find { it.id == targetExpId } ?: return@launch
-            
-            // Iteramos sobre las parcelas que faltan por hidratar
-            targetExp.parcelas.forEach { parcela ->
-                if (!parcela.isHydrated) {
-                    // 1. Fetch de datos externos
-                    val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcela.referencia)
-                    val reportIA = GeminiService.analyzeParcela(parcela)
-                    
-                    // 2. Creamos una nueva lista inmutable con los datos actualizados
-                    // Esto fuerza a Compose a detectar el cambio de referencia y recomponer
-                    val updatedList = currentExpedientesState.value.map { exp ->
-                        if (exp.id == targetExpId) {
-                            exp.copy(
-                                parcelas = exp.parcelas.map { p ->
-                                    if (p.id == parcela.id) {
-                                        p.copy(
-                                            sigpacInfo = sigpac,
-                                            cultivoInfo = cultivo,
-                                            informeIA = reportIA,
-                                            isHydrated = true
-                                        )
-                                    } else p
-                                }
-                            )
-                        } else exp
-                    }
-                    
-                    // 3. Notificamos al estado global (MainActivity -> Storage)
-                    onUpdateExpedientes(updatedList)
+            while (true) {
+                val currentList = currentExpedientesState.value
+                val exp = currentList.find { it.id == targetExpId } ?: break
+                
+                // Buscamos la primera parcela que falte por hidratar
+                val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } ?: break
+                
+                // 1. Obtención de datos
+                val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
+                val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
+                
+                // 2. Actualización atómica de la lista completa para disparar recomposición
+                val updatedList = currentExpedientesState.value.map { e ->
+                    if (e.id == targetExpId) {
+                        e.copy(
+                            parcelas = e.parcelas.map { p ->
+                                if (p.id == parcelaToHydrate.id) {
+                                    p.copy(
+                                        sigpacInfo = sigpac,
+                                        cultivoInfo = cultivo,
+                                        informeIA = reportIA,
+                                        isHydrated = true
+                                    )
+                                } else p
+                            }
+                        )
+                    } else e
                 }
+                
+                onUpdateExpedientes(updatedList)
+                
+                // Pequeño respiro para la UI
+                delay(100)
             }
         }
     }
@@ -100,19 +102,19 @@ fun NativeProjectManager(
                     parcelas = parcelas
                 )
                 
-                val newList = listOf(newExp) + expedientes
-                onUpdateExpedientes(newList)
-                
-                // Iniciamos la secuencia de hidratación para el nuevo expediente
+                onUpdateExpedientes(listOf(newExp) + expedientes)
                 startHydrationSequence(newExp.id)
             }
         }
     }
 
-    if (selectedExpediente != null) {
-        // Buscamos la versión más reciente del expediente seleccionado de la lista global
-        val currentSelected = expedientes.find { it.id == selectedExpediente?.id } ?: selectedExpediente!!
-        ProjectDetailsScreen(currentSelected, { selectedExpediente = null }, onNavigateToMap, onOpenCamera)
+    if (selectedExpedienteId != null) {
+        val currentExp = expedientes.find { it.id == selectedExpedienteId }
+        if (currentExp != null) {
+            ProjectDetailsScreen(currentExp, { selectedExpedienteId = null }, onNavigateToMap, onOpenCamera)
+        } else {
+            selectedExpedienteId = null
+        }
     } else {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             CenterAlignedTopAppBar(
@@ -141,7 +143,7 @@ fun NativeProjectManager(
                 items(expedientes, key = { it.id }) { exp ->
                     ProjectListItem(
                         exp = exp, 
-                        onSelect = { selectedExpediente = exp }, 
+                        onSelect = { selectedExpedienteId = exp.id }, 
                         onDelete = { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) }
                     )
                 }
@@ -258,7 +260,6 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
             if (expanded && parcela.isHydrated) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // IA Report Section
                     Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF00FF88).copy(0.08f)).border(1.dp, Color(0xFF00FF88).copy(0.2f), RoundedCornerShape(16.dp)).padding(12.dp)) {
                         Row(verticalAlignment = Alignment.Top) {
                             Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
