@@ -399,6 +399,7 @@ fun NativeMap(
             Box {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { showProjectDropdown = true },
+                    // Usamos un color base sólido con alta opacidad para evitar transparencia excesiva
                     colors = CardDefaults.cardColors(containerColor = if(selectedProject != null) Color(0xFF13141F).copy(alpha = 0.95f) else Color.Transparent),
                     shape = RoundedCornerShape(12.dp),
                     border = if(selectedProject != null) BorderStroke(1.dp, Color(0xFF2196F3).copy(0.5f)) else null
@@ -423,7 +424,9 @@ fun NativeMap(
                 DropdownMenu(
                     expanded = showProjectDropdown,
                     onDismissRequest = { showProjectDropdown = false },
-                    modifier = Modifier.background(Color(0xFF13141F)).widthIn(min = 220.dp, max = 300.dp).heightIn(max = 400.dp)
+                    // Usamos un color sólido y oscuro para el fondo del menú, evitando la transparencia
+                    containerColor = Color(0xFF1A1C1E),
+                    modifier = Modifier.widthIn(min = 220.dp, max = 300.dp).heightIn(max = 400.dp)
                 ) {
                     if (selectedProject == null) {
                         // MODO: SELECCIONAR PROYECTO

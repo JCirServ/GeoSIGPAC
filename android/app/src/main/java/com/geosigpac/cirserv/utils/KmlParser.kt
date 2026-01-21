@@ -99,8 +99,10 @@ object KmlParser {
                     }
                 }
 
-                // 3. Crear el objeto
-                val refSigPac = metadata["Ref_SigPac"] ?: metadata["ID"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
+                // 3. Crear el objeto y LIMPIAR PUNTOS de la referencia
+                val rawRef = metadata["Ref_SigPac"] ?: metadata["ID"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
+                val refSigPac = rawRef.replace(".", "")
+                
                 parcelas.add(
                     NativeParcela(
                         id = "p_${System.currentTimeMillis()}_$i",

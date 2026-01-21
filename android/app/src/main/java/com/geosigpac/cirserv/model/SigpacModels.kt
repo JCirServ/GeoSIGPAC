@@ -9,7 +9,13 @@ data class SigpacData(
     val incidencias: String? = null,
     val usoSigpac: String? = null,
     val region: String? = null,
-    val altitud: Int? = null
+    val altitud: Int? = null,
+    // Campos de identificación para normalización de referencia
+    val provincia: String? = null,
+    val municipio: String? = null,
+    val poligono: String? = null,
+    val parcela: String? = null,
+    val recinto: String? = null
 )
 
 data class CultivoData(
