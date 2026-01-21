@@ -46,25 +46,18 @@ fun NativeProjectManager(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedExpedienteId by remember { mutableStateOf<String?>(null) }
-
-    // Siempre mantenemos una referencia al estado más reciente para las corrutinas
     val currentExpedientesState = rememberUpdatedState(expedientes)
 
-    // Función de hidratación mejorada: siempre busca el siguiente pendiente en el estado actual
     fun startHydrationSequence(targetExpId: String) {
         scope.launch {
             while (true) {
                 val currentList = currentExpedientesState.value
                 val exp = currentList.find { it.id == targetExpId } ?: break
-                
-                // Buscamos la primera parcela que falte por hidratar
                 val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } ?: break
                 
-                // 1. Obtención de datos
                 val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                 val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                 
-                // 2. Actualización atómica de la lista completa para disparar recomposición
                 val updatedList = currentExpedientesState.value.map { e ->
                     if (e.id == targetExpId) {
                         e.copy(
@@ -81,11 +74,8 @@ fun NativeProjectManager(
                         )
                     } else e
                 }
-                
                 onUpdateExpedientes(updatedList)
-                
-                // Pequeño respiro para la UI
-                delay(100)
+                delay(150)
             }
         }
     }
@@ -101,7 +91,6 @@ fun NativeProjectManager(
                     fechaImportacion = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
                     parcelas = parcelas
                 )
-                
                 onUpdateExpedientes(listOf(newExp) + expedientes)
                 startHydrationSequence(newExp.id)
             }
@@ -198,7 +187,7 @@ fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () ->
                 Row(modifier = Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.dp, color = MaterialTheme.colorScheme.secondary)
                     Spacer(Modifier.width(8.dp))
-                    Text("Sincronizando parcelas...", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text("Sincronizando...", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
             } else {
                 Text("Análisis completado", modifier = Modifier.padding(top = 8.dp), color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
@@ -249,7 +238,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(parcela.referencia, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                    if (isLoading) Text("Sincronizando...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (isLoading) Text("Cargando datos...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.secondary)
@@ -260,30 +249,46 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
             if (expanded && parcela.isHydrated) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    // IA Report Section
                     Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF00FF88).copy(0.08f)).border(1.dp, Color(0xFF00FF88).copy(0.2f), RoundedCornerShape(16.dp)).padding(12.dp)) {
                         Row(verticalAlignment = Alignment.Top) {
                             Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(10.dp))
-                            Text(parcela.informeIA ?: "Generando dictamen...", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium, lineHeight = 16.sp)
+                            Text(parcela.informeIA ?: "Evaluando...", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium, lineHeight = 16.sp)
                         }
                     }
                     
                     Spacer(Modifier.height(16.dp))
                     
+                    // GRID TÉCNICO COMPLETO
                     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
+                        // Columna SIGPAC (Izquierda)
                         Column(modifier = Modifier.weight(1f).padding(8.dp)) {
-                            Text("DATOS SIGPAC", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("ATRIB. TÉCNICOS", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             DataField("USO", parcela.sigpacInfo?.usoSigpac ?: "-", false)
-                            DataField("SUP", "${parcela.sigpacInfo?.superficie ?: "-"} ha", false)
-                            DataField("PEND", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %", false)
+                            DataField("SUPERFICIE", "${parcela.sigpacInfo?.superficie ?: "-"} ha", false)
+                            DataField("PENDIENTE", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %", false)
+                            DataField("ALTITUD", "${parcela.sigpacInfo?.altitud ?: "-"} m", false)
+                            DataField("SRID", parcela.sigpacInfo?.srid?.toString() ?: "-", false)
+                            DataField("REGIÓN", parcela.sigpacInfo?.region ?: "-", false)
                         }
+                        
                         Divider(modifier = Modifier.fillMaxHeight().width(1.dp).padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outline.copy(0.1f))
+                        
+                        // Columna Declaración (Derecha)
                         Column(modifier = Modifier.weight(1f).padding(8.dp)) {
-                            Text("SOLICITUD PAC", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            DataField("PROD", parcela.cultivoInfo?.producto?.toString() ?: "-", false)
+                            Text("ESTADO PAC", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-", false)
+                            DataField("PRODUCTO", parcela.cultivoInfo?.producto?.toString() ?: "-", false)
+                            DataField("SIST. EXP", parcela.cultivoInfo?.sistExp ?: "-", false)
                             DataField("AYUDA", parcela.cultivoInfo?.ayudaSol ?: "-", false)
-                            DataField("SIST", parcela.cultivoInfo?.sistExp ?: "-", false)
+                            DataField("REF. COMP", "${parcela.sigpacInfo?.poligono}:${parcela.sigpacInfo?.parcela}:${parcela.sigpacInfo?.recinto}", false)
                         }
+                    }
+
+                    if (!parcela.sigpacInfo?.incidencias.isNullOrEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("INCIDENCIAS: ${parcela.sigpacInfo?.incidencias}", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
                     }
                     
                     Spacer(Modifier.height(16.dp))

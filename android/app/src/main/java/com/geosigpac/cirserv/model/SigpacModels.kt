@@ -2,6 +2,13 @@
 package com.geosigpac.cirserv.model
 
 data class SigpacData(
+    val provincia: Int? = null,
+    val municipio: Int? = null,
+    val agregado: Int? = null,
+    val zona: Int? = null,
+    val poligono: Int? = null,
+    val parcela: Int? = null,
+    val recinto: Int? = null,
     val superficie: Double? = null,
     val pendienteMedia: Double? = null,
     val coefRegadio: Double? = null,
@@ -9,7 +16,8 @@ data class SigpacData(
     val incidencias: String? = null,
     val usoSigpac: String? = null,
     val region: String? = null,
-    val altitud: Int? = null
+    val altitud: Int? = null,
+    val srid: Int? = null
 )
 
 data class CultivoData(
@@ -33,10 +41,10 @@ data class NativeParcela(
     val lng: Double,
     val area: Double,
     val metadata: Map<String, String>,
-    var sigpacInfo: SigpacData? = null,
-    var cultivoInfo: CultivoData? = null,
-    var informeIA: String? = null,
-    var isHydrated: Boolean = false
+    val sigpacInfo: SigpacData? = null,
+    val cultivoInfo: CultivoData? = null,
+    val informeIA: String? = null,
+    val isHydrated: Boolean = false
 )
 
 data class NativeExpediente(

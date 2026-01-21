@@ -22,10 +22,10 @@ object SigpacApiService {
         val parc = parts.getOrNull(parts.size - 2) ?: ""
         val rec = parts.getOrNull(parts.size - 1) ?: ""
 
-        // Endpoint Recinto Detalle
+        // NUEVO ENDPOINT SOLICITADO (JSON COMPLETO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
         
-        // Endpoint OGC Cultivo Declarado
+        // Mantener OGC para datos de cultivo declarado (es la fuente más fiable para PAC)
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
@@ -35,6 +35,13 @@ object SigpacApiService {
                 if (array.length() > 0) {
                     val props = array.getJSONObject(0)
                     SigpacData(
+                        provincia = props.optInt("provincia"),
+                        municipio = props.optInt("municipio"),
+                        agregado = props.optInt("agregado"),
+                        zona = props.optInt("zona"),
+                        poligono = props.optInt("poligono"),
+                        parcela = props.optInt("parcela"),
+                        recinto = props.optInt("recinto"),
                         superficie = if (props.isNull("superficie")) null else props.optDouble("superficie"),
                         pendienteMedia = if (props.isNull("pendiente_media")) null else props.optDouble("pendiente_media"),
                         coefRegadio = if (props.isNull("coef_regadio")) null else props.optDouble("coef_regadio"),
@@ -42,7 +49,8 @@ object SigpacApiService {
                         incidencias = props.optString("incidencias")?.replace("[", "")?.replace("]", "")?.replace("\"", ""),
                         usoSigpac = props.optString("uso_sigpac"),
                         region = props.optString("region"),
-                        altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
+                        altitud = if (props.isNull("altitud")) null else props.optInt("altitud"),
+                        srid = if (props.isNull("srid")) null else props.optInt("srid")
                     )
                 } else null
             } catch (e: Exception) { null }
