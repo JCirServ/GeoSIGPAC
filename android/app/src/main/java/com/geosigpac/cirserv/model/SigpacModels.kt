@@ -9,13 +9,7 @@ data class SigpacData(
     val incidencias: String? = null,
     val usoSigpac: String? = null,
     val region: String? = null,
-    val altitud: Int? = null,
-    // Campos de identificación para normalización de referencia
-    val provincia: String? = null,
-    val municipio: String? = null,
-    val poligono: String? = null,
-    val parcela: String? = null,
-    val recinto: String? = null
+    val altitud: Int? = null
 )
 
 data class CultivoData(
@@ -35,9 +29,8 @@ data class NativeParcela(
     val id: String,
     val referencia: String, 
     val uso: String,
-    val lat: Double, // Centroide para navegación
-    val lng: Double, // Centroide para navegación
-    val geometry: String? = null, // GeoJSON String (Polygon)
+    val lat: Double,
+    val lng: Double,
     val area: Double,
     val metadata: Map<String, String>,
     val sigpacInfo: SigpacData? = null,

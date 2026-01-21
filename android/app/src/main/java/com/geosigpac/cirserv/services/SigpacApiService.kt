@@ -16,8 +16,7 @@ object SigpacApiService {
     private const val TAG = "SigpacApiService"
 
     suspend fun fetchHydration(referencia: String): Pair<SigpacData?, CultivoData?> = withContext(Dispatchers.IO) {
-        // Permitimos split por ":" y "-" y también "." por robustez antes de limpiar
-        val parts = referencia.split(":", "-", ".").filter { it.isNotBlank() }
+        val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
         val prov = parts.getOrNull(0) ?: ""
         val mun = parts.getOrNull(1) ?: ""
@@ -49,13 +48,7 @@ object SigpacApiService {
                         incidencias = props.optString("incidencias")?.replace("[", "")?.replace("]", "")?.replace("\"", ""),
                         usoSigpac = props.optString("uso_sigpac"),
                         region = props.optString("region"),
-                        altitud = if (props.isNull("altitud")) null else props.optInt("altitud"),
-                        // Datos de identificación para renombrado
-                        provincia = props.optString("provincia"),
-                        municipio = props.optString("municipio"),
-                        poligono = props.optString("poligono"),
-                        parcela = props.optString("parcela"),
-                        recinto = props.optString("recinto")
+                        altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                     )
                 } else null
             } catch (e: Exception) { null }

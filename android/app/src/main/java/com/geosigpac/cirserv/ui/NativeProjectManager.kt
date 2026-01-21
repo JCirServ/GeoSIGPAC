@@ -44,7 +44,7 @@ fun NativeProjectManager(
     activeProjectId: String?,
     onUpdateExpedientes: (List<NativeExpediente>) -> Unit,
     onActivateProject: (String) -> Unit,
-    onNavigateToMap: (Double?, Double?) -> Unit,
+    onNavigateToMap: (String) -> Unit, // Ahora acepta String (Referencia)
     onOpenCamera: (String?) -> Unit
 ) {
     val context = LocalContext.current
@@ -79,11 +79,11 @@ fun NativeProjectManager(
                     val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                     val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                     
-                    // Construimos la nueva referencia normalizada si tenemos datos SIGPAC válidos
+                    // Construcción estricta de referencia: provincia:municipio:poligono:parcela:recinto
                     val nuevaReferencia = if (sigpac != null && !sigpac.provincia.isNullOrEmpty() && !sigpac.recinto.isNullOrEmpty()) {
                         "${sigpac.provincia}:${sigpac.municipio}:${sigpac.poligono}:${sigpac.parcela}:${sigpac.recinto}"
                     } else {
-                        // Si falla la hidratación, mantenemos la original pero sin puntos por seguridad
+                        // Si falla, al menos quitamos puntos
                         parcelaToHydrate.referencia.replace(".", "")
                     }
 
@@ -93,7 +93,7 @@ fun NativeProjectManager(
                                 parcelas = e.parcelas.map { p ->
                                     if (p.id == parcelaToHydrate.id) {
                                         p.copy(
-                                            referencia = nuevaReferencia, // Actualizamos el nombre
+                                            referencia = nuevaReferencia,
                                             sigpacInfo = sigpac,
                                             cultivoInfo = cultivo,
                                             informeIA = reportIA,
@@ -262,7 +262,7 @@ fun ProjectListItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (Double?, Double?) -> Unit, onCamera: (String) -> Unit) {
+fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (String) -> Unit, onCamera: (String) -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -275,7 +275,7 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (D
     ) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
             items(exp.parcelas, key = { it.id }) { parcela ->
-                NativeRecintoCard(parcela, { lat, lng -> onLocate(lat, lng) }, onCamera)
+                NativeRecintoCard(parcela, onLocate, onCamera)
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -283,7 +283,7 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (D
 }
 
 @Composable
-fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
+fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCamera: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) } 
     val isLoading = !parcela.isHydrated
 
@@ -364,7 +364,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                     
                     Spacer(Modifier.height(16.dp))
                     Button(
-                        onClick = { onLocate(parcela.lat, parcela.lng) },
+                        onClick = { onLocate(parcela.referencia) },
                         modifier = Modifier.fillMaxWidth().height(40.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(0.1f)),
                         shape = RoundedCornerShape(12.dp)

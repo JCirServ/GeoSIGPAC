@@ -10,8 +10,6 @@ import org.w3c.dom.NodeList
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
-import kotlin.math.max
-import kotlin.math.min
 
 object KmlParser {
 
@@ -135,20 +133,46 @@ object KmlParser {
                     }
                 }
 
-                // 3. Crear Objeto
-                val rawRef = metadata["Ref_SigPac"] ?: metadata["ID"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
-                val refSigPac = rawRef.replace(".", "")
+                // 3. Crear Referencia Estandarizada
+                // Lógica: Buscar ref_sigpac -> o componer con atributos -> o usar nombre
+                val rawRef = getAttributeCaseInsensitive(metadata, "ref_sigpac") 
+                             ?: getAttributeCaseInsensitive(metadata, "referencia")
                 
+                var refSigPac = ""
+                
+                if (rawRef != null) {
+                    // Si existe atributo referencia, normalizamos separadores y quitamos puntos
+                    refSigPac = rawRef.replace(".", "").replace(Regex("[-_ ]"), ":")
+                } else {
+                    // Intentamos componer
+                    val p = getAttributeCaseInsensitive(metadata, "provincia")
+                    val m = getAttributeCaseInsensitive(metadata, "municipio")
+                    val pol = getAttributeCaseInsensitive(metadata, "poligono")
+                    val parc = getAttributeCaseInsensitive(metadata, "parcela")
+                    val rec = getAttributeCaseInsensitive(metadata, "recinto")
+                    
+                    if (p != null && m != null && pol != null && parc != null && rec != null) {
+                        refSigPac = "$p:$m:$pol:$parc:$rec"
+                    } else {
+                        // Fallback al nombre del elemento
+                        val name = element.getElementsByTagName("name").item(0)?.textContent?.trim() ?: "RECINTO_$i"
+                        refSigPac = name.replace(".", "")
+                    }
+                }
+                
+                // Limpieza final por seguridad (eliminar puntos sobrantes)
+                refSigPac = refSigPac.replace(".", "")
+
                 if (latCentroid != 0.0 || lngCentroid != 0.0) {
                     parcelas.add(
                         NativeParcela(
                             id = "p_${System.currentTimeMillis()}_$i",
                             referencia = refSigPac,
-                            uso = metadata["USO_SIGPAC"] ?: metadata["USO"] ?: "N/D",
+                            uso = getAttributeCaseInsensitive(metadata, "uso_sigpac") ?: getAttributeCaseInsensitive(metadata, "uso") ?: "N/D",
                             lat = latCentroid,
                             lng = lngCentroid,
                             geometry = geometryJson,
-                            area = metadata["DN_SURFACE"]?.toDoubleOrNull() ?: metadata["Superficie"]?.toDoubleOrNull() ?: 0.0,
+                            area = getAttributeCaseInsensitive(metadata, "dn_surface")?.toDoubleOrNull() ?: getAttributeCaseInsensitive(metadata, "superficie")?.toDoubleOrNull() ?: 0.0,
                             metadata = metadata
                         )
                     )
@@ -160,9 +184,12 @@ object KmlParser {
         return parcelas
     }
 
+    private fun getAttributeCaseInsensitive(map: Map<String, String>, key: String): String? {
+        return map.entries.find { it.key.equals(key, ignoreCase = true) }?.value
+    }
+
     private fun parseCoordinates(text: String): List<Pair<Double, Double>> {
         val list = mutableListOf<Pair<Double, Double>>()
-        // KML coordinates: lon,lat,alt (space separated tuples)
         val tuples = text.trim().split("\\s+".toRegex())
         for (tuple in tuples) {
             val parts = tuple.split(",")

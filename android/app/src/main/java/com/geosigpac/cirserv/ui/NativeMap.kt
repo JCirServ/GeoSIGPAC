@@ -79,8 +79,7 @@ private const val LAYER_KML_LINE = "kml-project-layer-line"
 @SuppressLint("MissingPermission")
 @Composable
 fun NativeMap(
-    targetLat: Double?,
-    targetLng: Double?,
+    targetRef: String?,
     expedientes: List<NativeExpediente>,
     onNavigateToProjects: () -> Unit,
     onOpenCamera: () -> Unit
@@ -344,9 +343,11 @@ fun NativeMap(
         })
     }
 
-    LaunchedEffect(targetLat, targetLng) {
-        if (targetLat != null && targetLng != null) {
-            mapInstance?.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(LatLng(targetLat, targetLng)).zoom(18.0).tilt(0.0).build()), 1500)
+    // Efecto para buscar automáticamente si llega una referencia desde "Localizar"
+    LaunchedEffect(targetRef) {
+        if (!targetRef.isNullOrEmpty()) {
+            searchQuery = targetRef
+            performSearch()
         }
     }
 
@@ -411,7 +412,7 @@ fun NativeMap(
             Box {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { showProjectDropdown = true },
-                    // Usamos un color base sólido con alta opacidad para evitar transparencia excesiva
+                    // Color base oscuro y opaco
                     colors = CardDefaults.cardColors(containerColor = if(selectedProject != null) Color(0xFF13141F).copy(alpha = 0.95f) else Color.Transparent),
                     shape = RoundedCornerShape(12.dp),
                     border = if(selectedProject != null) BorderStroke(1.dp, Color(0xFF2196F3).copy(0.5f)) else null
@@ -436,7 +437,7 @@ fun NativeMap(
                 DropdownMenu(
                     expanded = showProjectDropdown,
                     onDismissRequest = { showProjectDropdown = false },
-                    // Usamos un color sólido y oscuro para el fondo del menú, evitando la transparencia
+                    // Fondo OPACO
                     containerColor = Color(0xFF1A1C1E),
                     modifier = Modifier.widthIn(min = 220.dp, max = 300.dp).heightIn(max = 400.dp)
                 ) {
@@ -451,9 +452,9 @@ fun NativeMap(
                                 text = { Text(exp.titular, color = Color.White, fontSize = 13.sp) },
                                 onClick = {
                                     selectedProject = exp
-                                    showProjectDropdown = false // Cerramos para actualizar estado, o mantenemos si quisiéramos
+                                    showProjectDropdown = false 
                                     updateKmlLayer(exp)
-                                    // Opcional: Centrar en el proyecto si tiene parcelas
+                                    // Centrar en el primer recinto
                                     if (exp.parcelas.isNotEmpty()) {
                                         val p = exp.parcelas.first()
                                         mapInstance?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(p.lat, p.lng), 13.0))
@@ -484,7 +485,6 @@ fun NativeMap(
                                 },
                                 onClick = {
                                     showProjectDropdown = false
-                                    // USA EL BUSCADOR EXISTENTE
                                     searchQuery = parcela.referencia
                                     performSearch()
                                 }
@@ -525,7 +525,6 @@ fun NativeMap(
             SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
             SmallFloatingActionButton(onClick = { 
-                // Enable Location logic repeated here for brevity, calling existing util
                 mapInstance?.let { map ->
                     com.geosigpac.cirserv.ui.enableLocation(map, context, true)
                 }
@@ -581,7 +580,7 @@ fun NativeMap(
                                 Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
                                     if (selectedTab == 0 && recintoData != null) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f)); AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f)) }
-                                        Spacer(Modifier.height(12.dp))                                    
+                                        Spacer(Modifier.height(12.dp))
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f)); AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f)) }
                                         Spacer(Modifier.height(12.dp))
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f)); AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f)) }
