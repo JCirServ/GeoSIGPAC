@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv
 
 import android.Manifest
@@ -192,6 +191,7 @@ fun GeoSigpacApp(
                     2 -> NativeMap(
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
+                        expedientes = expedientes,
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )
