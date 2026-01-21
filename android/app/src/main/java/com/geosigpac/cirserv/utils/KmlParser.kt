@@ -70,15 +70,31 @@ object KmlParser {
                 val element = placemarks.item(i) as Element
                 val metadata = mutableMapOf<String, String>()
 
-                // 1. Extraer ExtendedData
+                // 1. Extraer ExtendedData (Soporte para Data y SimpleData)
                 val extendedDataList = element.getElementsByTagName("ExtendedData")
                 if (extendedDataList.length > 0) {
-                    val dataNodes = (extendedDataList.item(0) as Element).getElementsByTagName("Data")
+                    val extendedElement = extendedDataList.item(0) as Element
+                    
+                    // A) Data (Formato estándar)
+                    val dataNodes = extendedElement.getElementsByTagName("Data")
                     for (j in 0 until dataNodes.length) {
                         val dataElem = dataNodes.item(j) as Element
                         val name = dataElem.getAttribute("name")
                         val value = dataElem.getElementsByTagName("value").item(0)?.textContent?.trim() ?: ""
                         metadata[name] = value
+                    }
+
+                    // B) SchemaData -> SimpleData (Formato OGR/QGIS como el ejemplo del usuario)
+                    val schemaDataList = extendedElement.getElementsByTagName("SchemaData")
+                    for (k in 0 until schemaDataList.length) {
+                        val schemaElement = schemaDataList.item(k) as Element
+                        val simpleDataNodes = schemaElement.getElementsByTagName("SimpleData")
+                        for (l in 0 until simpleDataNodes.length) {
+                            val simpleElem = simpleDataNodes.item(l) as Element
+                            val name = simpleElem.getAttribute("name")
+                            val value = simpleElem.textContent?.trim() ?: ""
+                            metadata[name] = value
+                        }
                     }
                 }
 
@@ -161,7 +177,7 @@ object KmlParser {
                     val rec = getAttributeCaseInsensitive(metadata, "recinto")
                     
                     if (p != null && m != null && pol != null && parc != null && rec != null) {
-                        // Forzamos formato 5 partes
+                        // Forzamos formato 5 partes estrictamente: P:M:Pol:Par:Rec
                         refSigPac = "$p:$m:$pol:$parc:$rec"
                     } else {
                         // Opción C: Fallback final al nombre del elemento KML
