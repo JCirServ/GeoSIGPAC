@@ -173,6 +173,7 @@ fun GeoSigpacApp() {
                     2 -> NativeMap(
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
+                        expedientes = expedientes, // Nueva propiedad pasada
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )
