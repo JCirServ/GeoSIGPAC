@@ -10,6 +10,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,45 +49,72 @@ fun NativeProjectManager(
     val scope = rememberCoroutineScope()
     var selectedExpedienteId by remember { mutableStateOf<String?>(null) }
     val currentExpedientesState = rememberUpdatedState(expedientes)
+    
+    // Consola de Logs para depuración en el dispositivo
+    val debugLogs = remember { mutableStateListOf<String>() }
+    val logListState = rememberLazyListState()
+
+    fun addLog(msg: String) {
+        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        debugLogs.add("[$time] $msg")
+    }
 
     fun startHydrationSequence(targetExpId: String) {
         scope.launch {
+            addLog("Iniciando secuencia de hidratación para exp: $targetExpId")
             while (true) {
                 val currentList = currentExpedientesState.value
                 val exp = currentList.find { it.id == targetExpId } ?: break
                 val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } ?: break
                 
-                val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
-                val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
+                addLog("-> Procesando recinto: ${parcelaToHydrate.referencia}")
                 
-                // CRÍTICO: Creamos una lista completamente nueva para que Compose detecte el cambio
-                val updatedList = currentExpedientesState.value.map { e ->
-                    if (e.id == targetExpId) {
-                        e.copy(
-                            parcelas = e.parcelas.map { p ->
-                                if (p.id == parcelaToHydrate.id) {
-                                    p.copy(
-                                        sigpacInfo = sigpac,
-                                        cultivoInfo = cultivo,
-                                        informeIA = reportIA,
-                                        isHydrated = true
-                                    )
-                                } else p
-                            }
-                        )
-                    } else e
+                try {
+                    val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
+                    
+                    if (sigpac != null) addLog("   [OK] Datos SIGPAC obtenidos (${sigpac.usoSigpac})")
+                    else addLog("   [WARN] No se obtuvo info SIGPAC para ${parcelaToHydrate.referencia}")
+                    
+                    if (cultivo != null) addLog("   [OK] Datos Cultivo obtenidos (Exp: ${cultivo.expNum})")
+                    else addLog("   [INFO] Sin cultivo declarado activo.")
+
+                    addLog("   Generando informe IA...")
+                    val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
+                    
+                    val updatedList = currentExpedientesState.value.map { e ->
+                        if (e.id == targetExpId) {
+                            e.copy(
+                                parcelas = e.parcelas.map { p ->
+                                    if (p.id == parcelaToHydrate.id) {
+                                        p.copy(
+                                            sigpacInfo = sigpac,
+                                            cultivoInfo = cultivo,
+                                            informeIA = reportIA,
+                                            isHydrated = true
+                                        )
+                                    } else p
+                                }
+                            )
+                        } else e
+                    }
+                    onUpdateExpedientes(updatedList)
+                } catch (e: Exception) {
+                    addLog("   [ERROR] Fallo en hidratación: ${e.message}")
                 }
-                onUpdateExpedientes(updatedList)
-                delay(200)
+                
+                delay(300)
             }
+            addLog("Hidratación finalizada para el proyecto.")
         }
     }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             val fileName = KmlParser.getFileName(context, it) ?: "Nuevo Proyecto"
+            addLog("Archivo seleccionado: $fileName")
             val parcelas = KmlParser.parseUri(context, it)
             if (parcelas.isNotEmpty()) {
+                addLog("KML parseado correctamente: ${parcelas.size} recintos")
                 val newExp = NativeExpediente(
                     id = UUID.randomUUID().toString(),
                     titular = fileName.substringBeforeLast("."),
@@ -94,6 +123,8 @@ fun NativeProjectManager(
                 )
                 onUpdateExpedientes(listOf(newExp) + expedientes)
                 startHydrationSequence(newExp.id)
+            } else {
+                addLog("[ERROR] El KML no contiene geometrías o recintos válidos.")
             }
         }
     }
@@ -112,6 +143,7 @@ fun NativeProjectManager(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
 
+            // Botón de Importación
             Box(
                 modifier = Modifier.padding(20.dp).fillMaxWidth().height(140.dp).clip(RoundedCornerShape(32.dp))
                     .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.background)))
@@ -129,13 +161,50 @@ fun NativeProjectManager(
 
             Text("PROYECTOS ACTIVOS", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Gray)
 
-            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+            LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(expedientes, key = { it.id }) { exp ->
                     ProjectListItem(
                         exp = exp, 
                         onSelect = { selectedExpedienteId = exp.id }, 
                         onDelete = { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) }
                     )
+                }
+                
+                if (expedientes.isEmpty()) {
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                            Text("No hay proyectos activos", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            // SECCIÓN DE LOGS (Terminal de depuración)
+            Card(
+                modifier = Modifier.fillMaxWidth().height(180.dp).padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(0.1f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("CONSOLA DE EVENTOS (DEBUG)", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        IconButton(onClick = { debugLogs.clear() }, modifier = Modifier.size(20.dp)) {
+                            Icon(Icons.Default.DeleteSweep, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                    Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical = 4.dp))
+                    LazyColumn(state = logListState, modifier = Modifier.fillMaxSize()) {
+                        items(debugLogs.reversed()) { log ->
+                            Text(
+                                text = log, 
+                                color = if (log.contains("[ERROR]")) Color.Red else if (log.contains("[OK]")) Color(0xFF00FF88) else Color.LightGray,
+                                fontSize = 10.sp, 
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

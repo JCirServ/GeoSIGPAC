@@ -13,15 +13,20 @@ import java.net.URL
 object SigpacApiService {
 
     suspend fun fetchHydration(referencia: String): Pair<SigpacData?, CultivoData?> = withContext(Dispatchers.IO) {
-        val parts = referencia.split(":", "-")
-        // Formato esperado: Prov:Mun:Ag:Zo:Pol:Parc:Rec
+        val parts = referencia.split(":", "-").filter { it.isNotBlank() }
+        
+        // Lógica de mapeo flexible según el número de partes encontradas
         val prov = parts.getOrNull(0) ?: ""
         val mun = parts.getOrNull(1) ?: ""
-        val ag = if (parts.size >= 7) parts[2] else "0"
-        val zo = if (parts.size >= 7) parts[3] else "0"
-        val pol = if (parts.size >= 7) parts[4] else (parts.getOrNull(parts.size - 3) ?: "")
-        val parc = if (parts.size >= 7) parts[5] else (parts.getOrNull(parts.size - 2) ?: "")
-        val rec = if (parts.size >= 7) parts[6] else (parts.getOrNull(parts.size - 1) ?: "")
+        
+        // Si tenemos el formato largo completo (7 partes)
+        val hasCompleteFormat = parts.size >= 7
+        
+        val ag = if (hasCompleteFormat) parts[2] else "0"
+        val zo = if (hasCompleteFormat) parts[3] else "0"
+        val pol = if (hasCompleteFormat) parts[4] else (parts.getOrNull(parts.size - 3) ?: "")
+        val parc = if (hasCompleteFormat) parts[5] else (parts.getOrNull(parts.size - 2) ?: "")
+        val rec = if (hasCompleteFormat) parts[6] else (parts.getOrNull(parts.size - 1) ?: "")
 
         // 1. CONSULTA RECINTO (JSON DETALLADO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
@@ -78,12 +83,16 @@ object SigpacApiService {
         return try {
             val url = URL(urlString)
             val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 8000
-            conn.readTimeout = 8000
+            conn.connectTimeout = 12000 // Aumentamos timeout a 12s para estabilidad
+            conn.readTimeout = 12000
             conn.setRequestProperty("User-Agent", "GeoSIGPAC-Mobile/1.0")
             if (conn.responseCode == 200) {
                 conn.inputStream.bufferedReader().use { it.readText() }
-            } else null
-        } catch (e: Exception) { null }
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 }
