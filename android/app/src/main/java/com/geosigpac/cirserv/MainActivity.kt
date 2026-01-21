@@ -46,9 +46,11 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(
                 colorScheme = darkColorScheme(
                     primary = Color(0xFF00FF88),
-                    surface = Color(0xFF1B1E23),
-                    background = Color(0xFF121418),
-                    onSurface = Color.White
+                    secondary = Color(0xFF62D2FF),
+                    surface = Color(0xFF2D3033),
+                    background = Color(0xFF1A1C1E),
+                    onSurface = Color(0xFFE2E2E6),
+                    outline = Color(0xFF44474B)
                 )
             ) {
                 GeoSigpacApp()
@@ -61,7 +63,7 @@ class MainActivity : ComponentActivity() {
 fun GeoSigpacApp() {
     val context = LocalContext.current
     var isCameraOpen by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableIntStateOf(1) } // 1 = Proyectos
+    var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
@@ -105,12 +107,12 @@ fun GeoSigpacApp() {
     } else {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
-            containerColor = Color(0xFF121418),
+            containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 if (selectedTab == 1) {
                     NavigationBar(
-                        containerColor = Color(0xFF1B1E23),
-                        tonalElevation = 0.dp
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 8.dp
                     ) {
                         NavigationBarItem(
                             selected = false,
@@ -137,7 +139,7 @@ fun GeoSigpacApp() {
                 }
             }
         ) { padding ->
-            Surface(modifier = Modifier.padding(padding), color = Color(0xFF121418)) {
+            Surface(modifier = Modifier.padding(padding), color = MaterialTheme.colorScheme.background) {
                 when (selectedTab) {
                     1 -> NativeProjectManager(
                         expedientes = expedientes,
