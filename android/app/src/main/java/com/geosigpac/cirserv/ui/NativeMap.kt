@@ -581,7 +581,7 @@ fun NativeMap(
                                 Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
                                     if (selectedTab == 0 && recintoData != null) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f)); AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f)) }
-                                        Spacer(Modifier.height(12.dp))
+                                        Spacer(Modifier.height(12.dp))                                    
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f)); AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f)) }
                                         Spacer(Modifier.height(12.dp))
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f)); AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f)) }
