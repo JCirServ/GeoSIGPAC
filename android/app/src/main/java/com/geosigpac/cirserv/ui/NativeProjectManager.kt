@@ -51,6 +51,7 @@ fun NativeProjectManager(
     val scope = rememberCoroutineScope()
     var selectedExpedienteId by remember { mutableStateOf<String?>(null) }
     val currentExpedientesState = rememberUpdatedState(expedientes)
+    val primaryColor = MaterialTheme.colorScheme.primary
     
     val debugLogs = remember { mutableStateListOf<String>() }
     val logListState = rememberLazyListState()
@@ -152,7 +153,7 @@ fun NativeProjectManager(
                 contentAlignment = Alignment.Center
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88))
+                    Icon(Icons.Default.CloudUpload, null, tint = primaryColor)
                     Spacer(Modifier.width(12.dp))
                     Text("IMPORTAR CARTOGRAFÍA KML", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
                 }
@@ -181,7 +182,7 @@ fun NativeProjectManager(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("REGISTRO DE RED", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text("REGISTRO DE RED", color = primaryColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         IconButton(onClick = { debugLogs.clear() }, modifier = Modifier.size(20.dp)) {
                             Icon(Icons.Default.DeleteSweep, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
                         }
@@ -206,6 +207,7 @@ fun ProjectListItem(
     onSelect: () -> Unit, 
     onDelete: () -> Unit
 ) {
+    val primaryColor = MaterialTheme.colorScheme.primary
     val hydratedCount = exp.parcelas.count { it.isHydrated }
     val progress = if (exp.parcelas.isEmpty()) 0f else hydratedCount.toFloat() / exp.parcelas.size
     val animatedProgress by animateFloatAsState(targetValue = progress)
@@ -219,7 +221,7 @@ fun ProjectListItem(
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(
             if (isActive) 2.dp else 1.dp, 
-            if (isActive) Color(0xFF00FF88) else Color.White.copy(0.05f)
+            if (isActive) primaryColor else Color.White.copy(0.05f)
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -227,7 +229,7 @@ fun ProjectListItem(
                 // Indicador de Estado / Activación
                 IconButton(onClick = onActivate, modifier = Modifier.size(24.dp)) {
                     if (isActive) {
-                         Icon(Icons.Default.RadioButtonChecked, null, tint = Color(0xFF00FF88))
+                         Icon(Icons.Default.RadioButtonChecked, null, tint = primaryColor)
                     } else {
                          Icon(Icons.Default.RadioButtonUnchecked, null, tint = Color.Gray)
                     }
@@ -239,14 +241,14 @@ fun ProjectListItem(
                     Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if(isActive) Color.White else Color.LightGray)
                     Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 10.sp)
                     if (isActive) {
-                        Text("PROYECTO ACTIVO", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        Text("PROYECTO ACTIVO", color = primaryColor, fontSize = 9.sp, fontWeight = FontWeight.Black)
                     }
                 }
                 
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.Gray.copy(0.3f), modifier = Modifier.size(18.dp)) }
             }
             Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(3.dp).clip(CircleShape), color = Color(0xFF00FF88), trackColor = Color.White.copy(0.05f))
+            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(3.dp).clip(CircleShape), color = primaryColor, trackColor = Color.White.copy(0.05f))
         }
     }
 }
@@ -277,19 +279,20 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (D
 fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) } 
     val isLoading = !parcela.isHydrated
+    val primaryColor = MaterialTheme.colorScheme.primary
 
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, if(parcela.isHydrated) Color(0xFF00FF88).copy(0.2f) else Color.White.copy(0.05f))
+        border = BorderStroke(1.dp, if(parcela.isHydrated) primaryColor.copy(0.2f) else Color.White.copy(0.05f))
     ) {
         Column {
             Row(
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if(parcela.isHydrated) Color(0xFF00FF88) else Color.Yellow))
+                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if(parcela.isHydrated) primaryColor else Color.Yellow))
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(parcela.referencia, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
@@ -305,9 +308,9 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
             if (expanded && parcela.isHydrated) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     // IA REPORT
-                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF00FF88).copy(0.08f)).border(1.dp, Color(0xFF00FF88).copy(0.2f), RoundedCornerShape(12.dp)).padding(10.dp)) {
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(primaryColor.copy(0.08f)).border(1.dp, primaryColor.copy(0.2f), RoundedCornerShape(12.dp)).padding(10.dp)) {
                         Row {
-                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.AutoAwesome, null, tint = primaryColor, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(parcela.informeIA ?: "Sin análisis disponible", fontSize = 11.sp, lineHeight = 14.sp)
                         }
