@@ -46,22 +46,43 @@ fun NativeProjectManager(
     val scope = rememberCoroutineScope()
     var selectedExpediente by remember { mutableStateOf<NativeExpediente?>(null) }
 
-    // Función para hidratar parcelas de forma segura usando la lista actual
-    fun startHydrationSequence(targetExpId: String, currentListState: List<NativeExpediente>) {
+    // Referencia actualizada del estado para el proceso de hidratación
+    val currentExpedientesState = rememberUpdatedState(expedientes)
+
+    // Función para hidratar parcelas de forma reactiva
+    fun startHydrationSequence(targetExpId: String) {
         scope.launch {
-            val exp = currentListState.find { it.id == targetExpId } ?: return@launch
+            // Buscamos el expediente inicial
+            val targetExp = currentExpedientesState.value.find { it.id == targetExpId } ?: return@launch
             
-            exp.parcelas.forEach { parcela ->
+            // Iteramos sobre las parcelas que faltan por hidratar
+            targetExp.parcelas.forEach { parcela ->
                 if (!parcela.isHydrated) {
+                    // 1. Fetch de datos externos
                     val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcela.referencia)
+                    val reportIA = GeminiService.analyzeParcela(parcela)
                     
-                    parcela.sigpacInfo = sigpac
-                    parcela.cultivoInfo = cultivo
-                    parcela.informeIA = GeminiService.analyzeParcela(parcela)
-                    parcela.isHydrated = true
+                    // 2. Creamos una nueva lista inmutable con los datos actualizados
+                    // Esto fuerza a Compose a detectar el cambio de referencia y recomponer
+                    val updatedList = currentExpedientesState.value.map { exp ->
+                        if (exp.id == targetExpId) {
+                            exp.copy(
+                                parcelas = exp.parcelas.map { p ->
+                                    if (p.id == parcela.id) {
+                                        p.copy(
+                                            sigpacInfo = sigpac,
+                                            cultivoInfo = cultivo,
+                                            informeIA = reportIA,
+                                            isHydrated = true
+                                        )
+                                    } else p
+                                }
+                            )
+                        } else exp
+                    }
                     
-                    // Notificamos cambios usando la lista actual para mantener persistencia
-                    onUpdateExpedientes(currentListState.toList())
+                    // 3. Notificamos al estado global (MainActivity -> Storage)
+                    onUpdateExpedientes(updatedList)
                 }
             }
         }
@@ -79,20 +100,19 @@ fun NativeProjectManager(
                     parcelas = parcelas
                 )
                 
-                // 1. Creamos la nueva lista
-                val updatedList = listOf(newExp) + expedientes
+                val newList = listOf(newExp) + expedientes
+                onUpdateExpedientes(newList)
                 
-                // 2. Actualizamos el estado global (esto dispara la persistencia en MainActivity)
-                onUpdateExpedientes(updatedList)
-                
-                // 3. Iniciamos análisis pasando la lista actualizada para evitar race conditions
-                startHydrationSequence(newExp.id, updatedList)
+                // Iniciamos la secuencia de hidratación para el nuevo expediente
+                startHydrationSequence(newExp.id)
             }
         }
     }
 
     if (selectedExpediente != null) {
-        ProjectDetailsScreen(selectedExpediente!!, { selectedExpediente = null }, onNavigateToMap, onOpenCamera)
+        // Buscamos la versión más reciente del expediente seleccionado de la lista global
+        val currentSelected = expedientes.find { it.id == selectedExpediente?.id } ?: selectedExpediente!!
+        ProjectDetailsScreen(currentSelected, { selectedExpediente = null }, onNavigateToMap, onOpenCamera)
     } else {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             CenterAlignedTopAppBar(
@@ -119,7 +139,11 @@ fun NativeProjectManager(
 
             LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
                 items(expedientes, key = { it.id }) { exp ->
-                    ProjectListItem(exp, { selectedExpediente = exp }, { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) })
+                    ProjectListItem(
+                        exp = exp, 
+                        onSelect = { selectedExpediente = exp }, 
+                        onDelete = { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) }
+                    )
                 }
             }
         }
@@ -172,7 +196,7 @@ fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () ->
                 Row(modifier = Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.dp, color = MaterialTheme.colorScheme.secondary)
                     Spacer(Modifier.width(8.dp))
-                    Text("Analizando parcelas...", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text("Sincronizando parcelas...", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
             } else {
                 Text("Análisis completado", modifier = Modifier.padding(top = 8.dp), color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
