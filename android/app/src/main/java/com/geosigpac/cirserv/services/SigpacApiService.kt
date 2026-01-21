@@ -13,6 +13,8 @@ import java.net.URL
 
 object SigpacApiService {
 
+    private const val TAG = "SigpacApiService"
+
     suspend fun fetchHydration(referencia: String): Pair<SigpacData?, CultivoData?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
@@ -30,6 +32,9 @@ object SigpacApiService {
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
+        Log.d(TAG, "Fetching Recinfo: $recintoUrl")
+        Log.d(TAG, "Fetching Cultivo: $cultivoUrl")
+
         val sigpac = fetchUrl(recintoUrl)?.let { jsonStr ->
             try {
                 val array = JSONArray(jsonStr)
@@ -45,9 +50,12 @@ object SigpacApiService {
                         region = props.optString("region"),
                         altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                     )
-                } else null
+                } else {
+                    Log.w(TAG, "Recinfo empty for $referencia")
+                    null
+                }
             } catch (e: Exception) { 
-                Log.e("SIGPAC", "Error parseo Recinto: ${e.message}")
+                Log.e(TAG, "Parse error Recinfo: ${e.message}")
                 null 
             }
         }
@@ -70,9 +78,12 @@ object SigpacApiService {
                         parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
                         tipoAprovecha = props.optString("tipo_aprovecha")
                     )
-                } else null
+                } else {
+                    Log.w(TAG, "Cultivo empty for $referencia")
+                    null
+                }
             } catch (e: Exception) { 
-                Log.e("SIGPAC", "Error parseo Cultivo: ${e.message}")
+                Log.e(TAG, "Parse error Cultivo: ${e.message}")
                 null 
             }
         }
@@ -91,11 +102,11 @@ object SigpacApiService {
             if (code == 200) {
                 conn.inputStream.bufferedReader().use { it.readText() }
             } else {
-                Log.e("SIGPAC", "HTTP Error $code: $urlString")
+                Log.e(TAG, "HTTP Error $code for URL: $urlString")
                 null
             }
         } catch (e: Exception) {
-            Log.e("SIGPAC", "Network error: ${e.message}")
+            Log.e(TAG, "Network failure: ${e.message} for $urlString")
             null
         }
     }

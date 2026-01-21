@@ -1,7 +1,7 @@
 
 package com.geosigpac.cirserv.ui
 
-import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
@@ -50,53 +50,55 @@ fun NativeProjectManager(
     var selectedExpedienteId by remember { mutableStateOf<String?>(null) }
     val currentExpedientesState = rememberUpdatedState(expedientes)
     
-    // Consola de Logs
+    // Consola de Logs en Pantalla
     val debugLogs = remember { mutableStateListOf<String>() }
     val logListState = rememberLazyListState()
     
-    // Control de procesos de hidratación activos para no duplicar
-    val activeHydrations = remember { mutableStateSetOf<String>() }
+    // CORRECCIÓN: Control de procesos de hidratación activos (Tipo explícito)
+    var activeHydrations by remember { mutableStateOf<Set<String>>(setOf()) }
 
     fun addLog(msg: String) {
         val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        debugLogs.add("[$time] $msg")
-        if (debugLogs.size > 50) debugLogs.removeAt(0)
+        val formattedMsg = "[$time] $msg"
+        debugLogs.add(formattedMsg)
+        Log.d("GeoSIGPAC_DEBUG", msg) // También al log del sistema
+        if (debugLogs.size > 60) debugLogs.removeAt(0)
     }
 
     fun startHydrationSequence(targetExpId: String) {
         if (activeHydrations.contains(targetExpId)) return
-        activeHydrations.add(targetExpId)
+        activeHydrations = activeHydrations + targetExpId
         
         scope.launch {
-            addLog("Iniciando análisis para: $targetExpId")
-            while (true) {
-                val currentList = currentExpedientesState.value
-                val exp = currentList.find { it.id == targetExpId } ?: break
-                val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } 
-                
-                if (parcelaToHydrate == null) {
-                    addLog("Proyecto completado: $targetExpId")
-                    break
-                }
-                
-                addLog("-> Cargando recinto ${parcelaToHydrate.referencia}")
-                
-                try {
+            addLog("Iniciando secuencia para EXP: $targetExpId")
+            try {
+                while (true) {
+                    val currentList = currentExpedientesState.value
+                    val exp = currentList.find { it.id == targetExpId } ?: break
+                    val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } 
+                    
+                    if (parcelaToHydrate == null) {
+                        addLog("✓ Proyecto finalizado correctamente.")
+                        break
+                    }
+                    
+                    addLog("Consultando API para ${parcelaToHydrate.referencia}...")
+                    
                     val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                     
                     if (sigpac != null) {
-                        addLog("   [OK] Atributos Recinto: Uso ${sigpac.usoSigpac}, ${sigpac.superficie}ha")
+                        addLog("   [OK] Recinto: ${sigpac.usoSigpac} | ${sigpac.superficie} ha")
                     } else {
-                        addLog("   [AVISO] No hay respuesta de Recinto (Verifica conexión)")
+                        addLog("   [ERROR] No se recibió JSON de Recinto.")
                     }
                     
                     if (cultivo != null) {
-                        addLog("   [OK] Cultivo Declarado: Exp ${cultivo.expNum}")
+                        addLog("   [OK] Cultivo: Exp ${cultivo.expNum}")
                     } else {
-                        addLog("   [INFO] Sin cultivo declarado activo.")
+                        addLog("   [INFO] Sin cultivo declarado.")
                     }
 
-                    addLog("   Solicitando dictamen a IA...")
+                    addLog("   Generando dictamen IA...")
                     val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                     
                     val updatedList = currentExpedientesState.value.map { e ->
@@ -116,18 +118,18 @@ fun NativeProjectManager(
                         } else e
                     }
                     onUpdateExpedientes(updatedList)
-                } catch (e: Exception) {
-                    addLog("   [ERROR] Excepción: ${e.localizedMessage}")
+                    delay(400) // Evitar rate limiting
                 }
-                
-                delay(500) // Pausa de cortesía para no saturar
+            } catch (e: Exception) {
+                addLog("   [CRITICAL ERROR] ${e.message}")
+            } finally {
+                activeHydrations = activeHydrations - targetExpId
             }
-            activeHydrations.remove(targetExpId)
         }
     }
 
-    // AUTO-HIDRATACIÓN: Al cargar expedientes guardados, arranca el proceso
-    LaunchedEffect(expedientes.size) {
+    // Asegurar que al entrar se analicen proyectos pendientes
+    LaunchedEffect(expedientes) {
         expedientes.forEach { exp ->
             if (exp.parcelas.any { !it.isHydrated }) {
                 startHydrationSequence(exp.id)
@@ -137,11 +139,11 @@ fun NativeProjectManager(
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
-            val fileName = KmlParser.getFileName(context, it) ?: "Proyecto_${System.currentTimeMillis()}"
+            val fileName = KmlParser.getFileName(context, it) ?: "Expediente"
             addLog("Archivo: $fileName")
             val parcelas = KmlParser.parseUri(context, it)
             if (parcelas.isNotEmpty()) {
-                addLog("Cartografía: ${parcelas.size} recintos detectados")
+                addLog("Parseo KML OK: ${parcelas.size} recintos")
                 val newExp = NativeExpediente(
                     id = UUID.randomUUID().toString(),
                     titular = fileName.substringBeforeLast("."),
@@ -149,9 +151,8 @@ fun NativeProjectManager(
                     parcelas = parcelas
                 )
                 onUpdateExpedientes(listOf(newExp) + expedientes)
-                startHydrationSequence(newExp.id)
             } else {
-                addLog("[ERROR] KML vacío o corrupto.")
+                addLog("[ERROR] No se detectaron recintos en el archivo.")
             }
         }
     }
@@ -166,58 +167,43 @@ fun NativeProjectManager(
     } else {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             CenterAlignedTopAppBar(
-                title = { Text("ESTACIÓN DE TRABAJO", fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = 2.sp, color = MaterialTheme.colorScheme.onSurface) },
+                title = { Text("GESTIÓN TÉCNICA", fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = 2.sp) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
 
             Box(
-                modifier = Modifier.padding(20.dp).fillMaxWidth().height(120.dp).clip(RoundedCornerShape(32.dp))
+                modifier = Modifier.padding(20.dp).fillMaxWidth().height(100.dp).clip(RoundedCornerShape(24.dp))
                     .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.background)))
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(0.2f), RoundedCornerShape(32.dp))
+                    .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(24.dp))
                     .clickable { filePicker.launch("*/*") },
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88), modifier = Modifier.size(32.dp))
-                    Spacer(Modifier.height(8.dp))
-                    Text("IMPORTAR CARTOGRAFÍA", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                    Text("KML o KMZ de inspección", color = Color.Gray, fontSize = 10.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.UploadFile, null, tint = Color(0xFF00FF88))
+                    Spacer(Modifier.width(12.dp))
+                    Text("IMPORTAR KML / KMZ", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
                 }
             }
 
-            Text("PROYECTOS ACTIVOS", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Gray)
+            Text("PROYECTOS", modifier = Modifier.padding(horizontal = 24.dp), fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Gray)
 
             LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(expedientes, key = { it.id }) { exp ->
-                    ProjectListItem(
-                        exp = exp, 
-                        onSelect = { selectedExpedienteId = exp.id }, 
-                        onDelete = { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) }
-                    )
-                }
-                
-                if (expedientes.isEmpty()) {
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                            Text("No hay proyectos cargados", color = Color.Gray, fontSize = 12.sp)
-                        }
-                    }
+                    ProjectListItem(exp, { selectedExpedienteId = exp.id }, { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) })
                 }
             }
 
-            // TERMINAL DE DEPUREACIÓN
+            // TERMINAL DE DEPUREACIÓN MEJORADA
             Card(
-                modifier = Modifier.fillMaxWidth().height(160.dp).padding(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0D0D0D)),
+                modifier = Modifier.fillMaxWidth().height(200.dp).padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black),
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.dp, Color.White.copy(0.1f))
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("RED Y PROCESOS", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        IconButton(onClick = { debugLogs.clear() }, modifier = Modifier.size(20.dp)) {
-                            Icon(Icons.Default.DeleteSweep, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
-                        }
+                        Text("SISTEMA DE EVENTOS", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text("${activeHydrations.size} hilos activos", color = Color.Gray, fontSize = 8.sp)
                     }
                     Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical = 4.dp))
                     LazyColumn(state = logListState, modifier = Modifier.fillMaxSize()) {
@@ -226,8 +212,7 @@ fun NativeProjectManager(
                                 text = log, 
                                 color = if (log.contains("[ERROR]")) Color(0xFFFF5252) else if (log.contains("[OK]")) Color(0xFF00FF88) else Color.LightGray,
                                 fontSize = 10.sp, 
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(vertical = 1.dp)
+                                fontFamily = FontFamily.Monospace
                             )
                         }
                     }
@@ -241,39 +226,26 @@ fun NativeProjectManager(
 fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () -> Unit) {
     val hydratedCount = exp.parcelas.count { it.isHydrated }
     val progress = if (exp.parcelas.isEmpty()) 0f else hydratedCount.toFloat() / exp.parcelas.size
-    val animatedProgress by animateFloatAsState(targetValue = progress, label = "progress")
+    val animatedProgress by animateFloatAsState(targetValue = progress)
 
     Card(
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth().clickable { onSelect() },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(0.1f))
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.White.copy(0.05f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(36.dp).background(Color(0xFF00FF88).copy(0.1f), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.FolderOpen, null, tint = Color(0xFF00FF88), modifier = Modifier.size(18.dp))
-                }
+                Icon(Icons.Default.Folder, null, tint = Color(0xFF00FF88), modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(exp.titular, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text("${exp.parcelas.size} recintos", color = Color.Gray, fontSize = 10.sp)
                 }
-                IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.DeleteOutline, null, tint = Color.Gray.copy(0.4f), modifier = Modifier.size(18.dp)) }
+                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.Gray.copy(0.3f), modifier = Modifier.size(18.dp)) }
             }
-            
-            Spacer(Modifier.height(12.dp))
-            
-            LinearProgressIndicator(
-                progress = { animatedProgress },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-                color = if (progress == 1f) Color(0xFF00FF88) else MaterialTheme.colorScheme.primary,
-                trackColor = Color.White.copy(0.05f)
-            )
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(if(progress == 1f) "Sincronizado" else "Sincronizando...", color = if(progress == 1f) Color(0xFF00FF88) else Color.Gray, fontSize = 9.sp)
-                Text("${(progress * 100).toInt()}%", color = MaterialTheme.colorScheme.onSurface, fontSize = 10.sp, fontWeight = FontWeight.Black)
-            }
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(2.dp), color = Color(0xFF00FF88), trackColor = Color.White.copy(0.05f))
         }
     }
 }
@@ -286,7 +258,7 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (D
         topBar = {
             TopAppBar(
                 title = { Text(exp.titular, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBackIosNew, null) } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
@@ -307,25 +279,25 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, if(parcela.isHydrated) Color(0xFF00FF88).copy(0.2f) else MaterialTheme.colorScheme.outline.copy(0.1f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, if(parcela.isHydrated) Color(0xFF00FF88).copy(0.2f) else Color.White.copy(0.05f))
     ) {
         Column {
             Row(
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if(parcela.isHydrated) Color(0xFF00FF88) else Color(0xFFFFD700)))
+                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(if(parcela.isHydrated) Color(0xFF00FF88) else Color.Yellow))
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(parcela.referencia, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                    if (isLoading) Text("Pendiente...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp)
+                    Text(parcela.referencia, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                    if (isLoading) Text("Sincronizando...", color = Color.Gray, fontSize = 10.sp)
                 }
                 if (!isLoading) {
-                    IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.PhotoCamera, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) }
+                    IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.PhotoCamera, null, tint = Color.Gray, modifier = Modifier.size(18.dp)) }
                 } else {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.secondary)
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.Yellow)
                 }
             }
 
@@ -335,38 +307,27 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                         Row {
                             Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(parcela.informeIA ?: "Sin datos IA", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, lineHeight = 14.sp)
+                            Text(parcela.informeIA ?: "Sin análisis", fontSize = 11.sp, lineHeight = 14.sp)
                         }
                     }
-                    
                     Spacer(Modifier.height(12.dp))
-                    
-                    Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("SIGPAC", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("SIGPAC", color = Color.Yellow, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                             DataField("USO", parcela.sigpacInfo?.usoSigpac ?: "-")
                             DataField("AREA", "${parcela.sigpacInfo?.superficie ?: "-"} ha")
                             DataField("PEND", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %")
-                            DataField("ALT", "${parcela.sigpacInfo?.altitud ?: "-"} m")
                         }
-                        Divider(modifier = Modifier.fillMaxHeight().width(1.dp).padding(horizontal = 12.dp), color = Color.White.copy(0.05f))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("CULTIVO", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("CULTIVO", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                             DataField("PRODUCTO", parcela.cultivoInfo?.parcProducto?.toString() ?: "-")
                             DataField("SISTEMA", parcela.cultivoInfo?.parcSistexp ?: "-")
-                            DataField("SUP CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
                             DataField("AYUDA", parcela.cultivoInfo?.parcAyudasol ?: "-")
                         }
                     }
-                    
                     Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { onLocate(parcela.lat, parcela.lng) },
-                        modifier = Modifier.fillMaxWidth().height(40.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(0.1f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("VISOR SIGPAC", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Button(onClick = { onLocate(parcela.lat, parcela.lng) }, modifier = Modifier.fillMaxWidth().height(36.dp), shape = RoundedCornerShape(8.dp)) {
+                        Text("VER EN MAPA", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -376,8 +337,8 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
 @Composable
 fun DataField(label: String, value: String) {
-    Column(modifier = Modifier.padding(vertical = 3.dp)) {
+    Column(modifier = Modifier.padding(vertical = 2.dp)) {
         Text(label, color = Color.Gray, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(value, fontWeight = FontWeight.Bold, fontSize = 11.sp)
     }
 }
