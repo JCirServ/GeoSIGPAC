@@ -74,7 +74,7 @@ import java.util.Locale
 private const val TAG = "GeoSIGPAC_LOG_Map"
 private const val SOURCE_KML_ID = "kml-project-source"
 private const val LAYER_KML_FILL = "kml-project-layer-fill"
-private const val LAYER_KML_OUTLINE = "kml-project-layer-outline"
+private const val LAYER_KML_LINE = "kml-project-layer-line"
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -177,31 +177,43 @@ fun NativeMap(
         val map = mapInstance ?: return
         val style = map.style ?: return
 
-        if (style.getLayer(LAYER_KML_OUTLINE) != null) style.removeLayer(LAYER_KML_OUTLINE)
+        // Limpiar capas anteriores
+        if (style.getLayer(LAYER_KML_LINE) != null) style.removeLayer(LAYER_KML_LINE)
         if (style.getLayer(LAYER_KML_FILL) != null) style.removeLayer(LAYER_KML_FILL)
         if (style.getSource(SOURCE_KML_ID) != null) style.removeSource(SOURCE_KML_ID)
 
         if (project == null || project.parcelas.isEmpty()) return
 
-        // Convertimos NativeParcela (lat/lng) a GeoJSON Points
-        // Nota: Si NativeParcela tuviera geometría compleja, la usaríamos aquí.
+        // Convertir parcelas a Features GeoJSON
         val features = project.parcelas.map { parcela ->
-             Feature.fromGeometry(Point.fromLngLat(parcela.lng, parcela.lat))
+            if (parcela.geometry != null) {
+                Feature.fromJson(parcela.geometry)
+            } else {
+                // Fallback a Punto si no hay geometría compleja
+                Feature.fromGeometry(Point.fromLngLat(parcela.lng, parcela.lat))
+            }
         }
 
         val source = GeoJsonSource(SOURCE_KML_ID, FeatureCollection.fromFeatures(features))
         style.addSource(source)
 
-        // Capa de puntos (Círculos) para representar las parcelas del proyecto
-        val circleLayer = CircleLayer(LAYER_KML_FILL, SOURCE_KML_ID).apply {
+        // 1. Capa de Relleno (Polígonos Azules Semi-transparentes)
+        val fillLayer = FillLayer(LAYER_KML_FILL, SOURCE_KML_ID).apply {
             setProperties(
-                PropertyFactory.circleColor(Color(0xFF2196F3).toArgb()), // Azul Proyecto
-                PropertyFactory.circleRadius(6f),
-                PropertyFactory.circleStrokeWidth(2f),
-                PropertyFactory.circleStrokeColor(Color.White.toArgb())
+                PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), // Azul
+                PropertyFactory.fillOpacity(0.4f)
             )
         }
-        style.addLayer(circleLayer)
+        style.addLayer(fillLayer)
+
+        // 2. Capa de Línea (Borde Blanco/Azul Claro)
+        val lineLayer = LineLayer(LAYER_KML_LINE, SOURCE_KML_ID).apply {
+            setProperties(
+                PropertyFactory.lineColor(Color(0xFF64B5F6).toArgb()), // Azul claro
+                PropertyFactory.lineWidth(2f)
+            )
+        }
+        style.addLayer(lineLayer)
     }
 
     // --- GESTIÓN ROBUSTA DEL CICLO DE VIDA ---

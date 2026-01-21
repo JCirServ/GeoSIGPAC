@@ -10,6 +10,8 @@ import org.w3c.dom.NodeList
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlin.math.max
+import kotlin.math.min
 
 object KmlParser {
 
@@ -51,7 +53,6 @@ object KmlParser {
         var entry = zis.nextEntry
         while (entry != null) {
             if (entry.name.endsWith(".kml", true)) {
-                // No cerramos zis aquí porque parseKml lo consumirá
                 return parseKml(zis)
             }
             entry = zis.nextEntry
@@ -71,7 +72,7 @@ object KmlParser {
                 val element = placemarks.item(i) as Element
                 val metadata = mutableMapOf<String, String>()
 
-                // 1. Extraer ExtendedData (Campos SIGPAC)
+                // 1. Extraer ExtendedData
                 val extendedDataList = element.getElementsByTagName("ExtendedData")
                 if (extendedDataList.length > 0) {
                     val dataNodes = (extendedDataList.item(0) as Element).getElementsByTagName("Data")
@@ -83,41 +84,96 @@ object KmlParser {
                     }
                 }
 
-                // 2. Extraer Coordenadas
-                var lat = 0.0
-                var lng = 0.0
-                val coordsNodes = element.getElementsByTagName("coordinates")
-                if (coordsNodes.length > 0) {
-                    val coordsText = coordsNodes.item(0).textContent.trim()
-                    val rawCoords = coordsText.split("\\s+".toRegex())
-                    if (rawCoords.isNotEmpty()) {
-                        val firstPoint = rawCoords[0].split(",")
-                        if (firstPoint.size >= 2) {
-                            lng = firstPoint[0].toDoubleOrNull() ?: 0.0
-                            lat = firstPoint[1].toDoubleOrNull() ?: 0.0
+                // 2. Extraer Geometría (Polygon o Point)
+                var latCentroid = 0.0
+                var lngCentroid = 0.0
+                var geometryJson: String? = null
+
+                // Intentar buscar Polygon
+                val polygonNodes = element.getElementsByTagName("Polygon")
+                if (polygonNodes.length > 0) {
+                    val polygon = polygonNodes.item(0) as Element
+                    val outerBoundary = polygon.getElementsByTagName("outerBoundaryIs").item(0) as? Element
+                    val linearRing = outerBoundary?.getElementsByTagName("LinearRing")?.item(0) as? Element
+                    val coordsNode = linearRing?.getElementsByTagName("coordinates")?.item(0)
+
+                    if (coordsNode != null) {
+                        val coordsText = coordsNode.textContent.trim()
+                        val points = parseCoordinates(coordsText)
+                        
+                        if (points.isNotEmpty()) {
+                            // Calcular Centroide
+                            var sumLat = 0.0
+                            var sumLng = 0.0
+                            points.forEach {
+                                sumLng += it.first
+                                sumLat += it.second
+                            }
+                            latCentroid = sumLat / points.size
+                            lngCentroid = sumLng / points.size
+
+                            // Construir GeoJSON Polygon String
+                            val coordsString = points.joinToString(",") { "[${it.first},${it.second}]" }
+                            geometryJson = "{ \"type\": \"Polygon\", \"coordinates\": [[$coordsString]] }"
+                        }
+                    }
+                } 
+
+                // Si no hay polígono, buscar Point (fallback)
+                if (geometryJson == null) {
+                    val pointNodes = element.getElementsByTagName("Point")
+                    if (pointNodes.length > 0) {
+                        val coordsNode = (pointNodes.item(0) as Element).getElementsByTagName("coordinates").item(0)
+                        if (coordsNode != null) {
+                            val rawCoords = coordsNode.textContent.trim().split(",")
+                            if (rawCoords.size >= 2) {
+                                lngCentroid = rawCoords[0].toDoubleOrNull() ?: 0.0
+                                latCentroid = rawCoords[1].toDoubleOrNull() ?: 0.0
+                                geometryJson = "{ \"type\": \"Point\", \"coordinates\": [$lngCentroid, $latCentroid] }"
+                            }
                         }
                     }
                 }
 
-                // 3. Crear el objeto y LIMPIAR PUNTOS de la referencia
+                // 3. Crear Objeto
                 val rawRef = metadata["Ref_SigPac"] ?: metadata["ID"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
                 val refSigPac = rawRef.replace(".", "")
                 
-                parcelas.add(
-                    NativeParcela(
-                        id = "p_${System.currentTimeMillis()}_$i",
-                        referencia = refSigPac,
-                        uso = metadata["USO_SIGPAC"] ?: metadata["USO"] ?: "N/D",
-                        lat = lat,
-                        lng = lng,
-                        area = metadata["DN_SURFACE"]?.toDoubleOrNull() ?: metadata["Superficie"]?.toDoubleOrNull() ?: 0.0,
-                        metadata = metadata
+                if (latCentroid != 0.0 || lngCentroid != 0.0) {
+                    parcelas.add(
+                        NativeParcela(
+                            id = "p_${System.currentTimeMillis()}_$i",
+                            referencia = refSigPac,
+                            uso = metadata["USO_SIGPAC"] ?: metadata["USO"] ?: "N/D",
+                            lat = latCentroid,
+                            lng = lngCentroid,
+                            geometry = geometryJson,
+                            area = metadata["DN_SURFACE"]?.toDoubleOrNull() ?: metadata["Superficie"]?.toDoubleOrNull() ?: 0.0,
+                            metadata = metadata
+                        )
                     )
-                )
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
         return parcelas
+    }
+
+    private fun parseCoordinates(text: String): List<Pair<Double, Double>> {
+        val list = mutableListOf<Pair<Double, Double>>()
+        // KML coordinates: lon,lat,alt (space separated tuples)
+        val tuples = text.trim().split("\\s+".toRegex())
+        for (tuple in tuples) {
+            val parts = tuple.split(",")
+            if (parts.size >= 2) {
+                val lon = parts[0].toDoubleOrNull()
+                val lat = parts[1].toDoubleOrNull()
+                if (lon != null && lat != null) {
+                    list.add(Pair(lon, lat))
+                }
+            }
+        }
+        return list
     }
 }
