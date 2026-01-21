@@ -14,18 +14,19 @@ object SigpacApiService {
 
     suspend fun fetchHydration(referencia: String): Pair<SigpacData?, CultivoData?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-")
+        // Formato esperado: Prov:Mun:Ag:Zo:Pol:Parc:Rec
         val prov = parts.getOrNull(0) ?: ""
         val mun = parts.getOrNull(1) ?: ""
         val ag = if (parts.size >= 7) parts[2] else "0"
         val zo = if (parts.size >= 7) parts[3] else "0"
-        val pol = parts.getOrNull(parts.size - 3) ?: ""
-        val parc = parts.getOrNull(parts.size - 2) ?: ""
-        val rec = parts.getOrNull(parts.size - 1) ?: ""
+        val pol = if (parts.size >= 7) parts[4] else (parts.getOrNull(parts.size - 3) ?: "")
+        val parc = if (parts.size >= 7) parts[5] else (parts.getOrNull(parts.size - 2) ?: "")
+        val rec = if (parts.size >= 7) parts[6] else (parts.getOrNull(parts.size - 1) ?: "")
 
-        // NUEVO ENDPOINT SOLICITADO (JSON COMPLETO)
+        // 1. CONSULTA RECINTO (JSON DETALLADO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
         
-        // Mantener OGC para datos de cultivo declarado (es la fuente más fiable para PAC)
+        // 2. CONSULTA CULTIVO DECLARADO (OGC API)
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
@@ -35,13 +36,6 @@ object SigpacApiService {
                 if (array.length() > 0) {
                     val props = array.getJSONObject(0)
                     SigpacData(
-                        provincia = props.optInt("provincia"),
-                        municipio = props.optInt("municipio"),
-                        agregado = props.optInt("agregado"),
-                        zona = props.optInt("zona"),
-                        poligono = props.optInt("poligono"),
-                        parcela = props.optInt("parcela"),
-                        recinto = props.optInt("recinto"),
                         superficie = if (props.isNull("superficie")) null else props.optDouble("superficie"),
                         pendienteMedia = if (props.isNull("pendiente_media")) null else props.optDouble("pendiente_media"),
                         coefRegadio = if (props.isNull("coef_regadio")) null else props.optDouble("coef_regadio"),
@@ -49,8 +43,7 @@ object SigpacApiService {
                         incidencias = props.optString("incidencias")?.replace("[", "")?.replace("]", "")?.replace("\"", ""),
                         usoSigpac = props.optString("uso_sigpac"),
                         region = props.optString("region"),
-                        altitud = if (props.isNull("altitud")) null else props.optInt("altitud"),
-                        srid = if (props.isNull("srid")) null else props.optInt("srid")
+                        altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                     )
                 } else null
             } catch (e: Exception) { null }
@@ -64,14 +57,14 @@ object SigpacApiService {
                     val props = features.getJSONObject(0).getJSONObject("properties")
                     CultivoData(
                         expNum = props.optString("exp_num"),
-                        producto = if (props.isNull("parc_producto")) null else props.optInt("parc_producto"),
-                        sistExp = props.optString("parc_sistexp"),
-                        supCult = if (props.isNull("parc_supcult")) null else props.optDouble("parc_supcult"),
-                        ayudaSol = props.optString("parc_ayudasol"),
+                        parcProducto = if (props.isNull("parc_producto")) null else props.optInt("parc_producto"),
+                        parcSistexp = props.optString("parc_sistexp"),
+                        parcSupcult = if (props.isNull("parc_supcult")) null else props.optDouble("parc_supcult"),
+                        parcAyudasol = props.optString("parc_ayudasol"),
                         pdrRec = props.optString("pdr_rec"),
-                        cultSecunProducto = if (props.isNull("cultsecun_producto")) null else props.optInt("cultsecun_producto"),
-                        cultSecunAyudaSol = props.optString("cultsecun_ayudasol"),
-                        indCultApro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
+                        cultsecunProducto = if (props.isNull("cultsecun_producto")) null else props.optInt("cultsecun_producto"),
+                        cultsecunAyudasol = props.optString("cultsecun_ayudasol"),
+                        parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
                         tipoAprovecha = props.optString("tipo_aprovecha")
                     )
                 } else null
@@ -85,8 +78,8 @@ object SigpacApiService {
         return try {
             val url = URL(urlString)
             val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
             conn.setRequestProperty("User-Agent", "GeoSIGPAC-Mobile/1.0")
             if (conn.responseCode == 200) {
                 conn.inputStream.bufferedReader().use { it.readText() }

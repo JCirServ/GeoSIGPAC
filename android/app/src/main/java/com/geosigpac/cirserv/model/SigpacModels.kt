@@ -2,13 +2,6 @@
 package com.geosigpac.cirserv.model
 
 data class SigpacData(
-    val provincia: Int? = null,
-    val municipio: Int? = null,
-    val agregado: Int? = null,
-    val zona: Int? = null,
-    val poligono: Int? = null,
-    val parcela: Int? = null,
-    val recinto: Int? = null,
     val superficie: Double? = null,
     val pendienteMedia: Double? = null,
     val coefRegadio: Double? = null,
@@ -16,20 +9,19 @@ data class SigpacData(
     val incidencias: String? = null,
     val usoSigpac: String? = null,
     val region: String? = null,
-    val altitud: Int? = null,
-    val srid: Int? = null
+    val altitud: Int? = null
 )
 
 data class CultivoData(
     val expNum: String? = null,
-    val producto: Int? = null,
-    val sistExp: String? = null,
-    val supCult: Double? = null,
-    val ayudaSol: String? = null,
+    val parcProducto: Int? = null,
+    val parcSistexp: String? = null,
+    val parcSupcult: Double? = null,
+    val parcAyudasol: String? = null,
     val pdrRec: String? = null,
-    val cultSecunProducto: Int? = null,
-    val cultSecunAyudaSol: String? = null,
-    val indCultApro: Int? = null,
+    val cultsecunProducto: Int? = null,
+    val cultsecunAyudasol: String? = null,
+    val parcIndcultapro: Int? = null,
     val tipoAprovecha: String? = null
 )
 

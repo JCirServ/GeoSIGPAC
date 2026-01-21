@@ -58,6 +58,7 @@ fun NativeProjectManager(
                 val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                 val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                 
+                // CRÍTICO: Creamos una lista completamente nueva para que Compose detecte el cambio
                 val updatedList = currentExpedientesState.value.map { e ->
                     if (e.id == targetExpId) {
                         e.copy(
@@ -75,7 +76,7 @@ fun NativeProjectManager(
                     } else e
                 }
                 onUpdateExpedientes(updatedList)
-                delay(150)
+                delay(200)
             }
         }
     }
@@ -182,16 +183,6 @@ fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () ->
                 Spacer(Modifier.width(16.dp))
                 Text("${(progress * 100).toInt()}%", color = if (progress == 1f) Color(0xFF00FF88) else MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Black)
             }
-            
-            if (hydratedCount < exp.parcelas.size) {
-                Row(modifier = Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.dp, color = MaterialTheme.colorScheme.secondary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Sincronizando...", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                }
-            } else {
-                Text("Análisis completado", modifier = Modifier.padding(top = 8.dp), color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-            }
         }
     }
 }
@@ -238,18 +229,18 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(parcela.referencia, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                    if (isLoading) Text("Cargando datos...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (isLoading) Text("Sincronizando...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.secondary)
-                } else {
+                if (!isLoading) {
                     IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.PhotoCamera, null, tint = Color.Gray) }
+                } else {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.secondary)
                 }
             }
 
             if (expanded && parcela.isHydrated) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // IA Report Section
+                    // IA Section
                     Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF00FF88).copy(0.08f)).border(1.dp, Color(0xFF00FF88).copy(0.2f), RoundedCornerShape(16.dp)).padding(12.dp)) {
                         Row(verticalAlignment = Alignment.Top) {
                             Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
@@ -260,35 +251,42 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                     
                     Spacer(Modifier.height(16.dp))
                     
-                    // GRID TÉCNICO COMPLETO
+                    // GRID TÉCNICO EXCLUSIVO
                     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
-                        // Columna SIGPAC (Izquierda)
+                        // Columna RECINTO (Izquierda)
                         Column(modifier = Modifier.weight(1f).padding(8.dp)) {
-                            Text("ATRIB. TÉCNICOS", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            DataField("USO", parcela.sigpacInfo?.usoSigpac ?: "-", false)
-                            DataField("SUPERFICIE", "${parcela.sigpacInfo?.superficie ?: "-"} ha", false)
-                            DataField("PENDIENTE", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %", false)
-                            DataField("ALTITUD", "${parcela.sigpacInfo?.altitud ?: "-"} m", false)
-                            DataField("SRID", parcela.sigpacInfo?.srid?.toString() ?: "-", false)
-                            DataField("REGIÓN", parcela.sigpacInfo?.region ?: "-", false)
+                            Text("ATRIB. RECINTO", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            DataField("USO SIGPAC", parcela.sigpacInfo?.usoSigpac ?: "-")
+                            DataField("SUPERFICIE", "${parcela.sigpacInfo?.superficie ?: "-"} ha")
+                            DataField("PENDIENTE", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %")
+                            DataField("ALTITUD", "${parcela.sigpacInfo?.altitud ?: "-"} m")
+                            DataField("ADMISIBILIDAD", "${parcela.sigpacInfo?.admisibilidad ?: "-"}")
+                            DataField("REGIÓN", parcela.sigpacInfo?.region ?: "-")
+                            DataField("COEF. REGADÍO", "${parcela.sigpacInfo?.coefRegadio ?: "-"}")
                         }
                         
                         Divider(modifier = Modifier.fillMaxHeight().width(1.dp).padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outline.copy(0.1f))
                         
-                        // Columna Declaración (Derecha)
+                        // Columna CULTIVO (Derecha)
                         Column(modifier = Modifier.weight(1f).padding(8.dp)) {
-                            Text("ESTADO PAC", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-", false)
-                            DataField("PRODUCTO", parcela.cultivoInfo?.producto?.toString() ?: "-", false)
-                            DataField("SIST. EXP", parcela.cultivoInfo?.sistExp ?: "-", false)
-                            DataField("AYUDA", parcela.cultivoInfo?.ayudaSol ?: "-", false)
-                            DataField("REF. COMP", "${parcela.sigpacInfo?.poligono}:${parcela.sigpacInfo?.parcela}:${parcela.sigpacInfo?.recinto}", false)
+                            Text("CULTIVO DECLARADO", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-")
+                            DataField("PRODUCTO", parcela.cultivoInfo?.parcProducto?.toString() ?: "-")
+                            DataField("SIST. EXP", parcela.cultivoInfo?.parcSistexp ?: "-")
+                            DataField("SUP. CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
+                            DataField("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol ?: "-")
+                            DataField("PDR REC", parcela.cultivoInfo?.pdrRec ?: "-")
+                            DataField("PROD. SEC", parcela.cultivoInfo?.cultsecunProducto?.toString() ?: "-")
+                            DataField("IND. CULT", parcela.cultivoInfo?.parcIndcultapro?.toString() ?: "-")
+                            DataField("APROVECHA", parcela.cultivoInfo?.tipoAprovecha ?: "-")
                         }
                     }
 
                     if (!parcela.sigpacInfo?.incidencias.isNullOrEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("INCIDENCIAS: ${parcela.sigpacInfo?.incidencias}", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
+                        Spacer(Modifier.height(12.dp))
+                        Box(modifier = Modifier.fillMaxWidth().background(Color(0xFFFF5252).copy(0.1f), RoundedCornerShape(8.dp)).padding(8.dp)) {
+                            Text("INCIDENCIAS: ${parcela.sigpacInfo?.incidencias}", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     
                     Spacer(Modifier.height(16.dp))
@@ -300,7 +298,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                     ) {
                         Icon(Icons.Default.Map, null, modifier = Modifier.size(16.dp), tint = Color.Gray)
                         Spacer(Modifier.width(8.dp))
-                        Text("LOCALIZAR EN VISOR", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("VISOR SIGPAC", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -309,13 +307,9 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 }
 
 @Composable
-fun DataField(label: String, value: String, isLoading: Boolean) {
+fun DataField(label: String, value: String) {
     Column(modifier = Modifier.padding(vertical = 5.dp)) {
         Text(label, color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-        if (isLoading) {
-            Box(modifier = Modifier.width(50.dp).height(12.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(0.05f)))
-        } else {
-            Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
+        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
