@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv
 
 import android.Manifest
@@ -31,10 +32,16 @@ import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.NativeMap
 import com.geosigpac.cirserv.ui.NativeProjectManager
 import com.geosigpac.cirserv.utils.ProjectStorage
+import org.maplibre.android.MapLibre
+import org.maplibre.android.WellKnownTileServer
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Inicialización obligatoria de MapLibre antes de setContent o cualquier MapView
+        MapLibre.getInstance(this, null, WellKnownTileServer.MapLibre)
+
         enableEdgeToEdge()
 
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
