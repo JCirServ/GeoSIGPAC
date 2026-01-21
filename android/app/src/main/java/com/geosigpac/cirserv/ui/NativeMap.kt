@@ -2,7 +2,7 @@
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
-import android.graphics.RectF
+import android.graphics.PointF
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -34,9 +34,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.geosigpac.cirserv.model.NativeExpediente
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -76,7 +78,7 @@ fun NativeMap(
     var currentBaseMap by remember { mutableStateOf(BaseMap.PNOA) }
     var showRecinto by remember { mutableStateOf(true) }
     var showCultivo by remember { mutableStateOf(true) }
-    var showLayerMenu by remember { mutableStateOf(false) }
+    // var showLayerMenu by remember { mutableStateOf(false) } // Removed
     var initialLocationSet by remember { mutableStateOf(false) }
 
     // Selector de Proyecto KML
@@ -87,7 +89,7 @@ fun NativeMap(
     var searchQuery by remember { mutableStateOf("") }
     var showCustomKeyboard by remember { mutableStateOf(false) }
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
-    var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
+    // var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) } // Not used currently
     var lastDataId by remember { mutableStateOf<String?>(null) }
     var isPanelExpanded by remember { mutableStateOf(false) }
     var isLoadingData by remember { mutableStateOf(false) }
@@ -192,8 +194,54 @@ fun NativeMap(
                 initialLocationSet = true
             }
 
-            map.addOnCameraMoveListener { updateHighlightVisuals(map) }
-            map.addOnCameraIdleListener { updateDataSheet(map) }
+            // Lógica de Resaltado Visual al mover la cámara
+            map.addOnCameraMoveListener {
+                val screenPoint = map.projection.toScreenLocation(map.cameraPosition.target)
+                val features = map.queryRenderedFeatures(screenPoint, LAYER_RECINTO_FILL)
+                
+                val style = map.style
+                if (style != null) {
+                    if (features.isNotEmpty()) {
+                        val f = features[0]
+                        val prov = f.getStringProperty("provincia")
+                        val mun = f.getStringProperty("municipio")
+                        val pol = f.getStringProperty("poligono")
+                        val parc = f.getStringProperty("parcela")
+                        val rec = f.getStringProperty("recinto")
+                        
+                        if (prov != null && mun != null) {
+                            val filter = Expression.all(
+                                Expression.eq(Expression.get("provincia"), Expression.literal(prov)),
+                                Expression.eq(Expression.get("municipio"), Expression.literal(mun)),
+                                Expression.eq(Expression.get("poligono"), Expression.literal(pol)),
+                                Expression.eq(Expression.get("parcela"), Expression.literal(parc)),
+                                Expression.eq(Expression.get("recinto"), Expression.literal(rec))
+                            )
+                            style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setFilter(filter)
+                            style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setFilter(filter)
+                        }
+                    } else {
+                        val emptyFilter = Expression.literal(false)
+                        style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setFilter(emptyFilter)
+                        style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setFilter(emptyFilter)
+                    }
+                }
+            }
+
+            // Lógica de Consulta de Datos (Popup) al detener la cámara
+            map.addOnCameraIdleListener {
+                val center = map.cameraPosition.target
+                apiJob?.cancel()
+                apiJob = scope.launch {
+                    delay(150) // Debounce para no saturar
+                    try {
+                        val data = fetchFullSigpacInfo(center.latitude, center.longitude)
+                        recintoData = data
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
 
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
@@ -280,28 +328,7 @@ fun NativeMap(
             }
         }
 
-        // --- BOTONES LATERALES ---
-        Column(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu }, containerColor = Color(0xFF13141F), contentColor = Color(0xFF00FF88), shape = CircleShape) { Icon(Icons.Default.Layers, "Capas") }
-            
-            AnimatedVisibility(visible = showLayerMenu) {
-                Card(modifier = Modifier.width(180.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F))) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Mapa Base", fontSize = 10.sp, color = Color.Gray)
-                        BaseMap.values().forEach { base ->
-                            Row(modifier = Modifier.fillMaxWidth().clickable { currentBaseMap = base }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = currentBaseMap == base, onClick = { currentBaseMap = base })
-                                Text(base.title, fontSize = 12.sp, color = Color.White)
-                            }
-                        }
-                    }
-                }
-            }
-            
-            SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = Color(0xFF13141F), contentColor = Color(0xFF00FF88)) { Icon(Icons.Default.List, null) }
-            SmallFloatingActionButton(onClick = onOpenCamera, containerColor = Color(0xFF13141F), contentColor = Color(0xFF00FF88)) { Icon(Icons.Default.PhotoCamera, null) }
-            SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, true) }, containerColor = Color(0xFF00FF88), contentColor = Color.Black) { Icon(Icons.Default.MyLocation, null) }
-        }
+        // --- BOTONES LATERALES ELIMINADOS ---
 
         // --- PANEL DE INFORMACIÓN (Bottom Sheet SIGPAC) ---
         AnimatedVisibility(visible = recintoData != null && !showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
@@ -347,6 +374,3 @@ fun NativeMap(
         }
     }
 }
-
-fun updateHighlightVisuals(map: MapLibreMap) { /* Se mantiene lógica SIGPAC Magenta */ }
-fun updateDataSheet(map: MapLibreMap) { /* Se mantiene lógica de consulta API SIGPAC */ }
