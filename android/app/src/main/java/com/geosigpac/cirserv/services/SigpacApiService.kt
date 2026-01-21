@@ -1,6 +1,7 @@
 
 package com.geosigpac.cirserv.services
 
+import android.util.Log
 import com.geosigpac.cirserv.model.CultivoData
 import com.geosigpac.cirserv.model.SigpacData
 import kotlinx.coroutines.Dispatchers
@@ -15,11 +16,8 @@ object SigpacApiService {
     suspend fun fetchHydration(referencia: String): Pair<SigpacData?, CultivoData?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
-        // Lógica de mapeo flexible según el número de partes encontradas
         val prov = parts.getOrNull(0) ?: ""
         val mun = parts.getOrNull(1) ?: ""
-        
-        // Si tenemos el formato largo completo (7 partes)
         val hasCompleteFormat = parts.size >= 7
         
         val ag = if (hasCompleteFormat) parts[2] else "0"
@@ -28,10 +26,7 @@ object SigpacApiService {
         val parc = if (hasCompleteFormat) parts[5] else (parts.getOrNull(parts.size - 2) ?: "")
         val rec = if (hasCompleteFormat) parts[6] else (parts.getOrNull(parts.size - 1) ?: "")
 
-        // 1. CONSULTA RECINTO (JSON DETALLADO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
-        
-        // 2. CONSULTA CULTIVO DECLARADO (OGC API)
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
@@ -51,7 +46,10 @@ object SigpacApiService {
                         altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                     )
                 } else null
-            } catch (e: Exception) { null }
+            } catch (e: Exception) { 
+                Log.e("SIGPAC", "Error parseo Recinto: ${e.message}")
+                null 
+            }
         }
 
         val cultivo = fetchUrl(cultivoUrl)?.let { jsonStr ->
@@ -73,7 +71,10 @@ object SigpacApiService {
                         tipoAprovecha = props.optString("tipo_aprovecha")
                     )
                 } else null
-            } catch (e: Exception) { null }
+            } catch (e: Exception) { 
+                Log.e("SIGPAC", "Error parseo Cultivo: ${e.message}")
+                null 
+            }
         }
 
         Pair(sigpac, cultivo)
@@ -83,15 +84,18 @@ object SigpacApiService {
         return try {
             val url = URL(urlString)
             val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 12000 // Aumentamos timeout a 12s para estabilidad
-            conn.readTimeout = 12000
+            conn.connectTimeout = 15000
+            conn.readTimeout = 15000
             conn.setRequestProperty("User-Agent", "GeoSIGPAC-Mobile/1.0")
-            if (conn.responseCode == 200) {
+            val code = conn.responseCode
+            if (code == 200) {
                 conn.inputStream.bufferedReader().use { it.readText() }
             } else {
+                Log.e("SIGPAC", "HTTP Error $code: $urlString")
                 null
             }
         } catch (e: Exception) {
+            Log.e("SIGPAC", "Network error: ${e.message}")
             null
         }
     }

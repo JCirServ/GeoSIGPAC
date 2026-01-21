@@ -50,35 +50,53 @@ fun NativeProjectManager(
     var selectedExpedienteId by remember { mutableStateOf<String?>(null) }
     val currentExpedientesState = rememberUpdatedState(expedientes)
     
-    // Consola de Logs para depuración en el dispositivo
+    // Consola de Logs
     val debugLogs = remember { mutableStateListOf<String>() }
     val logListState = rememberLazyListState()
+    
+    // Control de procesos de hidratación activos para no duplicar
+    val activeHydrations = remember { mutableStateSetOf<String>() }
 
     fun addLog(msg: String) {
         val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         debugLogs.add("[$time] $msg")
+        if (debugLogs.size > 50) debugLogs.removeAt(0)
     }
 
     fun startHydrationSequence(targetExpId: String) {
+        if (activeHydrations.contains(targetExpId)) return
+        activeHydrations.add(targetExpId)
+        
         scope.launch {
-            addLog("Iniciando secuencia de hidratación para exp: $targetExpId")
+            addLog("Iniciando análisis para: $targetExpId")
             while (true) {
                 val currentList = currentExpedientesState.value
                 val exp = currentList.find { it.id == targetExpId } ?: break
-                val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } ?: break
+                val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } 
                 
-                addLog("-> Procesando recinto: ${parcelaToHydrate.referencia}")
+                if (parcelaToHydrate == null) {
+                    addLog("Proyecto completado: $targetExpId")
+                    break
+                }
+                
+                addLog("-> Cargando recinto ${parcelaToHydrate.referencia}")
                 
                 try {
                     val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                     
-                    if (sigpac != null) addLog("   [OK] Datos SIGPAC obtenidos (${sigpac.usoSigpac})")
-                    else addLog("   [WARN] No se obtuvo info SIGPAC para ${parcelaToHydrate.referencia}")
+                    if (sigpac != null) {
+                        addLog("   [OK] Atributos Recinto: Uso ${sigpac.usoSigpac}, ${sigpac.superficie}ha")
+                    } else {
+                        addLog("   [AVISO] No hay respuesta de Recinto (Verifica conexión)")
+                    }
                     
-                    if (cultivo != null) addLog("   [OK] Datos Cultivo obtenidos (Exp: ${cultivo.expNum})")
-                    else addLog("   [INFO] Sin cultivo declarado activo.")
+                    if (cultivo != null) {
+                        addLog("   [OK] Cultivo Declarado: Exp ${cultivo.expNum}")
+                    } else {
+                        addLog("   [INFO] Sin cultivo declarado activo.")
+                    }
 
-                    addLog("   Generando informe IA...")
+                    addLog("   Solicitando dictamen a IA...")
                     val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                     
                     val updatedList = currentExpedientesState.value.map { e ->
@@ -99,22 +117,31 @@ fun NativeProjectManager(
                     }
                     onUpdateExpedientes(updatedList)
                 } catch (e: Exception) {
-                    addLog("   [ERROR] Fallo en hidratación: ${e.message}")
+                    addLog("   [ERROR] Excepción: ${e.localizedMessage}")
                 }
                 
-                delay(300)
+                delay(500) // Pausa de cortesía para no saturar
             }
-            addLog("Hidratación finalizada para el proyecto.")
+            activeHydrations.remove(targetExpId)
+        }
+    }
+
+    // AUTO-HIDRATACIÓN: Al cargar expedientes guardados, arranca el proceso
+    LaunchedEffect(expedientes.size) {
+        expedientes.forEach { exp ->
+            if (exp.parcelas.any { !it.isHydrated }) {
+                startHydrationSequence(exp.id)
+            }
         }
     }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
-            val fileName = KmlParser.getFileName(context, it) ?: "Nuevo Proyecto"
-            addLog("Archivo seleccionado: $fileName")
+            val fileName = KmlParser.getFileName(context, it) ?: "Proyecto_${System.currentTimeMillis()}"
+            addLog("Archivo: $fileName")
             val parcelas = KmlParser.parseUri(context, it)
             if (parcelas.isNotEmpty()) {
-                addLog("KML parseado correctamente: ${parcelas.size} recintos")
+                addLog("Cartografía: ${parcelas.size} recintos detectados")
                 val newExp = NativeExpediente(
                     id = UUID.randomUUID().toString(),
                     titular = fileName.substringBeforeLast("."),
@@ -124,7 +151,7 @@ fun NativeProjectManager(
                 onUpdateExpedientes(listOf(newExp) + expedientes)
                 startHydrationSequence(newExp.id)
             } else {
-                addLog("[ERROR] El KML no contiene geometrías o recintos válidos.")
+                addLog("[ERROR] KML vacío o corrupto.")
             }
         }
     }
@@ -143,19 +170,18 @@ fun NativeProjectManager(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
 
-            // Botón de Importación
             Box(
-                modifier = Modifier.padding(20.dp).fillMaxWidth().height(140.dp).clip(RoundedCornerShape(32.dp))
+                modifier = Modifier.padding(20.dp).fillMaxWidth().height(120.dp).clip(RoundedCornerShape(32.dp))
                     .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.background)))
                     .border(1.dp, MaterialTheme.colorScheme.outline.copy(0.2f), RoundedCornerShape(32.dp))
                     .clickable { filePicker.launch("*/*") },
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88), modifier = Modifier.size(36.dp))
-                    Spacer(Modifier.height(12.dp))
-                    Text("IMPORTAR CARTOGRAFÍA KML", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                    Text("Análisis técnico inmediato", color = Color.Gray, fontSize = 10.sp)
+                    Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88), modifier = Modifier.size(32.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("IMPORTAR CARTOGRAFÍA", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                    Text("KML o KMZ de inspección", color = Color.Gray, fontSize = 10.sp)
                 }
             }
 
@@ -173,22 +199,22 @@ fun NativeProjectManager(
                 if (expedientes.isEmpty()) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                            Text("No hay proyectos activos", color = Color.Gray, fontSize = 12.sp)
+                            Text("No hay proyectos cargados", color = Color.Gray, fontSize = 12.sp)
                         }
                     }
                 }
             }
 
-            // SECCIÓN DE LOGS (Terminal de depuración)
+            // TERMINAL DE DEPUREACIÓN
             Card(
-                modifier = Modifier.fillMaxWidth().height(180.dp).padding(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Black),
+                modifier = Modifier.fillMaxWidth().height(160.dp).padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0D0D0D)),
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.dp, Color.White.copy(0.1f))
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("CONSOLA DE EVENTOS (DEBUG)", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("RED Y PROCESOS", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         IconButton(onClick = { debugLogs.clear() }, modifier = Modifier.size(20.dp)) {
                             Icon(Icons.Default.DeleteSweep, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
                         }
@@ -198,10 +224,10 @@ fun NativeProjectManager(
                         items(debugLogs.reversed()) { log ->
                             Text(
                                 text = log, 
-                                color = if (log.contains("[ERROR]")) Color.Red else if (log.contains("[OK]")) Color(0xFF00FF88) else Color.LightGray,
+                                color = if (log.contains("[ERROR]")) Color(0xFFFF5252) else if (log.contains("[OK]")) Color(0xFF00FF88) else Color.LightGray,
                                 fontSize = 10.sp, 
                                 fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(vertical = 2.dp)
+                                modifier = Modifier.padding(vertical = 1.dp)
                             )
                         }
                     }
@@ -223,34 +249,30 @@ fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () ->
         shape = RoundedCornerShape(24.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(0.1f))
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(40.dp).background(Color(0xFF00FF88).copy(0.1f), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.FolderOpen, null, tint = Color(0xFF00FF88), modifier = Modifier.size(20.dp))
+                Box(modifier = Modifier.size(36.dp).background(Color(0xFF00FF88).copy(0.1f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.FolderOpen, null, tint = Color(0xFF00FF88), modifier = Modifier.size(18.dp))
                 }
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(exp.titular, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 11.sp)
+                    Text(exp.titular, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("${exp.parcelas.size} recintos", color = Color.Gray, fontSize = 10.sp)
                 }
-                IconButton(onClick = onDelete) { Icon(Icons.Default.DeleteOutline, null, tint = Color.Gray.copy(0.4f)) }
+                IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.DeleteOutline, null, tint = Color.Gray.copy(0.4f), modifier = Modifier.size(18.dp)) }
             }
             
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
             
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("HIDRATACIÓN SIGPAC", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { animatedProgress },
-                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                        color = if (progress == 1f) Color(0xFF00FF88) else MaterialTheme.colorScheme.secondary,
-                        trackColor = Color.White.copy(0.05f)
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Text("${(progress * 100).toInt()}%", color = if (progress == 1f) Color(0xFF00FF88) else MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Black)
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = if (progress == 1f) Color(0xFF00FF88) else MaterialTheme.colorScheme.primary,
+                trackColor = Color.White.copy(0.05f)
+            )
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(if(progress == 1f) "Sincronizado" else "Sincronizando...", color = if(progress == 1f) Color(0xFF00FF88) else Color.Gray, fontSize = 9.sp)
+                Text("${(progress * 100).toInt()}%", color = MaterialTheme.colorScheme.onSurface, fontSize = 10.sp, fontWeight = FontWeight.Black)
             }
         }
     }
@@ -286,7 +308,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, if(parcela.isHydrated) Color(0xFF00FF88).copy(0.2f) else MaterialTheme.colorScheme.outline.copy(0.1f))
     ) {
         Column {
@@ -294,79 +316,56 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if(parcela.isHydrated) Color(0xFF00FF88) else Color(0xFFFFD700)))
+                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if(parcela.isHydrated) Color(0xFF00FF88) else Color(0xFFFFD700)))
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(parcela.referencia, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                    if (isLoading) Text("Sincronizando...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (isLoading) Text("Pendiente...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp)
                 }
                 if (!isLoading) {
-                    IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.PhotoCamera, null, tint = Color.Gray) }
+                    IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.PhotoCamera, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) }
                 } else {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.secondary)
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.secondary)
                 }
             }
 
             if (expanded && parcela.isHydrated) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // IA Section
-                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF00FF88).copy(0.08f)).border(1.dp, Color(0xFF00FF88).copy(0.2f), RoundedCornerShape(16.dp)).padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.Top) {
-                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(10.dp))
-                            Text(parcela.informeIA ?: "Evaluando...", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium, lineHeight = 16.sp)
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF00FF88).copy(0.08f)).padding(10.dp)) {
+                        Row {
+                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(parcela.informeIA ?: "Sin datos IA", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, lineHeight = 14.sp)
                         }
                     }
                     
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(12.dp))
                     
-                    // GRID TÉCNICO EXCLUSIVO
                     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
-                        // Columna RECINTO (Izquierda)
-                        Column(modifier = Modifier.weight(1f).padding(8.dp)) {
-                            Text("ATRIB. RECINTO", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            DataField("USO SIGPAC", parcela.sigpacInfo?.usoSigpac ?: "-")
-                            DataField("SUPERFICIE", "${parcela.sigpacInfo?.superficie ?: "-"} ha")
-                            DataField("PENDIENTE", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %")
-                            DataField("ALTITUD", "${parcela.sigpacInfo?.altitud ?: "-"} m")
-                            DataField("ADMISIBILIDAD", "${parcela.sigpacInfo?.admisibilidad ?: "-"}")
-                            DataField("REGIÓN", parcela.sigpacInfo?.region ?: "-")
-                            DataField("COEF. REGADÍO", "${parcela.sigpacInfo?.coefRegadio ?: "-"}")
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("SIGPAC", color = Color(0xFFFBBF24), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            DataField("USO", parcela.sigpacInfo?.usoSigpac ?: "-")
+                            DataField("AREA", "${parcela.sigpacInfo?.superficie ?: "-"} ha")
+                            DataField("PEND", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %")
+                            DataField("ALT", "${parcela.sigpacInfo?.altitud ?: "-"} m")
                         }
-                        
-                        Divider(modifier = Modifier.fillMaxHeight().width(1.dp).padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outline.copy(0.1f))
-                        
-                        // Columna CULTIVO (Derecha)
-                        Column(modifier = Modifier.weight(1f).padding(8.dp)) {
-                            Text("CULTIVO DECLARADO", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-")
+                        Divider(modifier = Modifier.fillMaxHeight().width(1.dp).padding(horizontal = 12.dp), color = Color.White.copy(0.05f))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("CULTIVO", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             DataField("PRODUCTO", parcela.cultivoInfo?.parcProducto?.toString() ?: "-")
-                            DataField("SIST. EXP", parcela.cultivoInfo?.parcSistexp ?: "-")
-                            DataField("SUP. CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
-                            DataField("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol ?: "-")
-                            DataField("PDR REC", parcela.cultivoInfo?.pdrRec ?: "-")
-                            DataField("PROD. SEC", parcela.cultivoInfo?.cultsecunProducto?.toString() ?: "-")
-                            DataField("IND. CULT", parcela.cultivoInfo?.parcIndcultapro?.toString() ?: "-")
-                            DataField("APROVECHA", parcela.cultivoInfo?.tipoAprovecha ?: "-")
-                        }
-                    }
-
-                    if (!parcela.sigpacInfo?.incidencias.isNullOrEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        Box(modifier = Modifier.fillMaxWidth().background(Color(0xFFFF5252).copy(0.1f), RoundedCornerShape(8.dp)).padding(8.dp)) {
-                            Text("INCIDENCIAS: ${parcela.sigpacInfo?.incidencias}", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            DataField("SISTEMA", parcela.cultivoInfo?.parcSistexp ?: "-")
+                            DataField("SUP CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
+                            DataField("AYUDA", parcela.cultivoInfo?.parcAyudasol ?: "-")
                         }
                     }
                     
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = { onLocate(parcela.lat, parcela.lng) },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(0.1f)),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Map, null, modifier = Modifier.size(16.dp), tint = Color.Gray)
-                        Spacer(Modifier.width(8.dp))
                         Text("VISOR SIGPAC", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
@@ -377,8 +376,8 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
 
 @Composable
 fun DataField(label: String, value: String) {
-    Column(modifier = Modifier.padding(vertical = 5.dp)) {
-        Text(label, color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    Column(modifier = Modifier.padding(vertical = 3.dp)) {
+        Text(label, color = Color.Gray, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
