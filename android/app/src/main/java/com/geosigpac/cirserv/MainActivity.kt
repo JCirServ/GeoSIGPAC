@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFF00FF88),
                     secondary = Color(0xFF62D2FF),
                     surface = Color(0xFF2D3033),
-                    background = Color(0xFF1A1C1E),
+                    background = Color(0xFF1A1C1E), // Charcoal Dark
                     onSurface = Color(0xFFE2E2E6),
                     outline = Color(0xFF44474B)
                 )
@@ -66,12 +66,16 @@ fun GeoSigpacApp() {
     var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    
+    // Estado principal de expedientes con persistencia
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
     
+    // Carga inicial
     LaunchedEffect(Unit) {
         expedientes = ProjectStorage.loadExpedientes(context)
     }
 
+    // Persistencia automática ante cualquier cambio (incluyendo hidratación)
     LaunchedEffect(expedientes) {
         ProjectStorage.saveExpedientes(context, expedientes)
     }
