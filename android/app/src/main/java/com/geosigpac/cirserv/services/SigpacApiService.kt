@@ -28,12 +28,12 @@ object SigpacApiService {
         val parc = if (hasCompleteFormat) parts[5] else (parts.getOrNull(parts.size - 2) ?: "")
         val rec = if (hasCompleteFormat) parts[6] else (parts.getOrNull(parts.size - 1) ?: "")
 
+        // 1. CONSULTA RECINTO (JSON DETALLADO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
+        
+        // 2. CONSULTA CULTIVO DECLARADO (OGC API)
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
-
-        Log.d(TAG, "Fetching Recinfo: $recintoUrl")
-        Log.d(TAG, "Fetching Cultivo: $cultivoUrl")
 
         val sigpac = fetchUrl(recintoUrl)?.let { jsonStr ->
             try {
@@ -50,14 +50,8 @@ object SigpacApiService {
                         region = props.optString("region"),
                         altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                     )
-                } else {
-                    Log.w(TAG, "Recinfo empty for $referencia")
-                    null
-                }
-            } catch (e: Exception) { 
-                Log.e(TAG, "Parse error Recinfo: ${e.message}")
-                null 
-            }
+                } else null
+            } catch (e: Exception) { null }
         }
 
         val cultivo = fetchUrl(cultivoUrl)?.let { jsonStr ->
@@ -78,14 +72,8 @@ object SigpacApiService {
                         parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
                         tipoAprovecha = props.optString("tipo_aprovecha")
                     )
-                } else {
-                    Log.w(TAG, "Cultivo empty for $referencia")
-                    null
-                }
-            } catch (e: Exception) { 
-                Log.e(TAG, "Parse error Cultivo: ${e.message}")
-                null 
-            }
+                } else null
+            } catch (e: Exception) { null }
         }
 
         Pair(sigpac, cultivo)
@@ -95,19 +83,12 @@ object SigpacApiService {
         return try {
             val url = URL(urlString)
             val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 15000
-            conn.readTimeout = 15000
+            conn.connectTimeout = 12000
+            conn.readTimeout = 12000
             conn.setRequestProperty("User-Agent", "GeoSIGPAC-Mobile/1.0")
-            val code = conn.responseCode
-            if (code == 200) {
+            if (conn.responseCode == 200) {
                 conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                Log.e(TAG, "HTTP Error $code for URL: $urlString")
-                null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Network failure: ${e.message} for $urlString")
-            null
-        }
+            } else null
+        } catch (e: Exception) { null }
     }
 }
