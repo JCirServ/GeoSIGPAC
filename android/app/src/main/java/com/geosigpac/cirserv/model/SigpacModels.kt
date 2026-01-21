@@ -36,8 +36,7 @@ data class NativeParcela(
     val sigpacInfo: SigpacData? = null,
     val cultivoInfo: CultivoData? = null,
     val informeIA: String? = null,
-    val isHydrated: Boolean = false,
-    val geometry: List<List<Double>>? = null // Lista de puntos [lng, lat] para el polígono
+    val isHydrated: Boolean = false
 )
 
 data class NativeExpediente(

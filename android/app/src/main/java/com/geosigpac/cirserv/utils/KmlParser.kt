@@ -51,6 +51,7 @@ object KmlParser {
         var entry = zis.nextEntry
         while (entry != null) {
             if (entry.name.endsWith(".kml", true)) {
+                // No cerramos zis aquí porque parseKml lo consumirá
                 return parseKml(zis)
             }
             entry = zis.nextEntry
@@ -70,7 +71,7 @@ object KmlParser {
                 val element = placemarks.item(i) as Element
                 val metadata = mutableMapOf<String, String>()
 
-                // ExtendedData
+                // 1. Extraer ExtendedData (Campos SIGPAC)
                 val extendedDataList = element.getElementsByTagName("ExtendedData")
                 if (extendedDataList.length > 0) {
                     val dataNodes = (extendedDataList.item(0) as Element).getElementsByTagName("Data")
@@ -82,35 +83,23 @@ object KmlParser {
                     }
                 }
 
-                // Coordenadas y Geometría
+                // 2. Extraer Coordenadas
                 var lat = 0.0
                 var lng = 0.0
-                var fullGeometry: MutableList<List<Double>>? = null
-
-                val polygonNodes = element.getElementsByTagName("Polygon")
-                val coordsNodes = if (polygonNodes.length > 0) {
-                    (polygonNodes.item(0) as Element).getElementsByTagName("coordinates")
-                } else {
-                    element.getElementsByTagName("coordinates")
-                }
-
+                val coordsNodes = element.getElementsByTagName("coordinates")
                 if (coordsNodes.length > 0) {
                     val coordsText = coordsNodes.item(0).textContent.trim()
                     val rawCoords = coordsText.split("\\s+".toRegex())
                     if (rawCoords.isNotEmpty()) {
-                        fullGeometry = mutableListOf()
-                        rawCoords.forEach { coordStr ->
-                            val parts = coordStr.split(",")
-                            if (parts.size >= 2) {
-                                val cLng = parts[0].toDoubleOrNull() ?: 0.0
-                                val cLat = parts[1].toDoubleOrNull() ?: 0.0
-                                fullGeometry.add(listOf(cLng, cLat))
-                                if (lat == 0.0) { lat = cLat; lng = cLng }
-                            }
+                        val firstPoint = rawCoords[0].split(",")
+                        if (firstPoint.size >= 2) {
+                            lng = firstPoint[0].toDoubleOrNull() ?: 0.0
+                            lat = firstPoint[1].toDoubleOrNull() ?: 0.0
                         }
                     }
                 }
 
+                // 3. Crear el objeto
                 val refSigPac = metadata["Ref_SigPac"] ?: metadata["ID"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
                 parcelas.add(
                     NativeParcela(
@@ -120,8 +109,7 @@ object KmlParser {
                         lat = lat,
                         lng = lng,
                         area = metadata["DN_SURFACE"]?.toDoubleOrNull() ?: metadata["Superficie"]?.toDoubleOrNull() ?: 0.0,
-                        metadata = metadata,
-                        geometry = fullGeometry
+                        metadata = metadata
                     )
                 )
             }
