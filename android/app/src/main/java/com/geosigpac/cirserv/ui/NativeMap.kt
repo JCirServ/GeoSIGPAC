@@ -46,6 +46,7 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.OnMapReadyCallback
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.*
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -179,7 +180,7 @@ fun NativeMap(
     }
 
     LaunchedEffect(Unit) {
-        mapView.getMapAsync { map: MapLibreMap ->
+        mapView.getMapAsync(OnMapReadyCallback { map ->
             mapInstance = map
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isCompassEnabled = true
@@ -245,7 +246,7 @@ fun NativeMap(
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
             }
-        }
+        })
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
