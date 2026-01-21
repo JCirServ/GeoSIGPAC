@@ -93,11 +93,15 @@ fun NativeMap(
     // TECLADO PERSONALIZADO
     var showCustomKeyboard by remember { mutableStateOf(false) }
 
-    // Estado de datos SIGPAC
+    // --- ESTADO DATOS ---
+    // instantSigpacRef: Se actualiza en tiempo real al mover el mapa (desde vectores)
+    var instantSigpacRef by remember { mutableStateOf("") }
+    
+    // recintoData / cultivoData: Se actualizan al parar (desde API/Query completa)
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
     var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
     
-    // Control para evitar actualizaciones de DATOS (Bottom Sheet) innecesarias
+    // Control para evitar actualizaciones de API innecesarias
     var lastDataId by remember { mutableStateOf<String?>(null) }
     
     // Estado de expansión del panel
@@ -111,8 +115,6 @@ fun NativeMap(
     // Inicializar MapLibre (Singleton)
     remember { MapLibre.getInstance(context) }
 
-    // Creamos la instancia del MapView dentro de remember.
-    // Usamos apply para inicializarlo inmediatamente (onCreate).
     val mapView = remember {
         MapView(context).apply {
             onCreate(Bundle())
@@ -121,7 +123,6 @@ fun NativeMap(
 
     // --- GESTIÓN ROBUSTA DEL CICLO DE VIDA ---
     DisposableEffect(lifecycleOwner) {
-        // Observer: Maneja eventos del sistema (minimizar app, rotar pantalla)
         val observer = LifecycleEventObserver { _, event ->
             try {
                 when (event) {
@@ -137,22 +138,17 @@ fun NativeMap(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-
-        // Iniciamos el mapa inmediatamente si el ciclo de vida lo permite
         mapView.onStart()
         mapView.onResume()
 
         onDispose {
-            Log.d(TAG, "NativeMap Disposing... Starting clean shutdown sequence.")
             lifecycleOwner.lifecycle.removeObserver(observer)
             try {
-                // CRÍTICO: MapLibre crashea si pasas de Resume a Destroy.
-                // Debemos bajar los estados manualmente al salir de la composición.
                 mapView.onPause()
                 mapView.onStop()
                 mapView.onDestroy()
             } catch (e: Exception) {
-                Log.e(TAG, "Error cleaning up MapView in onDispose: ${e.message}")
+                Log.e(TAG, "Error cleaning up MapView: ${e.message}")
             }
         }
     }
@@ -209,26 +205,47 @@ fun NativeMap(
         lastDataId = null
         recintoData = null
         cultivoData = null
+        instantSigpacRef = ""
         mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(Expression.literal(false)) }
         mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(Expression.literal(false)) }
     }
 
-    // --- LÓGICA DE ACTUALIZACIÓN VISUAL ---
-    fun updateHighlightVisuals(map: MapLibreMap) {
+    // --- LÓGICA DE ACTUALIZACIÓN VISUAL Y REFERENCIA REAL-TIME ---
+    fun updateRealtimeInfo(map: MapLibreMap) {
         if (searchActive) return
+        
+        // Si el zoom es muy lejano, limpiamos y salimos
         if (map.cameraPosition.zoom < 13) {
             val emptyFilter = Expression.literal(false)
             map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
             map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+            instantSigpacRef = ""
             return
         }
+
         val center = map.cameraPosition.target ?: return
         val screenPoint = map.projection.toScreenLocation(center)
         val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
+        
         try {
             val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
             if (features.isNotEmpty()) {
                 val feature = features[0]
+                
+                // 1. Extracción RÁPIDA de datos para la UI (Tiempo Real)
+                val prov = feature.getStringProperty("provincia")
+                val mun = feature.getStringProperty("municipio")
+                val agg = feature.getStringProperty("agregado") ?: "0"
+                val zon = feature.getStringProperty("zona") ?: "0"
+                val pol = feature.getStringProperty("poligono")
+                val parc = feature.getStringProperty("parcela")
+                val rec = feature.getStringProperty("recinto")
+
+                if (prov != null && mun != null && pol != null && parc != null && rec != null) {
+                    instantSigpacRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
+                }
+
+                // 2. Actualización del Resaltado (Highlight Visual)
                 val props = feature.properties()
                 if (props != null) {
                     val filterConditions = mutableListOf<Expression>()
@@ -254,14 +271,17 @@ fun NativeMap(
                     map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
                 }
             } else {
+                // Si no hay features bajo la cruz
                 val emptyFilter = Expression.literal(false)
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+                instantSigpacRef = ""
             }
-        } catch (e: Exception) { Log.e(TAG, "Error highlighting: ${e.message}") }
+        } catch (e: Exception) { Log.e(TAG, "Error realtime update: ${e.message}") }
     }
 
-    fun updateDataSheet(map: MapLibreMap) {
+    // --- LÓGICA DE CARGA DE DATOS EXTENDIDOS (AL PARAR) ---
+    fun updateExtendedData(map: MapLibreMap) {
         if (searchActive) return
         if (map.cameraPosition.zoom < 13) {
             recintoData = null; cultivoData = null; lastDataId = null
@@ -280,10 +300,13 @@ fun NativeMap(
                 val pol = props?.get("poligono")?.asString ?: ""
                 val parc = props?.get("parcela")?.asString ?: ""
                 val rec = props?.get("recinto")?.asString ?: ""
+                
                 val uniqueId = "$prov-$mun-$pol-$parc-$rec"
                 
+                // Solo cargamos datos de la API si hemos cambiado de recinto y paramos la cámara
                 if (uniqueId != lastDataId) {
                     lastDataId = uniqueId
+                    // Rellenamos datos preliminares de las teselas mientras carga la API
                     recintoData = mapOf(
                         "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
                         "agregado" to (props?.get("agregado")?.asString ?: "0"),
@@ -296,14 +319,19 @@ fun NativeMap(
                     isPanelExpanded = false
                     apiJob?.cancel()
                     apiJob = scope.launch {
-                        delay(200)
+                        delay(200) // Debounce
                         val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
-                        if (fullData != null) recintoData = fullData
+                        if (fullData != null) {
+                             recintoData = fullData
+                             // Sincronizamos la referencia instantánea por si hubo lag
+                             instantSigpacRef = "${fullData["provincia"]}:${fullData["municipio"]}:${fullData["agregado"]}:${fullData["zona"]}:${fullData["poligono"]}:${fullData["parcela"]}:${fullData["recinto"]}"
+                        }
                         isLoadingData = false
                     }
                 }
             } else {
                 lastDataId = null
+                // No limpiamos recintoData inmediatamente para evitar parpadeos si se pasa por un hueco pequeño
             }
             
             val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
@@ -317,7 +345,7 @@ fun NativeMap(
             } else {
                 cultivoData = null
             }
-        } catch (e: Exception) { Log.e(TAG, "Error querying features: ${e.message}") }
+        } catch (e: Exception) { Log.e(TAG, "Error querying extended features: ${e.message}") }
     }
 
     LaunchedEffect(Unit) {
@@ -332,8 +360,11 @@ fun NativeMap(
                 map.cameraPosition = CameraPosition.Builder().target(LatLng(VALENCIA_LAT, VALENCIA_LNG)).zoom(DEFAULT_ZOOM).build()
             }
 
-            map.addOnCameraMoveListener { updateHighlightVisuals(map) }
-            map.addOnCameraIdleListener { updateDataSheet(map) }
+            // Al mover la cámara: Actualizamos resaltado y TEXTO de referencia (Rápido)
+            map.addOnCameraMoveListener { updateRealtimeInfo(map) }
+            
+            // Al parar la cámara: Cargamos datos extendidos (Lento/API)
+            map.addOnCameraIdleListener { updateExtendedData(map) }
 
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
@@ -409,7 +440,6 @@ fun NativeMap(
 
         // --- BOTONES (TOP END) ---
         Column(modifier = Modifier.align(Alignment.TopEnd).padding(top = 90.dp, end = 16.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Unificamos el estilo: Contenedor oscuro (Surface) e Icono Verde Neón (FieldGreen)
             SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.Settings, "Capas") }
 
             AnimatedVisibility(visible = showLayerMenu) {
@@ -449,27 +479,40 @@ fun NativeMap(
 
         // BOTTOM SHEET (Info)
         if (!showCustomKeyboard) {
-            AnimatedVisibility(visible = recintoData != null || (cultivoData != null && showCultivo), enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-                val displayData = recintoData ?: cultivoData
-                displayData?.let { data ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(0.dp).animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-                            .pointerInput(Unit) { detectVerticalDragGestures { change, dragAmount -> change.consume(); if (dragAmount < -20) isPanelExpanded = true else if (dragAmount > 20) isPanelExpanded = false } },
-                        colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
-                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
-                                Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
+            // MOSTRAR SI: Hay referencia instantánea detectada (movimiento) O hay datos cargados (reposo)
+            val showSheet = instantSigpacRef.isNotEmpty() || recintoData != null || (cultivoData != null && showCultivo)
+            
+            AnimatedVisibility(visible = showSheet, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
+                // Usamos recintoData para el cuerpo, pero instantSigpacRef para la cabecera
+                val displayData = recintoData ?: mapOf("provincia" to "", "municipio" to "") // Fallback seguro
+                
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(0.dp).animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                        .pointerInput(Unit) { detectVerticalDragGestures { change, dragAmount -> change.consume(); if (dragAmount < -20) isPanelExpanded = true else if (dragAmount > 20) isPanelExpanded = false } },
+                    colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
+                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
+                            Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                            Column {
+                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
+                                // AQUÍ ESTÁ EL CAMBIO CLAVE: Mostramos la referencia instantánea si existe
+                                Text(
+                                    text = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}...",
+                                    style = MaterialTheme.typography.titleMedium, 
+                                    fontWeight = FontWeight.Bold, 
+                                    color = FieldGreen
+                                )
                             }
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                                Column {
-                                    Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
-                                    Text(text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FieldGreen)
-                                }
-                                IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
-                            }
+                            IconButton(onClick = { instantSigpacRef = ""; recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
+                        }
+                        
+                        // Solo mostramos pestañas y detalle si tenemos datos cargados (es decir, en reposo)
+                        if (recintoData != null) {
                             Divider(color = FieldDivider)
 
                             val hasCultivo = cultivoData != null
