@@ -65,7 +65,7 @@ fun GeoSigpacApp() {
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
-    var mapTargetRef by remember { mutableStateOf<String?>(null) } // Target por referencia string
+    var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     
     // Estado principal de expedientes con persistencia
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
@@ -83,12 +83,15 @@ fun GeoSigpacApp() {
         ProjectStorage.saveExpedientes(context, expedientes)
         
         // Lógica de autoselección:
+        // 1. Si solo hay un proyecto, se selecciona automáticamente.
         if (expedientes.size == 1) {
             activeProjectId = expedientes.first().id
         }
+        // 2. Si el proyecto activo fue borrado, limpiar la selección.
         if (activeProjectId != null && expedientes.none { it.id == activeProjectId }) {
             activeProjectId = null
         }
+        // 3. Si no hay proyectos, limpiar selección
         if (expedientes.isEmpty()) {
             activeProjectId = null
         }
@@ -164,12 +167,12 @@ fun GeoSigpacApp() {
                         activeProjectId = activeProjectId,
                         onUpdateExpedientes = { newList -> expedientes = newList.toList() },
                         onActivateProject = { id -> activeProjectId = id },
-                        onNavigateToMap = { ref -> mapTargetRef = ref; selectedTab = 2 },
+                        onNavigateToMap = { lat, lng -> mapTarget = if(lat != null) lat to lng!! else null; selectedTab = 2 },
                         onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }
                     )
                     2 -> NativeMap(
-                        targetRef = mapTargetRef,
-                        expedientes = expedientes,
+                        targetLat = mapTarget?.first,
+                        targetLng = mapTarget?.second,
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )

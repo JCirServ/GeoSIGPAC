@@ -2,14 +2,6 @@
 package com.geosigpac.cirserv.model
 
 data class SigpacData(
-    // Identificación
-    val provincia: String? = null,
-    val municipio: String? = null,
-    val poligono: String? = null,
-    val parcela: String? = null,
-    val recinto: String? = null,
-    
-    // Datos Agronómicos
     val superficie: Double? = null,
     val pendienteMedia: Double? = null,
     val coefRegadio: Double? = null,
@@ -37,9 +29,8 @@ data class NativeParcela(
     val id: String,
     val referencia: String, 
     val uso: String,
-    val lat: Double, // Centroide para zoom
-    val lng: Double, // Centroide para zoom
-    val geometry: String? = null, // GeoJSON String (Polygon)
+    val lat: Double,
+    val lng: Double,
     val area: Double,
     val metadata: Map<String, String>,
     val sigpacInfo: SigpacData? = null,
