@@ -46,28 +46,22 @@ fun NativeProjectManager(
     val scope = rememberCoroutineScope()
     var selectedExpediente by remember { mutableStateOf<NativeExpediente?>(null) }
 
-    // Función para hidratar parcelas de forma segura sin perder la referencia a la lista global
-    fun startHydrationSequence(targetExpId: String) {
+    // Función para hidratar parcelas de forma segura usando la lista actual
+    fun startHydrationSequence(targetExpId: String, currentListState: List<NativeExpediente>) {
         scope.launch {
-            // Buscamos el expediente actual en la lista más reciente
-            val currentList = expedientes.toMutableList()
-            val expIndex = currentList.indexOfFirst { it.id == targetExpId }
-            if (expIndex == -1) return@launch
-
-            val exp = currentList[expIndex]
+            val exp = currentListState.find { it.id == targetExpId } ?: return@launch
             
-            exp.parcelas.forEachIndexed { pIndex, parcela ->
+            exp.parcelas.forEach { parcela ->
                 if (!parcela.isHydrated) {
                     val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcela.referencia)
                     
-                    // Actualizamos la parcela dentro del objeto de forma mutable para esta sesión
                     parcela.sigpacInfo = sigpac
                     parcela.cultivoInfo = cultivo
                     parcela.informeIA = GeminiService.analyzeParcela(parcela)
                     parcela.isHydrated = true
                     
-                    // Notificamos al padre de que la lista ha cambiado para persistir
-                    onUpdateExpedientes(expedientes.toList())
+                    // Notificamos cambios usando la lista actual para mantener persistencia
+                    onUpdateExpedientes(currentListState.toList())
                 }
             }
         }
@@ -85,12 +79,14 @@ fun NativeProjectManager(
                     parcelas = parcelas
                 )
                 
-                // 1. Añadimos a la lista inmediatamente
+                // 1. Creamos la nueva lista
                 val updatedList = listOf(newExp) + expedientes
+                
+                // 2. Actualizamos el estado global (esto dispara la persistencia en MainActivity)
                 onUpdateExpedientes(updatedList)
                 
-                // 2. Iniciamos análisis en segundo plano
-                startHydrationSequence(newExp.id)
+                // 3. Iniciamos análisis pasando la lista actualizada para evitar race conditions
+                startHydrationSequence(newExp.id, updatedList)
             }
         }
     }
@@ -115,11 +111,11 @@ fun NativeProjectManager(
                     Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88), modifier = Modifier.size(36.dp))
                     Spacer(Modifier.height(12.dp))
                     Text("IMPORTAR CARTOGRAFÍA KML", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                    Text("Hidratación técnica inmediata", color = Color.Gray, fontSize = 10.sp)
+                    Text("Análisis técnico inmediato", color = Color.Gray, fontSize = 10.sp)
                 }
             }
 
-            Text("PROYECTOS EN CURSO", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Gray)
+            Text("PROYECTOS ACTIVOS", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Gray)
 
             LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
                 items(expedientes, key = { it.id }) { exp ->
@@ -159,7 +155,7 @@ fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () ->
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("SINCRONIZACIÓN TÉCNICA", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                    Text("HIDRATACIÓN SIGPAC", color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                     Spacer(Modifier.height(6.dp))
                     LinearProgressIndicator(
                         progress = { animatedProgress },
@@ -176,7 +172,7 @@ fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () ->
                 Row(modifier = Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.dp, color = MaterialTheme.colorScheme.secondary)
                     Spacer(Modifier.width(8.dp))
-                    Text("Hidratando recintos...", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text("Analizando parcelas...", color = MaterialTheme.colorScheme.secondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
             } else {
                 Text("Análisis completado", modifier = Modifier.padding(top = 8.dp), color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
@@ -227,7 +223,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(parcela.referencia, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                    if (isLoading) Text("Sincronizando OGC...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (isLoading) Text("Sincronizando...", color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.secondary)
@@ -243,7 +239,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                         Row(verticalAlignment = Alignment.Top) {
                             Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(10.dp))
-                            Text(parcela.informeIA ?: "Generando dictamen IA...", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium, lineHeight = 16.sp)
+                            Text(parcela.informeIA ?: "Generando dictamen...", color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Medium, lineHeight = 16.sp)
                         }
                     }
                     
@@ -278,6 +274,18 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun DataField(label: String, value: String, isLoading: Boolean) {
+    Column(modifier = Modifier.padding(vertical = 5.dp)) {
+        Text(label, color = Color.Gray, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+        if (isLoading) {
+            Box(modifier = Modifier.width(50.dp).height(12.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(0.05f)))
+        } else {
+            Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
