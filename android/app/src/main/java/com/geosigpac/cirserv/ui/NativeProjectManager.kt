@@ -47,11 +47,16 @@ fun NativeProjectManager(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
+            val fileName = KmlParser.getFileName(context, it) ?: "Nuevo Proyecto"
             val parcelas = KmlParser.parseUri(context, it)
             if (parcelas.isNotEmpty()) {
+                val cleanTitular = fileName
+                    .replace(".kml", "", ignoreCase = true)
+                    .replace(".kmz", "", ignoreCase = true)
+                
                 val newExp = NativeExpediente(
                     id = UUID.randomUUID().toString(),
-                    titular = it.lastPathSegment?.replace(".kml", "")?.replace(".kmz", "") ?: "Nuevo Proyecto",
+                    titular = cleanTitular,
                     fechaImportacion = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
                     parcelas = parcelas
                 )
@@ -68,7 +73,6 @@ fun NativeProjectManager(
             onCamera = onOpenCamera
         )
     } else {
-        // Se elimina el Scaffold interno para evitar doble menú de navegación
         Column(modifier = Modifier.fillMaxSize().background(Color(0xFF07080D))) {
             CenterAlignedTopAppBar(
                 title = { Text("MIS PROYECTOS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp) },

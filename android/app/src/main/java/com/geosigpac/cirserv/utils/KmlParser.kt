@@ -29,7 +29,7 @@ object KmlParser {
         }
     }
 
-    private fun getFileName(context: Context, uri: Uri): String? {
+    fun getFileName(context: Context, uri: Uri): String? {
         var result: String? = null
         if (uri.scheme == "content") {
             val cursor = context.contentResolver.query(uri, null, null, null, null)
