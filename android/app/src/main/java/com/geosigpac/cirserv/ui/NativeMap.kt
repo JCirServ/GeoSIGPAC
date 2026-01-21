@@ -78,7 +78,6 @@ fun NativeMap(
     var currentBaseMap by remember { mutableStateOf(BaseMap.PNOA) }
     var showRecinto by remember { mutableStateOf(true) }
     var showCultivo by remember { mutableStateOf(true) }
-    // var showLayerMenu by remember { mutableStateOf(false) } // Removed
     var initialLocationSet by remember { mutableStateOf(false) }
 
     // Selector de Proyecto KML
@@ -89,7 +88,6 @@ fun NativeMap(
     var searchQuery by remember { mutableStateOf("") }
     var showCustomKeyboard by remember { mutableStateOf(false) }
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
-    // var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) } // Not used currently
     var lastDataId by remember { mutableStateOf<String?>(null) }
     var isPanelExpanded by remember { mutableStateOf(false) }
     var isLoadingData by remember { mutableStateOf(false) }
@@ -328,8 +326,6 @@ fun NativeMap(
             }
         }
 
-        // --- BOTONES LATERALES ELIMINADOS ---
-
         // --- PANEL DE INFORMACIÓN (Bottom Sheet SIGPAC) ---
         AnimatedVisibility(visible = recintoData != null && !showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
             Card(
@@ -368,7 +364,39 @@ fun NativeMap(
             CustomSigpacKeyboard(
                 onKey = { searchQuery += it },
                 onBackspace = { if(searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
-                onSearch = { showCustomKeyboard = false }, // Lógica de búsqueda SIGPAC omitida aquí por brevedad, se mantiene la original
+                onSearch = {
+                    showCustomKeyboard = false
+                    if (searchQuery.isNotBlank()) {
+                        scope.launch {
+                            try {
+                                val cleanQuery = searchQuery.replace("-", ":").replace(" ", "")
+                                val parts = cleanQuery.split(":").filter { it.isNotEmpty() }
+                                
+                                if (parts.size >= 4) {
+                                    val prov = parts[0]
+                                    val mun = parts[1]
+                                    val pol = parts[2]
+                                    val parc = parts[3]
+                                    val rec = if (parts.size >= 5) parts[4] else null
+
+                                    Toast.makeText(context, "Localizando ${parts.joinToString(":")}...", Toast.LENGTH_SHORT).show()
+                                    
+                                    val bounds = searchParcelLocation(prov, mun, pol, parc, rec)
+                                    
+                                    if (bounds != null) {
+                                        mapInstance?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150), 2000)
+                                    } else {
+                                        Toast.makeText(context, "No se encontró geometría", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error en búsqueda", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                },
                 onClose = { showCustomKeyboard = false }
             )
         }
