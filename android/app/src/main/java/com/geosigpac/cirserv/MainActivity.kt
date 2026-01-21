@@ -11,12 +11,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -104,31 +110,91 @@ fun GeoSigpacApp() {
             onGoToProjects = { isCameraOpen = false; selectedTab = 0 }
         )
     } else {
-        Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF07080D)) {
-            if (selectedTab == 0) {
-                NativeProjectManager(
-                    expedientes = expedientes,
-                    onUpdateExpedientes = { newList -> expedientes = newList },
-                    onNavigateToMap = { lat, lng ->
-                        // Si lat/lng son null, mapTarget será null y activará el seguimiento de usuario en el mapa
-                        mapTarget = if (lat != null && lng != null) lat to lng else null
-                        selectedTab = 1
-                    },
-                    onOpenCamera = { id ->
-                        currentParcelaId = id
-                        isCameraOpen = true
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color(0xFF07080D),
+            bottomBar = {
+                // El menú de abajo solo se muestra en la pestaña de proyectos (0)
+                if (selectedTab == 0) {
+                    NavigationBar(
+                        containerColor = Color(0xFF0D0E1A),
+                        contentColor = Color.White,
+                        tonalElevation = 8.dp
+                    ) {
+                        // ORDEN: CÁMARA, PROYECTOS, MAPA
+                        NavigationBarItem(
+                            selected = false,
+                            onClick = { 
+                                currentParcelaId = null
+                                isCameraOpen = true 
+                            },
+                            icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") },
+                            label = { Text("Cámara", fontSize = 10.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                unselectedIconColor = Color.Gray,
+                                unselectedTextColor = Color.Gray
+                            )
+                        )
+                        NavigationBarItem(
+                            selected = true,
+                            onClick = { selectedTab = 0 },
+                            icon = { Icon(Icons.Default.Folder, contentDescription = "Proyectos") },
+                            label = { Text("Proyectos", fontSize = 10.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color(0xFF00FF88),
+                                selectedTextColor = Color(0xFF00FF88),
+                                unselectedIconColor = Color.Gray,
+                                unselectedTextColor = Color.Gray,
+                                indicatorColor = Color.Transparent
+                            )
+                        )
+                        NavigationBarItem(
+                            selected = false,
+                            onClick = { 
+                                mapTarget = null
+                                selectedTab = 1 
+                            },
+                            icon = { Icon(Icons.Default.Map, contentDescription = "Mapa") },
+                            label = { Text("Mapa", fontSize = 10.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                unselectedIconColor = Color.Gray,
+                                unselectedTextColor = Color.Gray
+                            )
+                        )
                     }
-                )
-            } else {
-                NativeMap(
-                    targetLat = mapTarget?.first,
-                    targetLng = mapTarget?.second,
-                    onNavigateToProjects = { selectedTab = 0 },
-                    onOpenCamera = { 
-                        currentParcelaId = null
-                        isCameraOpen = true 
-                    }
-                )
+                }
+            }
+        ) { paddingValues ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(if (selectedTab == 0) paddingValues else paddingValues.copy(bottom = 0.dp.value.dp)), 
+                color = Color(0xFF07080D)
+            ) {
+                if (selectedTab == 0) {
+                    NativeProjectManager(
+                        expedientes = expedientes,
+                        onUpdateExpedientes = { newList -> expedientes = newList },
+                        onNavigateToMap = { lat, lng ->
+                            mapTarget = if (lat != null && lng != null) lat to lng else null
+                            selectedTab = 1
+                        },
+                        onOpenCamera = { id ->
+                            currentParcelaId = id
+                            isCameraOpen = true
+                        }
+                    )
+                } else {
+                    NativeMap(
+                        targetLat = mapTarget?.first,
+                        targetLng = mapTarget?.second,
+                        onNavigateToProjects = { selectedTab = 0 },
+                        onOpenCamera = { 
+                            currentParcelaId = null
+                            isCameraOpen = true 
+                        }
+                    )
+                }
             }
         }
     }
