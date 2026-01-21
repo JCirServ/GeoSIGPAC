@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
 fun GeoSigpacApp() {
     val context = LocalContext.current
     var isCameraOpen by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableIntStateOf(1) } // 1 = Proyectos (Centro) por defecto
+    var selectedTab by remember { mutableIntStateOf(1) } // 1 = Proyectos (Centro), 2 = Mapa (Derecha)
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
@@ -112,57 +112,60 @@ fun GeoSigpacApp() {
             modifier = Modifier.fillMaxSize(),
             containerColor = Color(0xFF07080D),
             bottomBar = {
-                NavigationBar(
-                    containerColor = Color(0xFF0D0E1A),
-                    contentColor = Color.White,
-                    tonalElevation = 8.dp
-                ) {
-                    // 1. CÁMARA (Izquierda)
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = { 
-                            currentParcelaId = null
-                            isCameraOpen = true 
-                        },
-                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") },
-                        label = { Text("Cámara", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray,
-                            indicatorColor = Color.Transparent
+                // El menú de navegación solo aparece cuando estamos en la pestaña de Proyectos (Tab 1)
+                if (selectedTab == 1) {
+                    NavigationBar(
+                        containerColor = Color(0xFF0D0E1A),
+                        contentColor = Color.White,
+                        tonalElevation = 8.dp
+                    ) {
+                        // 1. CÁMARA (Izquierda)
+                        NavigationBarItem(
+                            selected = false,
+                            onClick = { 
+                                currentParcelaId = null
+                                isCameraOpen = true 
+                            },
+                            icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") },
+                            label = { Text("Cámara", fontSize = 10.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                unselectedIconColor = Color.Gray,
+                                unselectedTextColor = Color.Gray,
+                                indicatorColor = Color.Transparent
+                            )
                         )
-                    )
-                    // 2. PROYECTOS (Centro)
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        icon = { Icon(Icons.Default.Folder, contentDescription = "Proyectos") },
-                        label = { Text("Proyectos", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color(0xFF00FF88),
-                            selectedTextColor = Color(0xFF00FF88),
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray,
-                            indicatorColor = Color.Transparent
+                        // 2. PROYECTOS (Centro)
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            icon = { Icon(Icons.Default.Folder, contentDescription = "Proyectos") },
+                            label = { Text("Proyectos", fontSize = 10.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color(0xFF00FF88),
+                                selectedTextColor = Color(0xFF00FF88),
+                                unselectedIconColor = Color.Gray,
+                                unselectedTextColor = Color.Gray,
+                                indicatorColor = Color.Transparent
+                            )
                         )
-                    )
-                    // 3. MAPA (Derecha)
-                    NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = { 
-                            mapTarget = null
-                            selectedTab = 2 
-                        },
-                        icon = { Icon(Icons.Default.Map, contentDescription = "Mapa") },
-                        label = { Text("Mapa", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color(0xFF00FF88),
-                            selectedTextColor = Color(0xFF00FF88),
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray,
-                            indicatorColor = Color.Transparent
+                        // 3. MAPA (Derecha)
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = { 
+                                mapTarget = null
+                                selectedTab = 2 
+                            },
+                            icon = { Icon(Icons.Default.Map, contentDescription = "Mapa") },
+                            label = { Text("Mapa", fontSize = 10.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color(0xFF00FF88),
+                                selectedTextColor = Color(0xFF00FF88),
+                                unselectedIconColor = Color.Gray,
+                                unselectedTextColor = Color.Gray,
+                                indicatorColor = Color.Transparent
+                            )
                         )
-                    )
+                    }
                 }
             }
         ) { paddingValues ->
