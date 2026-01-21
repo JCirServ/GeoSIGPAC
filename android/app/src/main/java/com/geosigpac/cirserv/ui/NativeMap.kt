@@ -179,7 +179,7 @@ fun NativeMap(
     }
 
     LaunchedEffect(Unit) {
-        mapView.getMapAsync { map ->
+        mapView.getMapAsync { map: MapLibreMap ->
             mapInstance = map
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isCompassEnabled = true
