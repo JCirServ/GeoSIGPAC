@@ -111,14 +111,12 @@ object KmlParser {
                             lngCentroid = sumLng / points.size
 
                             // Construir GeoJSON Polygon String
-                            // Formato: [[[lng,lat], [lng,lat], ...]]
                             val coordsString = points.joinToString(",") { "[${it.first},${it.second}]" }
                             geometryJson = "{ \"type\": \"Polygon\", \"coordinates\": [[$coordsString]] }"
                         }
                     }
                 } 
 
-                // Si no hay polígono, buscar Point (fallback) para al menos tener ubicación
                 if (geometryJson == null) {
                     val pointNodes = element.getElementsByTagName("Point")
                     if (pointNodes.length > 0) {
@@ -134,20 +132,28 @@ object KmlParser {
                     }
                 }
 
-                // 3. LOGICA DE REFERENCIA SIGPAC
-                // a) Buscar atributo 'ref_sigpac' (case insensitive)
+                // 3. LOGICA DE REFERENCIA SIGPAC ESTRICTA (5 PARTES)
+                var refSigPac = ""
+                
+                // Opción A: Buscar atributo ref_sigpac (case insensitive)
                 val rawRef = getAttributeCaseInsensitive(metadata, "ref_sigpac") 
                              ?: getAttributeCaseInsensitive(metadata, "referencia")
                 
-                var refSigPac = ""
-                
                 if (rawRef != null) {
-                    // Si existe, normalizamos separadores (. - _ espacio) a dos puntos (:)
-                    refSigPac = rawRef.trim().replace(Regex("[.\\-_\\s]"), ":")
-                    // Asegurar que no haya dobles dos puntos
-                    refSigPac = refSigPac.replace(Regex(":+"), ":")
+                    // Limpieza y validación de partes
+                    val parts = rawRef.trim().split(Regex("[.\\-_\\s:]+"))
+                    if (parts.size >= 7) {
+                        // Si tiene 7 partes (P:M:Ag:Zo:Pol:Par:Rec), quitamos Ag y Zo (indices 2 y 3)
+                        refSigPac = "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
+                    } else if (parts.size >= 5) {
+                        // Asumimos formato correcto P:M:Pol:Par:Rec
+                        refSigPac = "${parts[0]}:${parts[1]}:${parts[2]}:${parts[3]}:${parts[4]}"
+                    } else {
+                        // Fallback: usar como está pero normalizado
+                        refSigPac = rawRef.trim().replace(Regex("[.\\-_\\s]"), ":")
+                    }
                 } else {
-                    // b) Si no existe, buscar componentes individuales
+                    // Opción B: Construir desde atributos individuales (EXCLUYENDO Agregado y Zona)
                     val p = getAttributeCaseInsensitive(metadata, "provincia")
                     val m = getAttributeCaseInsensitive(metadata, "municipio")
                     val pol = getAttributeCaseInsensitive(metadata, "poligono")
@@ -155,9 +161,10 @@ object KmlParser {
                     val rec = getAttributeCaseInsensitive(metadata, "recinto")
                     
                     if (p != null && m != null && pol != null && parc != null && rec != null) {
+                        // Forzamos formato 5 partes
                         refSigPac = "$p:$m:$pol:$parc:$rec"
                     } else {
-                        // c) Fallback final al nombre del elemento KML
+                        // Opción C: Fallback final al nombre del elemento KML
                         val name = element.getElementsByTagName("name").item(0)?.textContent?.trim() ?: "RECINTO_$i"
                         refSigPac = name.replace(".", "")
                     }
@@ -196,7 +203,6 @@ object KmlParser {
 
     private fun parseCoordinates(text: String): List<Pair<Double, Double>> {
         val list = mutableListOf<Pair<Double, Double>>()
-        // KML coordinates: lon,lat,alt (espacio separa tuplas)
         val tuples = text.trim().split("\\s+".toRegex())
         for (tuple in tuples) {
             val parts = tuple.split(",")

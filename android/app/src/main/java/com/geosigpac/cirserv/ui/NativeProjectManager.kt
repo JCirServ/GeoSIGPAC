@@ -79,12 +79,21 @@ fun NativeProjectManager(
                     val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                     val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                     
+                    // Renombrado estricto a 5 partes: Prov:Mun:Pol:Parc:Rec (Sin Ag/Zn)
+                    val nuevaReferencia = if (sigpac != null && !sigpac.provincia.isNullOrEmpty() && !sigpac.recinto.isNullOrEmpty()) {
+                        "${sigpac.provincia}:${sigpac.municipio}:${sigpac.poligono}:${sigpac.parcela}:${sigpac.recinto}"
+                    } else {
+                        // Fallback: Si no hay datos SIGPAC, mantener pero limpiar
+                        parcelaToHydrate.referencia.replace(Regex("[.\\-_\\s]"), ":")
+                    }
+
                     val updatedList = currentExpedientesState.value.map { e ->
                         if (e.id == targetExpId) {
                             e.copy(
                                 parcelas = e.parcelas.map { p ->
                                     if (p.id == parcelaToHydrate.id) {
                                         p.copy(
+                                            referencia = nuevaReferencia,
                                             sigpacInfo = sigpac,
                                             cultivoInfo = cultivo,
                                             informeIA = reportIA,

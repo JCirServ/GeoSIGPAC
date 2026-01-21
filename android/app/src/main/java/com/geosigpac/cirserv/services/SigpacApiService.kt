@@ -18,15 +18,18 @@ object SigpacApiService {
     suspend fun fetchHydration(referencia: String): Pair<SigpacData?, CultivoData?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
-        val prov = parts.getOrNull(0) ?: ""
-        val mun = parts.getOrNull(1) ?: ""
-        val hasCompleteFormat = parts.size >= 7
+        // Asumimos que si hay 5 partes es P:M:Pol:Par:Rec. Si hay 7, limpiamos.
+        // Pero para consultar la API necesitamos Ag y Zn (normalmente 0).
         
-        val ag = if (hasCompleteFormat) parts[2] else "0"
-        val zo = if (hasCompleteFormat) parts[3] else "0"
-        val pol = if (hasCompleteFormat) parts[4] else (parts.getOrNull(parts.size - 3) ?: "")
-        val parc = if (hasCompleteFormat) parts[5] else (parts.getOrNull(parts.size - 2) ?: "")
-        val rec = if (hasCompleteFormat) parts[6] else (parts.getOrNull(parts.size - 1) ?: "")
+        var prov = ""; var mun = ""; var ag = "0"; var zo = "0"; var pol = ""; var parc = ""; var rec = ""
+
+        if (parts.size >= 7) {
+            prov = parts[0]; mun = parts[1]; ag = parts[2]; zo = parts[3]; pol = parts[4]; parc = parts[5]; rec = parts[6]
+        } else if (parts.size >= 5) {
+            prov = parts[0]; mun = parts[1]; pol = parts[2]; parc = parts[3]; rec = parts[4]
+        } else {
+            return@withContext Pair(null, null)
+        }
 
         // 1. CONSULTA RECINTO (JSON DETALLADO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
@@ -41,6 +44,14 @@ object SigpacApiService {
                 if (array.length() > 0) {
                     val props = array.getJSONObject(0)
                     SigpacData(
+                        // Identificación
+                        provincia = props.optString("provincia"),
+                        municipio = props.optString("municipio"),
+                        poligono = props.optString("poligono"),
+                        parcela = props.optString("parcela"),
+                        recinto = props.optString("recinto"),
+                        
+                        // Datos
                         superficie = if (props.isNull("superficie")) null else props.optDouble("superficie"),
                         pendienteMedia = if (props.isNull("pendiente_media")) null else props.optDouble("pendiente_media"),
                         coefRegadio = if (props.isNull("coef_regadio")) null else props.optDouble("coef_regadio"),

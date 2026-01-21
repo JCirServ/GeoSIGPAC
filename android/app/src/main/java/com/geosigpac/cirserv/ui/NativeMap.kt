@@ -161,6 +161,7 @@ fun NativeMap(
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
             }
 
+            // Nota: searchParcelLocation usa agregado=0 y zona=0 por defecto, lo cual es correcto
             val bbox = searchParcelLocation(prov, mun, pol, parc, rec)
             if (bbox != null) {
                 mapInstance?.animateCamera(CameraUpdateFactory.newLatLngBounds(bbox, 100), 1500)
@@ -189,7 +190,6 @@ fun NativeMap(
             if (parcela.geometry != null) {
                 Feature.fromJson(parcela.geometry)
             } else {
-                // Si no hay polígono, usaremos un punto
                 Feature.fromGeometry(Point.fromLngLat(parcela.lng, parcela.lat))
             }
         }
@@ -263,11 +263,13 @@ fun NativeMap(
             if (features.isNotEmpty()) {
                 val feature = features[0]
                 val prov = feature.getStringProperty("provincia"); val mun = feature.getStringProperty("municipio")
-                val agg = feature.getStringProperty("agregado") ?: "0"; val zon = feature.getStringProperty("zona") ?: "0"
                 val pol = feature.getStringProperty("poligono"); val parc = feature.getStringProperty("parcela"); val rec = feature.getStringProperty("recinto")
+                
+                // Formato Estricto 5 partes: Prov:Mun:Pol:Parc:Rec (Sin Ag/Zn)
                 if (prov != null && mun != null && pol != null && parc != null && rec != null) {
-                    instantSigpacRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
+                    instantSigpacRef = "$prov:$mun:$pol:$parc:$rec"
                 }
+                
                 val props = feature.properties()
                 if (props != null) {
                     val filterConditions = mutableListOf<Expression>()
@@ -313,7 +315,11 @@ fun NativeMap(
                     apiJob = scope.launch {
                         delay(200)
                         val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
-                        if (fullData != null) { recintoData = fullData; instantSigpacRef = "${fullData["provincia"]}:${fullData["municipio"]}:${fullData["agregado"]}:${fullData["zona"]}:${fullData["poligono"]}:${fullData["parcela"]}:${fullData["recinto"]}" }
+                        if (fullData != null) { 
+                            recintoData = fullData
+                            // Construcción de referencia 5 partes
+                            instantSigpacRef = "${fullData["provincia"]}:${fullData["municipio"]}:${fullData["poligono"]}:${fullData["parcela"]}:${fullData["recinto"]}"
+                        }
                         isLoadingData = false
                     }
                 }
