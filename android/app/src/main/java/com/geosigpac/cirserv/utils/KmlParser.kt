@@ -82,7 +82,7 @@ object KmlParser {
                     }
                 }
 
-                // 2. Extraer Geometría (Polygon o Point)
+                // 2. Extraer Geometría (Polygon preferido, Point fallback) y calcular Centroide
                 var latCentroid = 0.0
                 var lngCentroid = 0.0
                 var geometryJson: String? = null
@@ -100,7 +100,7 @@ object KmlParser {
                         val points = parseCoordinates(coordsText)
                         
                         if (points.isNotEmpty()) {
-                            // Calcular Centroide
+                            // Calcular Centroide simple
                             var sumLat = 0.0
                             var sumLng = 0.0
                             points.forEach {
@@ -111,13 +111,14 @@ object KmlParser {
                             lngCentroid = sumLng / points.size
 
                             // Construir GeoJSON Polygon String
+                            // Formato: [[[lng,lat], [lng,lat], ...]]
                             val coordsString = points.joinToString(",") { "[${it.first},${it.second}]" }
                             geometryJson = "{ \"type\": \"Polygon\", \"coordinates\": [[$coordsString]] }"
                         }
                     }
                 } 
 
-                // Si no hay polígono, buscar Point (fallback)
+                // Si no hay polígono, buscar Point (fallback) para al menos tener ubicación
                 if (geometryJson == null) {
                     val pointNodes = element.getElementsByTagName("Point")
                     if (pointNodes.length > 0) {
@@ -133,18 +134,20 @@ object KmlParser {
                     }
                 }
 
-                // 3. Crear Referencia Estandarizada
-                // Lógica: Buscar ref_sigpac -> o componer con atributos -> o usar nombre
+                // 3. LOGICA DE REFERENCIA SIGPAC
+                // a) Buscar atributo 'ref_sigpac' (case insensitive)
                 val rawRef = getAttributeCaseInsensitive(metadata, "ref_sigpac") 
                              ?: getAttributeCaseInsensitive(metadata, "referencia")
                 
                 var refSigPac = ""
                 
                 if (rawRef != null) {
-                    // Si existe atributo referencia, normalizamos separadores y quitamos puntos
-                    refSigPac = rawRef.replace(".", "").replace(Regex("[-_ ]"), ":")
+                    // Si existe, normalizamos separadores (. - _ espacio) a dos puntos (:)
+                    refSigPac = rawRef.trim().replace(Regex("[.\\-_\\s]"), ":")
+                    // Asegurar que no haya dobles dos puntos
+                    refSigPac = refSigPac.replace(Regex(":+"), ":")
                 } else {
-                    // Intentamos componer
+                    // b) Si no existe, buscar componentes individuales
                     val p = getAttributeCaseInsensitive(metadata, "provincia")
                     val m = getAttributeCaseInsensitive(metadata, "municipio")
                     val pol = getAttributeCaseInsensitive(metadata, "poligono")
@@ -154,25 +157,28 @@ object KmlParser {
                     if (p != null && m != null && pol != null && parc != null && rec != null) {
                         refSigPac = "$p:$m:$pol:$parc:$rec"
                     } else {
-                        // Fallback al nombre del elemento
+                        // c) Fallback final al nombre del elemento KML
                         val name = element.getElementsByTagName("name").item(0)?.textContent?.trim() ?: "RECINTO_$i"
                         refSigPac = name.replace(".", "")
                     }
                 }
-                
-                // Limpieza final por seguridad (eliminar puntos sobrantes)
-                refSigPac = refSigPac.replace(".", "")
+
+                // Obtener Uso y Superficie
+                val uso = getAttributeCaseInsensitive(metadata, "uso_sigpac") 
+                          ?: getAttributeCaseInsensitive(metadata, "uso") ?: "N/D"
+                val superficie = getAttributeCaseInsensitive(metadata, "dn_surface")?.toDoubleOrNull() 
+                                 ?: getAttributeCaseInsensitive(metadata, "superficie")?.toDoubleOrNull() ?: 0.0
 
                 if (latCentroid != 0.0 || lngCentroid != 0.0) {
                     parcelas.add(
                         NativeParcela(
                             id = "p_${System.currentTimeMillis()}_$i",
                             referencia = refSigPac,
-                            uso = getAttributeCaseInsensitive(metadata, "uso_sigpac") ?: getAttributeCaseInsensitive(metadata, "uso") ?: "N/D",
+                            uso = uso,
                             lat = latCentroid,
                             lng = lngCentroid,
                             geometry = geometryJson,
-                            area = getAttributeCaseInsensitive(metadata, "dn_surface")?.toDoubleOrNull() ?: getAttributeCaseInsensitive(metadata, "superficie")?.toDoubleOrNull() ?: 0.0,
+                            area = superficie,
                             metadata = metadata
                         )
                     )
@@ -190,6 +196,7 @@ object KmlParser {
 
     private fun parseCoordinates(text: String): List<Pair<Double, Double>> {
         val list = mutableListOf<Pair<Double, Double>>()
+        // KML coordinates: lon,lat,alt (espacio separa tuplas)
         val tuples = text.trim().split("\\s+".toRegex())
         for (tuple in tuples) {
             val parts = tuple.split(",")

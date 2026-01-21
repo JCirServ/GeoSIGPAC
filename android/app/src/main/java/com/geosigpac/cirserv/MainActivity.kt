@@ -65,7 +65,7 @@ fun GeoSigpacApp() {
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
-    var mapTargetRef by remember { mutableStateOf<String?>(null) } // Nuevo: target por referencia string
+    var mapTargetRef by remember { mutableStateOf<String?>(null) } // Target por referencia string
     
     // Estado principal de expedientes con persistencia
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
@@ -169,7 +169,7 @@ fun GeoSigpacApp() {
                     )
                     2 -> NativeMap(
                         targetRef = mapTargetRef,
-                        expedientes = expedientes, // Pasamos expedientes al mapa
+                        expedientes = expedientes,
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )

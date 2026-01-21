@@ -44,7 +44,7 @@ fun NativeProjectManager(
     activeProjectId: String?,
     onUpdateExpedientes: (List<NativeExpediente>) -> Unit,
     onActivateProject: (String) -> Unit,
-    onNavigateToMap: (String) -> Unit, // Ahora acepta String (Referencia)
+    onNavigateToMap: (String) -> Unit,
     onOpenCamera: (String?) -> Unit
 ) {
     val context = LocalContext.current
@@ -79,21 +79,12 @@ fun NativeProjectManager(
                     val (sigpac, cultivo) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                     val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                     
-                    // Construcción estricta de referencia: provincia:municipio:poligono:parcela:recinto
-                    val nuevaReferencia = if (sigpac != null && !sigpac.provincia.isNullOrEmpty() && !sigpac.recinto.isNullOrEmpty()) {
-                        "${sigpac.provincia}:${sigpac.municipio}:${sigpac.poligono}:${sigpac.parcela}:${sigpac.recinto}"
-                    } else {
-                        // Si falla, al menos quitamos puntos
-                        parcelaToHydrate.referencia.replace(".", "")
-                    }
-
                     val updatedList = currentExpedientesState.value.map { e ->
                         if (e.id == targetExpId) {
                             e.copy(
                                 parcelas = e.parcelas.map { p ->
                                     if (p.id == parcelaToHydrate.id) {
                                         p.copy(
-                                            referencia = nuevaReferencia,
                                             sigpacInfo = sigpac,
                                             cultivoInfo = cultivo,
                                             informeIA = reportIA,

@@ -29,8 +29,9 @@ data class NativeParcela(
     val id: String,
     val referencia: String, 
     val uso: String,
-    val lat: Double,
-    val lng: Double,
+    val lat: Double, // Centroide para zoom
+    val lng: Double, // Centroide para zoom
+    val geometry: String? = null, // GeoJSON String (Polygon)
     val area: Double,
     val metadata: Map<String, String>,
     val sigpacInfo: SigpacData? = null,

@@ -133,6 +133,7 @@ fun NativeMap(
         isSearching = true
         searchActive = true
         
+        // La referencia viene normalizada: Prov:Mun:Pol:Parc:Rec
         val parts = searchQuery.split(":").map { it.trim() }
         if (parts.size < 4) {
             Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
@@ -184,11 +185,11 @@ fun NativeMap(
         if (project == null || project.parcelas.isEmpty()) return
 
         // Convertir parcelas a Features GeoJSON
-        val features = project.parcelas.map { parcela ->
+        val features = project.parcelas.mapNotNull { parcela ->
             if (parcela.geometry != null) {
                 Feature.fromJson(parcela.geometry)
             } else {
-                // Fallback a Punto si no hay geometría compleja
+                // Si no hay polígono, usaremos un punto
                 Feature.fromGeometry(Point.fromLngLat(parcela.lng, parcela.lat))
             }
         }
@@ -199,16 +200,16 @@ fun NativeMap(
         // 1. Capa de Relleno (Polígonos Azules Semi-transparentes)
         val fillLayer = FillLayer(LAYER_KML_FILL, SOURCE_KML_ID).apply {
             setProperties(
-                PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), // Azul
+                PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), // Azul Google
                 PropertyFactory.fillOpacity(0.4f)
             )
         }
         style.addLayer(fillLayer)
 
-        // 2. Capa de Línea (Borde Blanco/Azul Claro)
+        // 2. Capa de Línea (Borde Azul Claro)
         val lineLayer = LineLayer(LAYER_KML_LINE, SOURCE_KML_ID).apply {
             setProperties(
-                PropertyFactory.lineColor(Color(0xFF64B5F6).toArgb()), // Azul claro
+                PropertyFactory.lineColor(Color(0xFF64B5F6).toArgb()), // Azul más claro
                 PropertyFactory.lineWidth(2f)
             )
         }
@@ -485,6 +486,7 @@ fun NativeMap(
                                 },
                                 onClick = {
                                     showProjectDropdown = false
+                                    // BÚSQUEDA AUTOMÁTICA USANDO LA REFERENCIA
                                     searchQuery = parcela.referencia
                                     performSearch()
                                 }
