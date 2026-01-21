@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -101,9 +102,9 @@ fun NativeMap(
         val style = map.style ?: return
 
         // Limpiar capas anteriores
-        style.removeLayer(LAYER_KML_OUTLINE)
-        style.removeLayer(LAYER_KML_FILL)
-        style.removeSource(SOURCE_KML_ID)
+        if (style.getLayer(LAYER_KML_OUTLINE) != null) style.removeLayer(LAYER_KML_OUTLINE)
+        if (style.getLayer(LAYER_KML_FILL) != null) style.removeLayer(LAYER_KML_FILL)
+        if (style.getSource(SOURCE_KML_ID) != null) style.removeSource(SOURCE_KML_ID)
 
         if (project == null || project.parcelas.isEmpty()) return
 
@@ -116,40 +117,48 @@ fun NativeMap(
             } ?: Feature.fromGeometry(Point.fromLngLat(parcela.lng, parcela.lat))
         }
 
+        if (features.isEmpty()) return
+
         val source = GeoJsonSource(SOURCE_KML_ID, FeatureCollection.fromFeatures(features))
         style.addSource(source)
 
-        // Capa de Relleno: Cian Translúcido
+        // Capa de Relleno: Azul Translúcido
         val fillLayer = FillLayer(LAYER_KML_FILL, SOURCE_KML_ID).apply {
             setProperties(
-                PropertyFactory.fillColor(Color(0xFF00E5FF).toArgb()),
-                PropertyFactory.fillOpacity(0.3f)
+                PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), // Azul Material Design
+                PropertyFactory.fillOpacity(0.4f)
             )
         }
         style.addLayer(fillLayer)
 
-        // Capa de Borde: Cian Neón Intenso
+        // Capa de Borde: Azul Intenso
         val outlineLayer = LineLayer(LAYER_KML_OUTLINE, SOURCE_KML_ID).apply {
             setProperties(
-                PropertyFactory.lineColor(Color(0xFF00E5FF).toArgb()),
-                PropertyFactory.lineWidth(2.5f)
+                PropertyFactory.lineColor(Color(0xFF1976D2).toArgb()),
+                PropertyFactory.lineWidth(3.0f)
             )
         }
         style.addLayer(outlineLayer)
 
         // Centrar mapa en el BBox del proyecto
         val boundsBuilder = LatLngBounds.Builder()
+        var hasValidCoords = false
         project.parcelas.forEach { p ->
             boundsBuilder.include(LatLng(p.lat, p.lng))
+            hasValidCoords = true
             p.geometry?.forEach { boundsBuilder.include(LatLng(it[1], it[0])) }
         }
         
-        try {
-            val bounds = boundsBuilder.build()
-            map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120), 1000)
-        } catch (e: Exception) {
-            val p = project.parcelas.first()
-            map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(p.lat, p.lng), 16.0))
+        if (hasValidCoords) {
+            try {
+                val bounds = boundsBuilder.build()
+                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150), 1200)
+            } catch (e: Exception) {
+                if (project.parcelas.isNotEmpty()) {
+                     val p = project.parcelas.first()
+                     map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(p.lat, p.lng), 16.5))
+                }
+            }
         }
     }
 
@@ -177,6 +186,11 @@ fun NativeMap(
             if (!initialLocationSet) {
                 map.cameraPosition = CameraPosition.Builder().target(LatLng(VALENCIA_LAT, VALENCIA_LNG)).zoom(DEFAULT_ZOOM).build()
             }
+            
+            if (targetLat != null && targetLng != null) {
+                map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(targetLat, targetLng), 16.0))
+                initialLocationSet = true
+            }
 
             map.addOnCameraMoveListener { updateHighlightVisuals(map) }
             map.addOnCameraIdleListener { updateDataSheet(map) }
@@ -190,46 +204,47 @@ fun NativeMap(
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
-        // Mira central (siempre visible como en SIGPAC original)
+        // Mira central
         if (!showCustomKeyboard) {
             Box(modifier = Modifier.align(Alignment.Center)) {
                 Icon(Icons.Default.Add, "Mira", tint = Color.White, modifier = Modifier.size(36.dp))
             }
         }
 
-        // --- BUSCADOR Y SELECTOR DE PROYECTO (Top Center/Start) ---
+        // --- BUSCADOR Y SELECTOR DE PROYECTO ---
         Column(
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Buscador Original
             Card(
-                modifier = Modifier.fillMaxWidth(0.7f).height(48.dp).clickable { showCustomKeyboard = true },
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F).copy(alpha = 0.85f)),
-                shape = RoundedCornerShape(12.dp)
+                modifier = Modifier.fillMaxWidth(0.75f).height(50.dp).clickable { showCustomKeyboard = true },
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F).copy(alpha = 0.9f)),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color.White.copy(0.1f))
             ) {
-                Row(modifier = Modifier.padding(horizontal = 12.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Search, null, tint = Color(0xFF00FF88))
+                Row(modifier = Modifier.padding(horizontal = 14.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Search, null, tint = Color(0xFF00FF88), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text(searchQuery.ifEmpty { "Prov:Mun:Pol:Parc" }, color = Color.Gray, fontSize = 12.sp)
+                    Text(searchQuery.ifEmpty { "Prov:Mun:Pol:Parc" }, color = Color.Gray, fontSize = 13.sp)
                 }
             }
 
-            // SELECTOR DE PROYECTO KML (Dropdown debajo del buscador)
+            // SELECTOR DE PROYECTO KML
             Box {
                 Card(
-                    modifier = Modifier.widthIn(min = 200.dp).clickable { showProjectDropdown = true },
+                    modifier = Modifier.widthIn(min = 220.dp).clickable { showProjectDropdown = true },
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F).copy(alpha = 0.95f)),
                     shape = RoundedCornerShape(12.dp),
-                    border = if(selectedProject != null) BorderStroke(1.dp, Color(0xFF00E5FF)) else null
+                    border = BorderStroke(1.dp, if(selectedProject != null) Color(0xFF2196F3) else Color.White.copy(0.1f))
                 ) {
-                    Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Map, null, tint = if(selectedProject != null) Color(0xFF00E5FF) else Color.Gray, modifier = Modifier.size(16.dp))
+                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Map, null, tint = if(selectedProject != null) Color(0xFF2196F3) else Color.Gray, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = selectedProject?.titular ?: "Capa Proyecto KML",
                             color = if(selectedProject != null) Color.White else Color.Gray,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
@@ -241,7 +256,7 @@ fun NativeMap(
                 DropdownMenu(
                     expanded = showProjectDropdown,
                     onDismissRequest = { showProjectDropdown = false },
-                    modifier = Modifier.background(Color(0xFF13141F)).widthIn(min = 200.dp)
+                    modifier = Modifier.background(Color(0xFF13141F)).widthIn(min = 220.dp)
                 ) {
                     DropdownMenuItem(
                         text = { Text("Ocultar Capas Proyecto", color = Color.Gray, fontSize = 12.sp) },
