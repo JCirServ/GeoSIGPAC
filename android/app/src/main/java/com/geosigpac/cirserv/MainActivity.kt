@@ -32,10 +32,16 @@ import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.NativeMap
 import com.geosigpac.cirserv.ui.NativeProjectManager
 import com.geosigpac.cirserv.utils.ProjectStorage
+import org.maplibre.android.MapLibre
+import org.maplibre.android.WellKnownTileServer
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // CORRECCIÓN CRÍTICA: Inicialización obligatoria de MapLibre
+        MapLibre.getInstance(this, null, WellKnownTileServer.MapLibre)
+
         enableEdgeToEdge()
 
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
@@ -48,7 +54,7 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFF00FF88),
                     secondary = Color(0xFF62D2FF),
                     surface = Color(0xFF2D3033),
-                    background = Color(0xFF1A1C1E), // Charcoal Dark
+                    background = Color(0xFF1A1C1E),
                     onSurface = Color(0xFFE2E2E6),
                     outline = Color(0xFF44474B)
                 )
@@ -67,15 +73,12 @@ fun GeoSigpacApp() {
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     
-    // Estado principal de expedientes con persistencia
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
     
-    // Carga inicial
     LaunchedEffect(Unit) {
         expedientes = ProjectStorage.loadExpedientes(context)
     }
 
-    // Persistencia automática ante cualquier cambio (incluyendo hidratación)
     LaunchedEffect(expedientes) {
         ProjectStorage.saveExpedientes(context, expedientes)
     }
@@ -113,33 +116,31 @@ fun GeoSigpacApp() {
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                if (selectedTab == 1) {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 8.dp
-                    ) {
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = { isCameraOpen = true },
-                            icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
-                            label = { Text("Cámara", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
-                        )
-                        NavigationBarItem(
-                            selected = true,
-                            onClick = { selectedTab = 1 },
-                            icon = { Icon(Icons.Default.Folder, "Proyectos") },
-                            label = { Text("Proyectos", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
-                        )
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = { selectedTab = 2 },
-                            icon = { Icon(Icons.Default.Map, "Mapa") },
-                            label = { Text("Mapa", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
-                        )
-                    }
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp
+                ) {
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { isCameraOpen = true },
+                        icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
+                        label = { Text("Cámara", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        icon = { Icon(Icons.Default.Folder, "Proyectos") },
+                        label = { Text("Proyectos", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        icon = { Icon(Icons.Default.Map, "Mapa") },
+                        label = { Text("Mapa", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
+                    )
                 }
             }
         ) { padding ->
@@ -154,6 +155,7 @@ fun GeoSigpacApp() {
                     2 -> NativeMap(
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
+                        expedientes = expedientes,
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )
