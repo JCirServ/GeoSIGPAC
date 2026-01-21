@@ -7,7 +7,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,7 +47,7 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFF00FF88),
                     secondary = Color(0xFF62D2FF),
                     surface = Color(0xFF2D3033),
-                    background = Color(0xFF1A1C1E), // Charcoal Dark
+                    background = Color(0xFF1A1C1E),
                     onSurface = Color(0xFFE2E2E6),
                     outline = Color(0xFF44474B)
                 )
@@ -67,15 +66,12 @@ fun GeoSigpacApp() {
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     
-    // Estado principal de expedientes con persistencia
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
     
-    // Carga inicial
     LaunchedEffect(Unit) {
         expedientes = ProjectStorage.loadExpedientes(context)
     }
 
-    // Persistencia automática ante cualquier cambio (incluyendo hidratación)
     LaunchedEffect(expedientes) {
         ProjectStorage.saveExpedientes(context, expedientes)
     }
@@ -126,18 +122,18 @@ fun GeoSigpacApp() {
                             colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
                         )
                         NavigationBarItem(
-                            selected = true,
+                            selected = selectedTab == 1,
                             onClick = { selectedTab = 1 },
                             icon = { Icon(Icons.Default.Folder, "Proyectos") },
                             label = { Text("Proyectos", fontSize = 10.sp) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                         NavigationBarItem(
-                            selected = false,
+                            selected = selectedTab == 2,
                             onClick = { selectedTab = 2 },
                             icon = { Icon(Icons.Default.Map, "Mapa") },
                             label = { Text("Mapa", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
+                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                     }
                 }
@@ -154,6 +150,7 @@ fun GeoSigpacApp() {
                     2 -> NativeMap(
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
+                        expedientes = expedientes, // Nueva prop
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )
