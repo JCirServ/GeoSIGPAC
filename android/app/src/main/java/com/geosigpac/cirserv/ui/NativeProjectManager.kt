@@ -41,7 +41,9 @@ import java.util.*
 @Composable
 fun NativeProjectManager(
     expedientes: List<NativeExpediente>,
+    activeProjectId: String?,
     onUpdateExpedientes: (List<NativeExpediente>) -> Unit,
+    onActivateProject: (String) -> Unit,
     onNavigateToMap: (Double?, Double?) -> Unit,
     onOpenCamera: (String?) -> Unit
 ) {
@@ -57,7 +59,6 @@ fun NativeProjectManager(
     fun addLog(msg: String) {
         val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         debugLogs.add("[$time] $msg")
-        Log.d("GeoSIGPAC_DEBUG", msg)
         if (debugLogs.size > 60) debugLogs.removeAt(0)
     }
 
@@ -161,7 +162,13 @@ fun NativeProjectManager(
 
             LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(expedientes, key = { it.id }) { exp ->
-                    ProjectListItem(exp, { selectedExpedienteId = exp.id }, { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) })
+                    ProjectListItem(
+                        exp = exp, 
+                        isActive = exp.id == activeProjectId,
+                        onActivate = { onActivateProject(exp.id) },
+                        onSelect = { selectedExpedienteId = exp.id }, 
+                        onDelete = { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) }
+                    )
                 }
             }
 
@@ -192,25 +199,50 @@ fun NativeProjectManager(
 }
 
 @Composable
-fun ProjectListItem(exp: NativeExpediente, onSelect: () -> Unit, onDelete: () -> Unit) {
+fun ProjectListItem(
+    exp: NativeExpediente, 
+    isActive: Boolean,
+    onActivate: () -> Unit,
+    onSelect: () -> Unit, 
+    onDelete: () -> Unit
+) {
     val hydratedCount = exp.parcelas.count { it.isHydrated }
     val progress = if (exp.parcelas.isEmpty()) 0f else hydratedCount.toFloat() / exp.parcelas.size
     val animatedProgress by animateFloatAsState(targetValue = progress)
 
     Card(
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth().clickable { onSelect() },
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .clickable { onSelect() },
+        colors = CardDefaults.cardColors(containerColor = if(isActive) MaterialTheme.colorScheme.surface.copy(alpha = 0.9f) else MaterialTheme.colorScheme.surface.copy(alpha=0.6f)),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, Color.White.copy(0.05f))
+        border = BorderStroke(
+            if (isActive) 2.dp else 1.dp, 
+            if (isActive) Color(0xFF00FF88) else Color.White.copy(0.05f)
+        )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Folder, null, tint = Color(0xFF00FF88), modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 10.sp)
+                // Indicador de Estado / Activación
+                IconButton(onClick = onActivate, modifier = Modifier.size(24.dp)) {
+                    if (isActive) {
+                         Icon(Icons.Default.RadioButtonChecked, null, tint = Color(0xFF00FF88))
+                    } else {
+                         Icon(Icons.Default.RadioButtonUnchecked, null, tint = Color.Gray)
+                    }
                 }
+                
+                Spacer(Modifier.width(12.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if(isActive) Color.White else Color.LightGray)
+                    Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 10.sp)
+                    if (isActive) {
+                        Text("PROYECTO ACTIVO", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+                
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.Gray.copy(0.3f), modifier = Modifier.size(18.dp)) }
             }
             Spacer(Modifier.height(8.dp))

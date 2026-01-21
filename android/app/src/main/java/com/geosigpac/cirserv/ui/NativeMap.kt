@@ -2,27 +2,40 @@
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
-import android.graphics.PointF
+import android.graphics.RectF
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
-import androidx.compose.animation.*
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -33,39 +46,27 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.geosigpac.cirserv.model.NativeExpediente
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.*
-import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.geojson.Feature
-import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.Point
-import org.maplibre.geojson.Polygon
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
 import java.util.Locale
 
-private const val TAG = "GeoSIGPAC_Map"
-private const val SOURCE_KML_ID = "kml-project-source"
-private const val LAYER_KML_FILL = "kml-project-layer-fill"
-private const val LAYER_KML_OUTLINE = "kml-project-layer-outline"
+private const val TAG = "GeoSIGPAC_LOG_Map"
 
 @SuppressLint("MissingPermission")
 @Composable
 fun NativeMap(
     targetLat: Double?,
     targetLng: Double?,
-    expedientes: List<NativeExpediente>,
     onNavigateToProjects: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
@@ -74,172 +75,264 @@ fun NativeMap(
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     
+    // --- ESTADO ---
     var mapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
     var currentBaseMap by remember { mutableStateOf(BaseMap.PNOA) }
     var showRecinto by remember { mutableStateOf(true) }
     var showCultivo by remember { mutableStateOf(true) }
+    var showLayerMenu by remember { mutableStateOf(false) }
+
     var initialLocationSet by remember { mutableStateOf(false) }
 
-    // Selector de Proyecto KML
-    var selectedProject by remember { mutableStateOf<NativeExpediente?>(null) }
-    var showProjectDropdown by remember { mutableStateOf(false) }
-
-    // Búsqueda e Info
+    // Estado Búsqueda
     var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
+    var searchActive by remember { mutableStateOf(false) }
+    
+    // TECLADO PERSONALIZADO
     var showCustomKeyboard by remember { mutableStateOf(false) }
+
+    // Estado de datos SIGPAC
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
+    var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
+    
+    // Control para evitar actualizaciones de DATOS (Bottom Sheet) innecesarias
     var lastDataId by remember { mutableStateOf<String?>(null) }
+    
+    // Estado de expansión del panel
     var isPanelExpanded by remember { mutableStateOf(false) }
+    
     var isLoadingData by remember { mutableStateOf(false) }
     var apiJob by remember { mutableStateOf<Job?>(null) }
+
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    val mapView = remember { MapView(context).apply { onCreate(Bundle()) } }
+    // Inicializar MapLibre (Singleton)
+    remember { MapLibre.getInstance(context) }
 
-    // Lógica para renderizar el proyecto seleccionado en el mapa
-    fun updateKmlLayer(project: NativeExpediente?) {
-        val map = mapInstance ?: return
-        val style = map.style ?: return
-
-        // Limpiar capas anteriores
-        if (style.getLayer(LAYER_KML_OUTLINE) != null) style.removeLayer(LAYER_KML_OUTLINE)
-        if (style.getLayer(LAYER_KML_FILL) != null) style.removeLayer(LAYER_KML_FILL)
-        if (style.getSource(SOURCE_KML_ID) != null) style.removeSource(SOURCE_KML_ID)
-
-        if (project == null || project.parcelas.isEmpty()) return
-
-        val features = project.parcelas.mapNotNull { parcela ->
-            parcela.geometry?.let { coords ->
-                if (coords.size >= 3) {
-                    val points = coords.map { Point.fromLngLat(it[0], it[1]) }
-                    Feature.fromGeometry(Polygon.fromLngLats(listOf(points)))
-                } else null
-            } ?: Feature.fromGeometry(Point.fromLngLat(parcela.lng, parcela.lat))
+    // Creamos la instancia del MapView dentro de remember.
+    // Usamos apply para inicializarlo inmediatamente (onCreate).
+    val mapView = remember {
+        MapView(context).apply {
+            onCreate(Bundle())
         }
+    }
 
-        if (features.isEmpty()) return
-
-        val source = GeoJsonSource(SOURCE_KML_ID, FeatureCollection.fromFeatures(features))
-        style.addSource(source)
-
-        // Capa de Relleno: Azul Translúcido
-        val fillLayer = FillLayer(LAYER_KML_FILL, SOURCE_KML_ID).apply {
-            setProperties(
-                PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), // Azul Material Design
-                PropertyFactory.fillOpacity(0.4f)
-            )
-        }
-        style.addLayer(fillLayer)
-
-        // Capa de Borde: Azul Intenso
-        val outlineLayer = LineLayer(LAYER_KML_OUTLINE, SOURCE_KML_ID).apply {
-            setProperties(
-                PropertyFactory.lineColor(Color(0xFF1976D2).toArgb()),
-                PropertyFactory.lineWidth(3.0f)
-            )
-        }
-        style.addLayer(outlineLayer)
-
-        // Centrar mapa en el BBox del proyecto
-        val boundsBuilder = LatLngBounds.Builder()
-        var hasValidCoords = false
-        project.parcelas.forEach { p ->
-            boundsBuilder.include(LatLng(p.lat, p.lng))
-            hasValidCoords = true
-            p.geometry?.forEach { boundsBuilder.include(LatLng(it[1], it[0])) }
-        }
-        
-        if (hasValidCoords) {
+    // --- GESTIÓN ROBUSTA DEL CICLO DE VIDA ---
+    DisposableEffect(lifecycleOwner) {
+        // Observer: Maneja eventos del sistema (minimizar app, rotar pantalla)
+        val observer = LifecycleEventObserver { _, event ->
             try {
-                val bounds = boundsBuilder.build()
-                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150), 1200)
-            } catch (e: Exception) {
-                if (project.parcelas.isNotEmpty()) {
-                     val p = project.parcelas.first()
-                     map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(p.lat, p.lng), 16.5))
+                when (event) {
+                    Lifecycle.Event.ON_START -> mapView.onStart()
+                    Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                    Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                    Lifecycle.Event.ON_STOP -> mapView.onStop()
+                    Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                    else -> {}
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error en ciclo de vida MapView: ${e.message}")
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        // Iniciamos el mapa inmediatamente si el ciclo de vida lo permite
+        mapView.onStart()
+        mapView.onResume()
+
+        onDispose {
+            Log.d(TAG, "NativeMap Disposing... Starting clean shutdown sequence.")
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            try {
+                // CRÍTICO: MapLibre crashea si pasas de Resume a Destroy.
+                // Debemos bajar los estados manualmente al salir de la composición.
+                mapView.onPause()
+                mapView.onStop()
+                mapView.onDestroy()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error cleaning up MapView in onDispose: ${e.message}")
             }
         }
     }
 
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
-                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
-                else -> {}
-            }
+    // --- FUNCIÓN DE BÚSQUEDA ---
+    fun performSearch() {
+        if (searchQuery.isBlank()) return
+        showCustomKeyboard = false
+        focusManager.clearFocus()
+        isSearching = true
+        searchActive = true
+        
+        val parts = searchQuery.split(":").map { it.trim() }
+        if (parts.size < 4) {
+            Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
+            isSearching = false
+            return
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+
+        val prov = parts[0]; val mun = parts[1]; val pol = parts[2]; val parc = parts[3]; val rec = parts.getOrNull(4)
+
+        scope.launch {
+            val map = mapInstance
+            if (map != null && map.style != null) {
+                val filterList = mutableListOf<Expression>(
+                    Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
+                    Expression.eq(Expression.toString(Expression.get("municipio")), Expression.literal(mun)),
+                    Expression.eq(Expression.toString(Expression.get("poligono")), Expression.literal(pol)),
+                    Expression.eq(Expression.toString(Expression.get("parcela")), Expression.literal(parc))
+                )
+                if (rec != null) {
+                    filterList.add(Expression.eq(Expression.toString(Expression.get("recinto")), Expression.literal(rec)))
+                }
+                val filter = Expression.all(*filterList.toTypedArray())
+                
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(filter) }
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
+            }
+
+            val bbox = searchParcelLocation(prov, mun, pol, parc, rec)
+            if (bbox != null) {
+                mapInstance?.animateCamera(CameraUpdateFactory.newLatLngBounds(bbox, 100), 1500)
+            } else {
+                Toast.makeText(context, "Ubicación no encontrada", Toast.LENGTH_SHORT).show()
+            }
+            
+            isSearching = false
+        }
+    }
+
+    fun clearSearch() {
+        searchQuery = ""
+        searchActive = false
+        lastDataId = null
+        recintoData = null
+        cultivoData = null
+        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(Expression.literal(false)) }
+        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(Expression.literal(false)) }
+    }
+
+    // --- LÓGICA DE ACTUALIZACIÓN VISUAL ---
+    fun updateHighlightVisuals(map: MapLibreMap) {
+        if (searchActive) return
+        if (map.cameraPosition.zoom < 13) {
+            val emptyFilter = Expression.literal(false)
+            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
+            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+            return
+        }
+        val center = map.cameraPosition.target ?: return
+        val screenPoint = map.projection.toScreenLocation(center)
+        val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
+        try {
+            val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
+            if (features.isNotEmpty()) {
+                val feature = features[0]
+                val props = feature.properties()
+                if (props != null) {
+                    val filterConditions = mutableListOf<Expression>()
+                    SIGPAC_KEYS.forEach { key ->
+                        if (props.has(key)) {
+                            val element = props.get(key)
+                            val value: Any = when {
+                                element.isJsonPrimitive -> {
+                                    val prim = element.asJsonPrimitive
+                                    when {
+                                        prim.isNumber -> prim.asNumber
+                                        prim.isBoolean -> prim.asBoolean
+                                        else -> prim.asString
+                                    }
+                                }
+                                else -> element.toString()
+                            }
+                            filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
+                        }
+                    }
+                    val finalFilter = Expression.all(*filterConditions.toTypedArray())
+                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(finalFilter) }
+                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
+                }
+            } else {
+                val emptyFilter = Expression.literal(false)
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+            }
+        } catch (e: Exception) { Log.e(TAG, "Error highlighting: ${e.message}") }
+    }
+
+    fun updateDataSheet(map: MapLibreMap) {
+        if (searchActive) return
+        if (map.cameraPosition.zoom < 13) {
+            recintoData = null; cultivoData = null; lastDataId = null
+            return
+        }
+        val center = map.cameraPosition.target ?: return
+        val screenPoint = map.projection.toScreenLocation(center)
+        val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
+        
+        try {
+            val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
+            if (features.isNotEmpty()) {
+                val props = features[0].properties()
+                val prov = props?.get("provincia")?.asString ?: ""
+                val mun = props?.get("municipio")?.asString ?: ""
+                val pol = props?.get("poligono")?.asString ?: ""
+                val parc = props?.get("parcela")?.asString ?: ""
+                val rec = props?.get("recinto")?.asString ?: ""
+                val uniqueId = "$prov-$mun-$pol-$parc-$rec"
+                
+                if (uniqueId != lastDataId) {
+                    lastDataId = uniqueId
+                    recintoData = mapOf(
+                        "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
+                        "agregado" to (props?.get("agregado")?.asString ?: "0"),
+                        "zona" to (props?.get("zona")?.asString ?: "0"),
+                        "superficie" to (props?.get("superficie")?.toString() ?: "0"),
+                        "uso_sigpac" to "Cargando...", "pendiente_media" to "-", "altitud" to "-", "region" to "-",
+                        "coef_regadio" to "-", "subvencionabilidad" to "-", "incidencias" to ""
+                    )
+                    isLoadingData = true
+                    isPanelExpanded = false
+                    apiJob?.cancel()
+                    apiJob = scope.launch {
+                        delay(200)
+                        val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
+                        if (fullData != null) recintoData = fullData
+                        isLoadingData = false
+                    }
+                }
+            } else {
+                lastDataId = null
+            }
+            
+            val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
+            if (cultFeatures.isNotEmpty()) {
+                 val props = cultFeatures[0].properties()
+                 if (props != null) {
+                    val mapProps = mutableMapOf<String, String>()
+                    props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
+                    cultivoData = mapProps
+                }
+            } else {
+                cultivoData = null
+            }
+        } catch (e: Exception) { Log.e(TAG, "Error querying features: ${e.message}") }
     }
 
     LaunchedEffect(Unit) {
         mapView.getMapAsync { map ->
             mapInstance = map
+            map.uiSettings.isAttributionEnabled = true
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isCompassEnabled = true
-            
+            map.uiSettings.isTiltGesturesEnabled = false
+
             if (!initialLocationSet) {
                 map.cameraPosition = CameraPosition.Builder().target(LatLng(VALENCIA_LAT, VALENCIA_LNG)).zoom(DEFAULT_ZOOM).build()
             }
-            
-            if (targetLat != null && targetLng != null) {
-                map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(targetLat, targetLng), 16.0))
-                initialLocationSet = true
-            }
 
-            // Lógica de Resaltado Visual al mover la cámara
-            map.addOnCameraMoveListener {
-                val screenPoint = map.projection.toScreenLocation(map.cameraPosition.target)
-                val features = map.queryRenderedFeatures(screenPoint, LAYER_RECINTO_FILL)
-                
-                val style = map.style
-                if (style != null) {
-                    if (features.isNotEmpty()) {
-                        val f = features[0]
-                        val prov = f.getStringProperty("provincia")
-                        val mun = f.getStringProperty("municipio")
-                        val pol = f.getStringProperty("poligono")
-                        val parc = f.getStringProperty("parcela")
-                        val rec = f.getStringProperty("recinto")
-                        
-                        if (prov != null && mun != null) {
-                            val filter = Expression.all(
-                                Expression.eq(Expression.get("provincia"), Expression.literal(prov)),
-                                Expression.eq(Expression.get("municipio"), Expression.literal(mun)),
-                                Expression.eq(Expression.get("poligono"), Expression.literal(pol)),
-                                Expression.eq(Expression.get("parcela"), Expression.literal(parc)),
-                                Expression.eq(Expression.get("recinto"), Expression.literal(rec))
-                            )
-                            style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setFilter(filter)
-                            style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setFilter(filter)
-                        }
-                    } else {
-                        val emptyFilter = Expression.literal(false)
-                        style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.setFilter(emptyFilter)
-                        style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.setFilter(emptyFilter)
-                    }
-                }
-            }
-
-            // Lógica de Consulta de Datos (Popup) al detener la cámara
-            map.addOnCameraIdleListener {
-                val center = map.cameraPosition.target
-                apiJob?.cancel()
-                apiJob = scope.launch {
-                    delay(150) // Debounce para no saturar
-                    try {
-                        val data = fetchFullSigpacInfo(center.latitude, center.longitude)
-                        recintoData = data
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }
+            map.addOnCameraMoveListener { updateHighlightVisuals(map) }
+            map.addOnCameraIdleListener { updateDataSheet(map) }
 
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
@@ -247,156 +340,195 @@ fun NativeMap(
         }
     }
 
+    LaunchedEffect(targetLat, targetLng) {
+        if (targetLat != null && targetLng != null) {
+            mapInstance?.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(LatLng(targetLat, targetLng)).zoom(18.0).tilt(0.0).build()), 1500)
+        }
+    }
+
+    LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
+        mapInstance?.let { map ->
+            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) { }
+        }
+    }
+
+    // --- UI RENDER ---
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        AndroidView(
+            factory = { mapView }, 
+            modifier = Modifier.fillMaxSize()
+        )
 
-        // Mira central
-        if (!showCustomKeyboard) {
-            Box(modifier = Modifier.align(Alignment.Center)) {
-                Icon(Icons.Default.Add, "Mira", tint = Color.White, modifier = Modifier.size(36.dp))
+        // Cruz central
+        if (!isSearching && !showCustomKeyboard) {
+            Box(modifier = Modifier.align(Alignment.Center), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Add, null, tint = Color.Black.copy(0.5f), modifier = Modifier.size(38.dp))
+                Icon(Icons.Default.Add, "Puntero", tint = Color.White, modifier = Modifier.size(36.dp))
             }
         }
 
-        // --- BUSCADOR Y SELECTOR DE PROYECTO ---
-        Column(
-            modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Buscador Original
-            Card(
-                modifier = Modifier.fillMaxWidth(0.75f).height(50.dp).clickable { showCustomKeyboard = true },
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F).copy(alpha = 0.9f)),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, Color.White.copy(0.1f))
-            ) {
-                Row(modifier = Modifier.padding(horizontal = 14.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Search, null, tint = Color(0xFF00FF88), modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text(searchQuery.ifEmpty { "Prov:Mun:Pol:Parc" }, color = Color.Gray, fontSize = 13.sp)
-                }
-            }
-
-            // SELECTOR DE PROYECTO KML
-            Box {
-                Card(
-                    modifier = Modifier.widthIn(min = 220.dp).clickable { showProjectDropdown = true },
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF13141F).copy(alpha = 0.95f)),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, if(selectedProject != null) Color(0xFF2196F3) else Color.White.copy(0.1f))
-                ) {
-                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Map, null, tint = if(selectedProject != null) Color(0xFF2196F3) else Color.Gray, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = selectedProject?.titular ?: "Capa Proyecto KML",
-                            color = if(selectedProject != null) Color.White else Color.Gray,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.Default.ArrowDropDown, null, tint = Color.Gray)
-                    }
-                }
-
-                DropdownMenu(
-                    expanded = showProjectDropdown,
-                    onDismissRequest = { showProjectDropdown = false },
-                    modifier = Modifier.background(Color(0xFF13141F)).widthIn(min = 220.dp)
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Ocultar Capas Proyecto", color = Color.Gray, fontSize = 12.sp) },
-                        onClick = { 
-                            selectedProject = null
-                            showProjectDropdown = false
-                            updateKmlLayer(null)
-                        }
-                    )
-                    expedientes.forEach { exp ->
-                        DropdownMenuItem(
-                            text = { Text(exp.titular, color = Color.White, fontSize = 12.sp) },
-                            onClick = {
-                                selectedProject = exp
-                                showProjectDropdown = false
-                                updateKmlLayer(exp)
-                            }
-                        )
+        // --- BUSCADOR (TOP LEFT) ---
+        Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 16.dp, start = 16.dp, end = 16.dp).fillMaxWidth(0.65f)) {
+            val interactionSource = remember { MutableInteractionSource() }
+            LaunchedEffect(interactionSource) {
+                interactionSource.interactions.collect { interaction ->
+                    if (interaction is PressInteraction.Release) {
+                        showCustomKeyboard = true
+                        isPanelExpanded = false 
                     }
                 }
             }
-        }
-
-        // --- PANEL DE INFORMACIÓN (Bottom Sheet SIGPAC) ---
-        AnimatedVisibility(visible = recintoData != null && !showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-            Card(
-                modifier = Modifier.fillMaxWidth().animateContentSize()
-                    .pointerInput(Unit) { detectVerticalDragGestures { _, drag -> isPanelExpanded = drag < 0 } },
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0D0E1A)),
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column {
-                            Text("DATOS SIGPAC", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            Text(recintoData!!["referencia"] ?: "-", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                        IconButton(onClick = { recintoData = null }) { Icon(Icons.Default.Close, null, tint = Color.Gray) }
-                    }
-                    if (isPanelExpanded) {
-                        Spacer(Modifier.height(16.dp))
-                        Row { 
-                            AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f))
-                            AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f)) 
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = onOpenCamera, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                        Icon(Icons.Default.PhotoCamera, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("FOTO GEORREFERENCIADA")
-                    }
-                }
-            }
-        }
-
-        // Teclado
-        AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-            CustomSigpacKeyboard(
-                onKey = { searchQuery += it },
-                onBackspace = { if(searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
-                onSearch = {
-                    showCustomKeyboard = false
-                    if (searchQuery.isNotBlank()) {
-                        scope.launch {
-                            try {
-                                val cleanQuery = searchQuery.replace("-", ":").replace(" ", "")
-                                val parts = cleanQuery.split(":").filter { it.isNotEmpty() }
-                                
-                                if (parts.size >= 4) {
-                                    val prov = parts[0]
-                                    val mun = parts[1]
-                                    val pol = parts[2]
-                                    val parc = parts[3]
-                                    val rec = if (parts.size >= 5) parts[4] else null
-
-                                    Toast.makeText(context, "Localizando ${parts.joinToString(":")}...", Toast.LENGTH_SHORT).show()
-                                    
-                                    val bounds = searchParcelLocation(prov, mun, pol, parc, rec)
-                                    
-                                    if (bounds != null) {
-                                        mapInstance?.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150), 2000)
-                                    } else {
-                                        Toast.makeText(context, "No se encontró geometría", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
-                                }
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error en búsqueda", Toast.LENGTH_SHORT).show()
-                            }
-                        }
+            TextField(
+                value = searchQuery,
+                onValueChange = { },
+                placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 12.sp) },
+                singleLine = true,
+                maxLines = 1,
+                readOnly = true,
+                interactionSource = interactionSource,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
+                    unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
+                    focusedIndicatorColor = if(showCustomKeyboard) FieldGreen else Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = FieldGreen
+                ),
+                shape = RoundedCornerShape(8.dp),
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { clearSearch(); showCustomKeyboard = false }) { Icon(Icons.Default.Close, "Borrar", tint = Color.Gray) }
+                    } else {
+                        IconButton(onClick = { showCustomKeyboard = true }) { Icon(Icons.Default.Search, "Buscar", tint = FieldGreen) }
                     }
                 },
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            )
+        }
+
+        // --- BOTONES (TOP END) ---
+        Column(modifier = Modifier.align(Alignment.TopEnd).padding(top = 90.dp, end = 16.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu }, containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.primary, shape = CircleShape) { Icon(Icons.Default.Settings, "Capas") }
+
+            AnimatedVisibility(visible = showLayerMenu) {
+                Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Mapa Base", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        BaseMap.values().forEach { base ->
+                            Row(modifier = Modifier.fillMaxWidth().clickable { currentBaseMap = base }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = (currentBaseMap == base), onClick = { currentBaseMap = base }, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(base.title, fontSize = 13.sp)
+                            }
+                        }
+                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text("Capas SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showRecinto = !showRecinto }) {
+                            Checkbox(checked = showRecinto, onCheckedChange = { showRecinto = it }, modifier = Modifier.size(30.dp).padding(4.dp)); Text("Recintos", fontSize = 13.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }) {
+                            Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it }, modifier = Modifier.size(30.dp).padding(4.dp)); Text("Cultivos", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+            SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
+            SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF006D3E), shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
+            SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, shouldCenter = true) }, containerColor = MaterialTheme.colorScheme.secondary, contentColor = Color.White, shape = CircleShape) { Icon(Icons.Default.MyLocation, "Ubicación") }
+        }
+
+        // Loading
+        if (isLoadingData || isSearching) {
+            Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) {
+                CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
+            }
+        }
+
+        // BOTTOM SHEET (Info)
+        if (!showCustomKeyboard) {
+            AnimatedVisibility(visible = recintoData != null || (cultivoData != null && showCultivo), enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
+                val displayData = recintoData ?: cultivoData
+                displayData?.let { data ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(0.dp).animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                            .pointerInput(Unit) { detectVerticalDragGestures { change, dragAmount -> change.consume(); if (dragAmount < -20) isPanelExpanded = true else if (dragAmount > 20) isPanelExpanded = false } },
+                        colors = CardDefaults.cardColors(containerColor = FieldBackground.copy(alpha = 0.98f)),
+                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
+                                Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f)))
+                            }
+                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                                Column {
+                                    Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
+                                    Text(text = "${data["provincia"]}:${data["municipio"]}:${data["agregado"]}:${data["zona"]}:${data["poligono"]}:${data["parcela"]}:${data["recinto"]}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FieldGreen)
+                                }
+                                IconButton(onClick = { recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
+                            }
+                            Divider(color = FieldDivider)
+
+                            val hasCultivo = cultivoData != null
+                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).background(FieldSurface).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
+                                }
+                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
+                                }
+                            }
+                            
+                            if (isPanelExpanded) {
+                                Divider(color = FieldDivider)
+                                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                                    if (selectedTab == 0) {
+                                        if (recintoData != null) {
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f)); AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f)) }
+                                            Spacer(Modifier.height(12.dp))
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f)); AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f)) }
+                                            Spacer(Modifier.height(12.dp))
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f)); AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f)) }
+                                            Spacer(Modifier.height(12.dp))
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f)); AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f)) }
+                                        }
+                                    } else {
+                                        if (cultivoData != null) {
+                                            val c = cultivoData!!
+                                            Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f)); AttributeItem("Año", c["exp_ano"], Modifier.weight(1f)) }
+                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f)); val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0; val supCultHa = supCultRaw / 10000.0; AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f)) }
+                                            Spacer(Modifier.height(8.dp))
+                                            Row(Modifier.fillMaxWidth()) { val sist = c["parc_sistexp"]; val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }; AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f)); AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f)) }
+                                            Spacer(Modifier.height(8.dp))
+                                            AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
+                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
+                                            Spacer(Modifier.height(4.dp))
+                                            AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
+                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f)) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // TECLADO PERSONALIZADO
+        AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
+            CustomSigpacKeyboard(
+                onKey = { char -> searchQuery += char },
+                onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
+                onSearch = { performSearch() },
                 onClose = { showCustomKeyboard = false }
             )
         }
