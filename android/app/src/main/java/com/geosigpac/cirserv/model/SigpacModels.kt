@@ -27,7 +27,7 @@ data class CultivoData(
 
 data class NativeParcela(
     val id: String,
-    val referencia: String, // Prov:Mun:Ag:Zo:Pol:Parc:Rec
+    val referencia: String, 
     val uso: String,
     val lat: Double,
     val lng: Double,
@@ -35,6 +35,7 @@ data class NativeParcela(
     val metadata: Map<String, String>,
     var sigpacInfo: SigpacData? = null,
     var cultivoInfo: CultivoData? = null,
+    var informeIA: String? = null,
     var isHydrated: Boolean = false
 )
 

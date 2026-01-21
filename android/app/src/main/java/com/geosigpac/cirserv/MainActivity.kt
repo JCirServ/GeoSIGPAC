@@ -43,7 +43,14 @@ class MainActivity : ComponentActivity() {
         windowInsetsController?.hide(WindowInsetsCompat.Type.systemBars())
         
         setContent {
-            MaterialTheme {
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    primary = Color(0xFF00FF88),
+                    surface = Color(0xFF1B1E23),
+                    background = Color(0xFF121418),
+                    onSurface = Color.White
+                )
+            ) {
                 GeoSigpacApp()
             }
         }
@@ -54,11 +61,9 @@ class MainActivity : ComponentActivity() {
 fun GeoSigpacApp() {
     val context = LocalContext.current
     var isCameraOpen by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableIntStateOf(1) } // 1 = Proyectos (Centro), 2 = Mapa (Derecha)
+    var selectedTab by remember { mutableIntStateOf(1) } // 1 = Proyectos
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-
-    // --- ESTADO PERSISTENTE DE EXPEDIENTES ---
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
     
     LaunchedEffect(Unit) {
@@ -66,12 +71,9 @@ fun GeoSigpacApp() {
     }
 
     LaunchedEffect(expedientes) {
-        if (expedientes.isNotEmpty() || ProjectStorage.loadExpedientes(context).isNotEmpty()) {
-            ProjectStorage.saveExpedientes(context, expedientes)
-        }
+        ProjectStorage.saveExpedientes(context, expedientes)
     }
 
-    // GESTIÓN DE PERMISOS
     val permissionsToRequest = arrayOf(
         Manifest.permission.CAMERA,
         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -83,10 +85,7 @@ fun GeoSigpacApp() {
     ) { _ -> }
 
     LaunchedEffect(Unit) {
-        val needsRequest = permissionsToRequest.any {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (needsRequest) {
+        if (permissionsToRequest.any { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }) {
             permissionLauncher.launch(permissionsToRequest)
         }
     }
@@ -100,102 +99,57 @@ fun GeoSigpacApp() {
             onImageCaptured = { isCameraOpen = false },
             onError = { isCameraOpen = false },
             onClose = { isCameraOpen = false },
-            onGoToMap = { 
-                isCameraOpen = false
-                mapTarget = null 
-                selectedTab = 2 
-            },
+            onGoToMap = { isCameraOpen = false; selectedTab = 2 },
             onGoToProjects = { isCameraOpen = false; selectedTab = 1 }
         )
     } else {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
-            containerColor = Color(0xFF07080D),
+            containerColor = Color(0xFF121418),
             bottomBar = {
-                // El menú de navegación solo aparece cuando estamos en la pestaña de Proyectos (Tab 1)
                 if (selectedTab == 1) {
                     NavigationBar(
-                        containerColor = Color(0xFF0D0E1A),
-                        contentColor = Color.White,
-                        tonalElevation = 8.dp
+                        containerColor = Color(0xFF1B1E23),
+                        tonalElevation = 0.dp
                     ) {
-                        // 1. CÁMARA (Izquierda)
                         NavigationBarItem(
                             selected = false,
-                            onClick = { 
-                                currentParcelaId = null
-                                isCameraOpen = true 
-                            },
-                            icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") },
+                            onClick = { isCameraOpen = true },
+                            icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
                             label = { Text("Cámara", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                unselectedIconColor = Color.Gray,
-                                unselectedTextColor = Color.Gray,
-                                indicatorColor = Color.Transparent
-                            )
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
                         )
-                        // 2. PROYECTOS (Centro)
                         NavigationBarItem(
-                            selected = selectedTab == 1,
+                            selected = true,
                             onClick = { selectedTab = 1 },
-                            icon = { Icon(Icons.Default.Folder, contentDescription = "Proyectos") },
+                            icon = { Icon(Icons.Default.Folder, "Proyectos") },
                             label = { Text("Proyectos", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Color(0xFF00FF88),
-                                selectedTextColor = Color(0xFF00FF88),
-                                unselectedIconColor = Color.Gray,
-                                unselectedTextColor = Color.Gray,
-                                indicatorColor = Color.Transparent
-                            )
+                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
-                        // 3. MAPA (Derecha)
                         NavigationBarItem(
-                            selected = selectedTab == 2,
-                            onClick = { 
-                                mapTarget = null
-                                selectedTab = 2 
-                            },
-                            icon = { Icon(Icons.Default.Map, contentDescription = "Mapa") },
+                            selected = false,
+                            onClick = { selectedTab = 2 },
+                            icon = { Icon(Icons.Default.Map, "Mapa") },
                             label = { Text("Mapa", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Color(0xFF00FF88),
-                                selectedTextColor = Color(0xFF00FF88),
-                                unselectedIconColor = Color.Gray,
-                                unselectedTextColor = Color.Gray,
-                                indicatorColor = Color.Transparent
-                            )
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
                         )
                     }
                 }
             }
-        ) { paddingValues ->
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues), 
-                color = Color(0xFF07080D)
-            ) {
+        ) { padding ->
+            Surface(modifier = Modifier.padding(padding), color = Color(0xFF121418)) {
                 when (selectedTab) {
                     1 -> NativeProjectManager(
                         expedientes = expedientes,
-                        onUpdateExpedientes = { newList -> expedientes = newList },
-                        onNavigateToMap = { lat, lng ->
-                            mapTarget = if (lat != null && lng != null) lat to lng else null
-                            selectedTab = 2
-                        },
-                        onOpenCamera = { id ->
-                            currentParcelaId = id
-                            isCameraOpen = true
-                        }
+                        onUpdateExpedientes = { newList -> expedientes = newList.toList() },
+                        onNavigateToMap = { lat, lng -> mapTarget = if(lat != null) lat to lng!! else null; selectedTab = 2 },
+                        onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }
                     )
                     2 -> NativeMap(
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
                         onNavigateToProjects = { selectedTab = 1 },
-                        onOpenCamera = { 
-                            currentParcelaId = null
-                            isCameraOpen = true 
-                        }
+                        onOpenCamera = { isCameraOpen = true }
                     )
                 }
             }
