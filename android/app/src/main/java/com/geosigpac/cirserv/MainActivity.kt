@@ -32,10 +32,16 @@ import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.NativeMap
 import com.geosigpac.cirserv.ui.NativeProjectManager
 import com.geosigpac.cirserv.utils.ProjectStorage
+import org.maplibre.android.MapLibre
+import org.maplibre.android.WellKnownTileServer
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Inicialización obligatoria de MapLibre para evitar cierres
+        MapLibre.getInstance(this, null, WellKnownTileServer.MapLibre)
+
         enableEdgeToEdge()
 
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
@@ -70,7 +76,7 @@ fun GeoSigpacApp() {
     // Estado principal de expedientes con persistencia
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
     
-    // Carga inicial
+    // Carga inicial desde SharedPreferences
     LaunchedEffect(Unit) {
         expedientes = ProjectStorage.loadExpedientes(context)
     }
@@ -113,7 +119,7 @@ fun GeoSigpacApp() {
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                if (selectedTab == 1) {
+                if (selectedTab != 0) { // Ocultar si estamos en un modo especial si fuera necesario
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp
@@ -126,18 +132,18 @@ fun GeoSigpacApp() {
                             colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
                         )
                         NavigationBarItem(
-                            selected = true,
+                            selected = selectedTab == 1,
                             onClick = { selectedTab = 1 },
                             icon = { Icon(Icons.Default.Folder, "Proyectos") },
                             label = { Text("Proyectos", fontSize = 10.sp) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                         NavigationBarItem(
-                            selected = false,
+                            selected = selectedTab == 2,
                             onClick = { selectedTab = 2 },
                             icon = { Icon(Icons.Default.Map, "Mapa") },
                             label = { Text("Mapa", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
+                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                     }
                 }
@@ -154,6 +160,7 @@ fun GeoSigpacApp() {
                     2 -> NativeMap(
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
+                        expedientes = expedientes, // CORRECCIÓN: Se pasa el parámetro faltante
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )
