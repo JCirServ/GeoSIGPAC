@@ -42,7 +42,7 @@ const val USER_TRACKING_ZOOM = 16.0
 // --- COLORES TEMA CAMPO ---
 val FieldBackground = Color(0xFF121212)
 val FieldSurface = Color(0xFF252525)
-val FieldGreen = Color(0xFF66BB6A)
+val FieldGreen = Color(0xFF00FF88) // Updated to Neon Green
 val HighContrastWhite = Color(0xFFFFFFFF)
 val FieldGray = Color(0xFFB0B0B0)
 val FieldDivider = Color(0xFF424242)

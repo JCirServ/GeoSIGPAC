@@ -34,12 +34,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
@@ -88,8 +85,6 @@ fun CameraScreen(
     projectId: String?,
     lastCapturedUri: Uri?,
     photoCount: Int,
-    currentTheme: AppThemeOption,
-    onThemeChange: (AppThemeOption) -> Unit,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit,
     onClose: () -> Unit,
@@ -101,7 +96,6 @@ fun CameraScreen(
     val scope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val primaryColor = MaterialTheme.colorScheme.primary
     
     // --- ESTADOS DE CONFIGURACIÓN DE CÁMARA ---
     var aspectRatio by remember { mutableIntStateOf(AspectRatio.RATIO_4_3) }
@@ -124,7 +118,7 @@ fun CameraScreen(
     var focusRingPosition by remember { mutableStateOf<Offset?>(null) }
     var showFocusRing by remember { mutableStateOf(false) }
 
-    // --- ESTADO PREVISUALIZACIÓN FOTO ---
+    // --- ESTADO PREVISUALIZACIÓN FOTO (Carga de Bitmap) ---
     var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     // Efecto para cargar el bitmap
@@ -221,7 +215,7 @@ fun CameraScreen(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // --- BUCLE SIGPAC Y GPS ---
+    // --- BUCLE SIGPAC Y GPS (Lógica igual que antes) ---
     LaunchedEffect(Unit) {
         while (true) {
             val loc = currentLocation
@@ -270,20 +264,23 @@ fun CameraScreen(
     }
 
     // --- COMPONENTES UI REUTILIZABLES ---
-    
+    val NeonGreen = Color(0xFF00FF88)
+
+    // Botones Superiores (Config y Proyectos)
     val TopLeftButtons = @Composable {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Box(
                 modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { onGoToProjects() },
                 contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.List, "Proyectos", tint = Color.White) }
+            ) { Icon(Icons.Default.List, "Proyectos", tint = NeonGreen) }
             Box(
                 modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { showSettingsDialog = true },
                 contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.Settings, "Configuración", tint = Color.White) }
+            ) { Icon(Icons.Default.Settings, "Configuración", tint = NeonGreen) }
         }
     }
 
+    // Cajetín de Información
     val InfoBox = @Composable {
         Box(
             modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp)
@@ -292,7 +289,7 @@ fun CameraScreen(
                 Text(locationText, color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
                 Spacer(Modifier.height(6.dp))
                 if (sigpacRef != null) {
-                    Text("Ref: $sigpacRef", color = primaryColor, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
+                    Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
                     Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 } else if (showNoDataMessage) {
                     Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
@@ -303,6 +300,7 @@ fun CameraScreen(
         }
     }
 
+    // Botón Disparador
     val ShutterButton = @Composable {
         Box(
             modifier = Modifier
@@ -317,6 +315,7 @@ fun CameraScreen(
         )
     }
 
+    // Preview de Foto con Badge
     val PreviewButton = @Composable {
         Box(contentAlignment = Alignment.TopEnd) {
             Box(
@@ -345,6 +344,7 @@ fun CameraScreen(
         }
     }
 
+    // Botón Mapa
     val MapButton = @Composable {
         Box(
             modifier = Modifier
@@ -354,11 +354,13 @@ fun CameraScreen(
                 .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
                 .clickable { onGoToMap() },
             contentAlignment = Alignment.Center
-        ) { Icon(MapIcon, "Mapa", tint = Color.White, modifier = Modifier.size(36.dp)) }
+        ) { Icon(MapIcon, "Mapa", tint = NeonGreen, modifier = Modifier.size(36.dp)) }
     }
 
+    // Slider Zoom (Vertical u Horizontal)
     val ZoomControl = @Composable { isLandscapeMode: Boolean ->
         val containerModifier = if (isLandscapeMode) {
+             // Horizontal y alargado
              Modifier
                 .width(260.dp)
                 .height(40.dp)
@@ -366,6 +368,7 @@ fun CameraScreen(
                 .background(Color.Black.copy(alpha = 0.5f))
                 .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
         } else {
+            // Vertical (contenedor alto)
             Modifier
                 .height(300.dp)
                 .width(30.dp)
@@ -382,24 +385,25 @@ fun CameraScreen(
                 value = currentLinearZoom,
                 onValueChange = { valz -> camera?.cameraControl?.setLinearZoom(valz) },
                 modifier = if (isLandscapeMode) {
-                    Modifier.width(240.dp)
+                    Modifier.width(240.dp) // Slider horizontal normal
                 } else {
                     Modifier
                         .graphicsLayer {
                             rotationZ = 270f
                             transformOrigin = TransformOrigin.Center
                         }
-                        .requiredWidth(260.dp)
+                        .requiredWidth(260.dp) // Ancho rotado se convierte en alto visual
                 }, 
                 colors = SliderDefaults.colors(
                     thumbColor = Color.White,
-                    activeTrackColor = primaryColor,
+                    activeTrackColor = NeonGreen,
                     inactiveTrackColor = Color.White.copy(alpha = 0.3f)
                 )
             )
         }
     }
 
+    // --- UI LAYOUT PRINCIPAL ---
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -425,15 +429,18 @@ fun CameraScreen(
             }
     ) {
         
+        // 1. Vista de Cámara (Fondo)
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); scaleType = PreviewView.ScaleType.FILL_CENTER } }
         )
         
+        // 2. Anillo de Enfoque
         if (showFocusRing && focusRingPosition != null) {
-            Box(modifier = Modifier.offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.x.toDp() - 25.dp }, y = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.y.toDp() - 25.dp }).size(50.dp).border(2.dp, primaryColor, CircleShape))
+            Box(modifier = Modifier.offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.x.toDp() - 25.dp }, y = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.y.toDp() - 25.dp }).size(50.dp).border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape))
         }
 
+        // 3. Grid
         if (showGrid) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width; val h = size.height
@@ -444,18 +451,76 @@ fun CameraScreen(
             }
         }
 
+        // --- CAPA DE INTERFAZ (Layout Responsivo) ---
+        
         if (isLandscape) {
-            Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) { TopLeftButtons() }
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) { InfoBox() }
-            Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) { ShutterButton() }
-            Row(modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) { PreviewButton(); MapButton() }
-            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 32.dp)) { ZoomControl(true) }
+            // ================= LANDSCAPE LAYOUT =================
+            
+            // Arriba Izquierda: Botones
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
+                TopLeftButtons()
+            }
+
+            // Arriba Derecha: Info
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
+                InfoBox()
+            }
+
+            // Centro Derecha: Disparador
+            Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) {
+                ShutterButton()
+            }
+
+            // Abajo Izquierda: Preview y Mapa (Horizontal)
+            Row(
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                PreviewButton()
+                MapButton()
+            }
+
+            // Abajo Derecha: Slider Horizontal
+            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 32.dp)) {
+                // Para que no se solape con el disparador si la pantalla es estrecha, 
+                // lo movemos un poco a la izquierda del borde derecho
+                ZoomControl(true)
+            }
+
         } else {
-            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) { TopLeftButtons() }
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) { InfoBox() }
-            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) { ZoomControl(false) }
-            Column(modifier = Modifier.fillMaxSize().padding(bottom = 32.dp), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { PreviewButton(); ShutterButton(); MapButton() }
+            // ================= PORTRAIT LAYOUT (Original) =================
+            
+            // Arriba Izquierda
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) {
+                TopLeftButtons()
+            }
+
+            // Arriba Derecha
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) {
+                InfoBox()
+            }
+
+            // Centro Izquierda: Zoom Vertical
+            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
+                ZoomControl(false)
+            }
+
+            // Abajo: Fila de controles (Preview - Disparador - Mapa)
+            Column(
+                modifier = Modifier.fillMaxSize().padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.Bottom,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PreviewButton()
+                    ShutterButton()
+                    MapButton()
+                }
             }
         }
         
@@ -463,34 +528,29 @@ fun CameraScreen(
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
-                title = { Text("Configuración", color = primaryColor) },
+                title = { Text("Configuración de Cámara") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text("Resolución (Aspect Ratio)", style = MaterialTheme.typography.titleSmall)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_4_3, onClick = { aspectRatio = AspectRatio.RATIO_4_3 }, colors = RadioButtonDefaults.colors(selectedColor = primaryColor)); Text("4:3")
+                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_4_3, onClick = { aspectRatio = AspectRatio.RATIO_4_3 }); Text("4:3")
                             Spacer(Modifier.width(16.dp))
-                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_16_9, onClick = { aspectRatio = AspectRatio.RATIO_16_9 }, colors = RadioButtonDefaults.colors(selectedColor = primaryColor)); Text("16:9")
+                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_16_9, onClick = { aspectRatio = AspectRatio.RATIO_16_9 }); Text("16:9")
                         }
                         Divider()
-                        Text("Tema de Interfaz", style = MaterialTheme.typography.titleSmall)
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(AppThemeOption.values()) { theme ->
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onThemeChange(theme) }) {
-                                    Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(theme.primary).border(2.dp, if(currentTheme == theme) Color.White else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) {
-                                        if (currentTheme == theme) Icon(Icons.Default.Check, null, tint = Color.Black)
-                                    }
-                                    Text(theme.nameStr, fontSize = 10.sp, maxLines = 1)
-                                }
-                            }
+                        Text("Flash", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_AUTO, onClick = { flashMode = ImageCapture.FLASH_MODE_AUTO }); Text("Auto")
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_ON, onClick = { flashMode = ImageCapture.FLASH_MODE_ON }); Text("On")
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_OFF, onClick = { flashMode = ImageCapture.FLASH_MODE_OFF }); Text("Off")
                         }
                         Divider()
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showGrid = !showGrid }) {
-                            Checkbox(checked = showGrid, onCheckedChange = { showGrid = it }, colors = CheckboxDefaults.colors(checkedColor = primaryColor)); Text("Mostrar Cuadrícula")
+                            Checkbox(checked = showGrid, onCheckedChange = { showGrid = it }); Text("Mostrar Cuadrícula")
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick = { showSettingsDialog = false }) { Text("Cerrar", color = primaryColor) } }
+                confirmButton = { TextButton(onClick = { showSettingsDialog = false }) { Text("Cerrar") } }
             )
         }
     }

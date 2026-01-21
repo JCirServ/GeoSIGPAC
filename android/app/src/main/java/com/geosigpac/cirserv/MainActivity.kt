@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv
 
 import android.Manifest
@@ -27,11 +28,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.geosigpac.cirserv.model.NativeExpediente
-import com.geosigpac.cirserv.ui.AppThemeOption
 import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.NativeMap
 import com.geosigpac.cirserv.ui.NativeProjectManager
-import com.geosigpac.cirserv.ui.ThemeUtils
 import com.geosigpac.cirserv.utils.ProjectStorage
 
 class MainActivity : ComponentActivity() {
@@ -44,39 +43,24 @@ class MainActivity : ComponentActivity() {
         windowInsetsController?.hide(WindowInsetsCompat.Type.systemBars())
         
         setContent {
-            val context = LocalContext.current
-            // Estado del tema cargado
-            var currentThemeOption by remember { mutableStateOf(ThemeUtils.loadTheme(context)) }
-
-            fun updateTheme(newTheme: AppThemeOption) {
-                currentThemeOption = newTheme
-                ThemeUtils.saveTheme(context, newTheme)
-            }
-
             MaterialTheme(
                 colorScheme = darkColorScheme(
-                    primary = currentThemeOption.primary,
-                    secondary = currentThemeOption.secondary,
+                    primary = Color(0xFF00FF88),
+                    secondary = Color(0xFF62D2FF),
                     surface = Color(0xFF2D3033),
                     background = Color(0xFF1A1C1E), // Charcoal Dark
                     onSurface = Color(0xFFE2E2E6),
                     outline = Color(0xFF44474B)
                 )
             ) {
-                GeoSigpacApp(
-                    currentThemeOption = currentThemeOption,
-                    onThemeChanged = { updateTheme(it) }
-                )
+                GeoSigpacApp()
             }
         }
     }
 }
 
 @Composable
-fun GeoSigpacApp(
-    currentThemeOption: AppThemeOption,
-    onThemeChanged: (AppThemeOption) -> Unit
-) {
+fun GeoSigpacApp() {
     val context = LocalContext.current
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(1) }
@@ -135,8 +119,6 @@ fun GeoSigpacApp(
             projectId = currentParcelaId,
             lastCapturedUri = null,
             photoCount = 0,
-            currentTheme = currentThemeOption,
-            onThemeChange = onThemeChanged,
             onImageCaptured = { isCameraOpen = false },
             onError = { isCameraOpen = false },
             onClose = { isCameraOpen = false },
@@ -165,7 +147,7 @@ fun GeoSigpacApp(
                             onClick = { selectedTab = 1 },
                             icon = { Icon(Icons.Default.Folder, "Proyectos") },
                             label = { Text("Proyectos", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary, indicatorColor = Color.Transparent)
+                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                         NavigationBarItem(
                             selected = false,
@@ -191,7 +173,6 @@ fun GeoSigpacApp(
                     2 -> NativeMap(
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
-                        expedientes = expedientes,
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )
