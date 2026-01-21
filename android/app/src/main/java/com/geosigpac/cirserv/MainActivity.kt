@@ -104,7 +104,7 @@ fun GeoSigpacApp() {
             onClose = { isCameraOpen = false },
             onGoToMap = { 
                 isCameraOpen = false
-                mapTarget = null // Zoom a mi posición al volver desde cámara
+                mapTarget = null 
                 selectedTab = 1 
             },
             onGoToProjects = { isCameraOpen = false; selectedTab = 0 }
@@ -121,7 +121,7 @@ fun GeoSigpacApp() {
                         contentColor = Color.White,
                         tonalElevation = 8.dp
                     ) {
-                        // ORDEN: CÁMARA, PROYECTOS, MAPA
+                        // ORDEN SOLICITADO: CÁMARA, PROYECTOS, MAPA
                         NavigationBarItem(
                             selected = false,
                             onClick = { 
@@ -168,7 +168,7 @@ fun GeoSigpacApp() {
             Surface(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (selectedTab == 0) paddingValues else paddingValues.copy(bottom = 0.dp.value.dp)), 
+                    .padding(paddingValues), 
                 color = Color(0xFF07080D)
             ) {
                 if (selectedTab == 0) {
