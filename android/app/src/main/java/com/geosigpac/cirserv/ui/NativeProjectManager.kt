@@ -68,76 +68,30 @@ fun NativeProjectManager(
             onCamera = onOpenCamera
         )
     } else {
-        Scaffold(
-            containerColor = Color(0xFF07080D),
-            topBar = {
-                CenterAlignedTopAppBar(
-                    title = { Text("MIS PROYECTOS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp) },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color(0xFF07080D))
-                )
-            },
-            bottomBar = {
-                NavigationBar(
-                    containerColor = Color(0xFF0D0E1A),
-                    contentColor = Color.White,
-                    tonalElevation = 8.dp
-                ) {
-                    // ORDEN: CÁMARA, PROYECTOS, MAPA
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = { onOpenCamera(null) },
-                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") },
-                        label = { Text("Cámara", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray
-                        )
-                    )
-                    NavigationBarItem(
-                        selected = true,
-                        onClick = { /* Ya estamos aquí */ },
-                        icon = { Icon(Icons.Default.Folder, contentDescription = "Proyectos") },
-                        label = { Text("Proyectos", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color(0xFF00FF88),
-                            selectedTextColor = Color(0xFF00FF88),
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray,
-                            indicatorColor = Color.Transparent
-                        )
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = { onNavigateToMap(null, null) },
-                        icon = { Icon(Icons.Default.Map, contentDescription = "Mapa") },
-                        label = { Text("Mapa", fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray
-                        )
-                    )
+        // Se elimina el Scaffold interno para evitar doble menú de navegación
+        Column(modifier = Modifier.fillMaxSize().background(Color(0xFF07080D))) {
+            CenterAlignedTopAppBar(
+                title = { Text("MIS PROYECTOS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp) },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color(0xFF07080D))
+            )
+
+            Box(
+                modifier = Modifier.padding(20.dp).fillMaxWidth().height(140.dp).clip(RoundedCornerShape(32.dp))
+                    .background(Color.White.copy(0.02f))
+                    .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(32.dp))
+                    .clickable { filePickerLauncher.launch("*/*") },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88), modifier = Modifier.size(40.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Cargar KML de Inspección", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
-        ) { padding ->
-            Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                Box(
-                    modifier = Modifier.padding(20.dp).fillMaxWidth().height(140.dp).clip(RoundedCornerShape(32.dp))
-                        .background(Color.White.copy(0.02f))
-                        .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(32.dp))
-                        .clickable { filePickerLauncher.launch("*/*") },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88), modifier = Modifier.size(40.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Text("Cargar KML de Inspección", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
 
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(expedientes) { exp ->
-                        ProjectListItem(exp, { selectedExpediente = exp }, { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) })
-                    }
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(expedientes) { exp ->
+                    ProjectListItem(exp, { selectedExpediente = exp }, { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) })
                 }
             }
         }

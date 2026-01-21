@@ -54,19 +54,17 @@ class MainActivity : ComponentActivity() {
 fun GeoSigpacApp() {
     val context = LocalContext.current
     var isCameraOpen by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Proyectos, 1 = Mapa
+    var selectedTab by remember { mutableIntStateOf(1) } // 1 = Proyectos (Centro) por defecto
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
     // --- ESTADO PERSISTENTE DE EXPEDIENTES ---
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
     
-    // Carga inicial desde disco
     LaunchedEffect(Unit) {
         expedientes = ProjectStorage.loadExpedientes(context)
     }
 
-    // Guardado automático al cambiar la lista
     LaunchedEffect(expedientes) {
         if (expedientes.isNotEmpty() || ProjectStorage.loadExpedientes(context).isNotEmpty()) {
             ProjectStorage.saveExpedientes(context, expedientes)
@@ -105,63 +103,66 @@ fun GeoSigpacApp() {
             onGoToMap = { 
                 isCameraOpen = false
                 mapTarget = null 
-                selectedTab = 1 
+                selectedTab = 2 
             },
-            onGoToProjects = { isCameraOpen = false; selectedTab = 0 }
+            onGoToProjects = { isCameraOpen = false; selectedTab = 1 }
         )
     } else {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color(0xFF07080D),
             bottomBar = {
-                // El menú de abajo solo se muestra en la pestaña de proyectos (0)
-                if (selectedTab == 0) {
-                    NavigationBar(
-                        containerColor = Color(0xFF0D0E1A),
-                        contentColor = Color.White,
-                        tonalElevation = 8.dp
-                    ) {
-                        // ORDEN SOLICITADO: CÁMARA, PROYECTOS, MAPA
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = { 
-                                currentParcelaId = null
-                                isCameraOpen = true 
-                            },
-                            icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") },
-                            label = { Text("Cámara", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                unselectedIconColor = Color.Gray,
-                                unselectedTextColor = Color.Gray
-                            )
+                NavigationBar(
+                    containerColor = Color(0xFF0D0E1A),
+                    contentColor = Color.White,
+                    tonalElevation = 8.dp
+                ) {
+                    // 1. CÁMARA (Izquierda)
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { 
+                            currentParcelaId = null
+                            isCameraOpen = true 
+                        },
+                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Cámara") },
+                        label = { Text("Cámara", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray,
+                            indicatorColor = Color.Transparent
                         )
-                        NavigationBarItem(
-                            selected = true,
-                            onClick = { selectedTab = 0 },
-                            icon = { Icon(Icons.Default.Folder, contentDescription = "Proyectos") },
-                            label = { Text("Proyectos", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Color(0xFF00FF88),
-                                selectedTextColor = Color(0xFF00FF88),
-                                unselectedIconColor = Color.Gray,
-                                unselectedTextColor = Color.Gray,
-                                indicatorColor = Color.Transparent
-                            )
+                    )
+                    // 2. PROYECTOS (Centro)
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        icon = { Icon(Icons.Default.Folder, contentDescription = "Proyectos") },
+                        label = { Text("Proyectos", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFF00FF88),
+                            selectedTextColor = Color(0xFF00FF88),
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray,
+                            indicatorColor = Color.Transparent
                         )
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = { 
-                                mapTarget = null
-                                selectedTab = 1 
-                            },
-                            icon = { Icon(Icons.Default.Map, contentDescription = "Mapa") },
-                            label = { Text("Mapa", fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                unselectedIconColor = Color.Gray,
-                                unselectedTextColor = Color.Gray
-                            )
+                    )
+                    // 3. MAPA (Derecha)
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = { 
+                            mapTarget = null
+                            selectedTab = 2 
+                        },
+                        icon = { Icon(Icons.Default.Map, contentDescription = "Mapa") },
+                        label = { Text("Mapa", fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFF00FF88),
+                            selectedTextColor = Color(0xFF00FF88),
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray,
+                            indicatorColor = Color.Transparent
                         )
-                    }
+                    )
                 }
             }
         ) { paddingValues ->
@@ -171,24 +172,23 @@ fun GeoSigpacApp() {
                     .padding(paddingValues), 
                 color = Color(0xFF07080D)
             ) {
-                if (selectedTab == 0) {
-                    NativeProjectManager(
+                when (selectedTab) {
+                    1 -> NativeProjectManager(
                         expedientes = expedientes,
                         onUpdateExpedientes = { newList -> expedientes = newList },
                         onNavigateToMap = { lat, lng ->
                             mapTarget = if (lat != null && lng != null) lat to lng else null
-                            selectedTab = 1
+                            selectedTab = 2
                         },
                         onOpenCamera = { id ->
                             currentParcelaId = id
                             isCameraOpen = true
                         }
                     )
-                } else {
-                    NativeMap(
+                    2 -> NativeMap(
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
-                        onNavigateToProjects = { selectedTab = 0 },
+                        onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { 
                             currentParcelaId = null
                             isCameraOpen = true 
