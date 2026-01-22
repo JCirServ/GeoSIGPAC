@@ -455,12 +455,8 @@ fun NativeRecintoCard(
                                      Text(title, color = color, fontSize = 12.sp, fontWeight = FontWeight.Black)
                                      Spacer(Modifier.height(4.dp))
                                      
-                                     val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString()) ?: "Desconocido"
-                                     val sigpacUso = parcela.sigpacInfo?.usoSigpac ?: "Desconocido"
-                                     
-                                     Text("• SIGPAC: $sigpacUso", color = Color.White, fontSize = 13.sp)
-                                     Text("• Declarado: $prodDesc", color = Color.White, fontSize = 13.sp)
-                                     Spacer(Modifier.height(4.dp))
+                                     // Se han eliminado las líneas de texto SIGPAC y Declarado según solicitud
+
                                      Text(agroAnalysis.explanation, color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                      Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=8.dp))
                                  }
