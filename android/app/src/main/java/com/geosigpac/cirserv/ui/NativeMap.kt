@@ -226,6 +226,7 @@ fun NativeMap(
         val prov = parts[0]; val mun = parts[1]; val pol = parts[2]; val parc = parts[3]; val rec = parts.getOrNull(4)
 
         scope.launch {
+            // Aplicamos filtro al tile source como backup (por si ya está cargado)
             val map = mapInstance
             if (map != null && map.style != null) {
                 val filterList = mutableListOf<Expression>(
@@ -239,13 +240,20 @@ fun NativeMap(
                 }
                 val filter = Expression.all(*filterList.toTypedArray())
                 
+                // Aplicamos filtro a las capas MVT (si existen)
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(filter) }
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
             }
 
-            val bbox = searchParcelLocation(prov, mun, pol, parc, rec)
-            if (bbox != null) {
-                mapInstance?.animateCamera(CameraUpdateFactory.newLatLngBounds(bbox, 100), 1500)
+            // Llamamos a la búsqueda que devuelve GEOMETRÍA + BOUNDS
+            val result = searchParcelLocation(prov, mun, pol, parc, rec)
+            
+            if (result != null) {
+                // 1. Dibujar el GeoJSON INMEDIATAMENTE (Soluciona el problema de tiles no cargados)
+                map?.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(result.feature)
+                
+                // 2. Mover la cámara
+                map?.animateCamera(CameraUpdateFactory.newLatLngBounds(result.bounds, 100), 1500)
             } else {
                 Toast.makeText(context, "Ubicación no encontrada", Toast.LENGTH_SHORT).show()
             }
@@ -261,8 +269,11 @@ fun NativeMap(
         recintoData = null
         cultivoData = null
         instantSigpacRef = ""
+        // Limpiar filtros MVT
         mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(Expression.literal(false)) }
         mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(Expression.literal(false)) }
+        // Limpiar GeoJSON de búsqueda
+        mapInstance?.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
     }
 
     // --- LÓGICA DE ACTUALIZACIÓN VISUAL Y REFERENCIA REAL-TIME ---
@@ -412,30 +423,47 @@ fun NativeMap(
                 initialLocationSet = true
             }
 
-            // ADD PROJECTS LAYERS ONCE STYLE LOADED
+            // AÑADIR FUENTES Y CAPAS EXTRAS (Proyectos y Búsqueda Inmediata)
             map.getStyle { style ->
-                // Source
-                val geoJsonSource = GeoJsonSource(SOURCE_PROJECTS)
-                style.addSource(geoJsonSource)
+                // 1. Capas de Proyectos
+                if (style.getSource(SOURCE_PROJECTS) == null) {
+                    style.addSource(GeoJsonSource(SOURCE_PROJECTS))
+                    
+                    val projectFill = FillLayer(LAYER_PROJECTS_FILL, SOURCE_PROJECTS)
+                    projectFill.setProperties(
+                        PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()),
+                        PropertyFactory.fillOpacity(0.4f)
+                    )
+                    style.addLayer(projectFill)
 
-                // Fill Layer (Blue semi-transparent)
-                val projectFill = FillLayer(LAYER_PROJECTS_FILL, SOURCE_PROJECTS)
-                projectFill.setProperties(
-                    PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), // Blue 500
-                    PropertyFactory.fillOpacity(0.4f)
-                )
-                // Insertar debajo de las etiquetas si es posible, o simplemente arriba de la base
-                style.addLayer(projectFill)
+                    val projectLine = LineLayer(LAYER_PROJECTS_LINE, SOURCE_PROJECTS)
+                    projectLine.setProperties(
+                        PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()),
+                        PropertyFactory.lineWidth(2f)
+                    )
+                    style.addLayer(projectLine)
+                }
 
-                // Line Layer (Darker Blue)
-                val projectLine = LineLayer(LAYER_PROJECTS_LINE, SOURCE_PROJECTS)
-                projectLine.setProperties(
-                    PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()), // Blue 900
-                    PropertyFactory.lineWidth(2f)
-                )
-                style.addLayer(projectLine)
+                // 2. Capas de BÚSQUEDA (GeoJSON para visualización inmediata)
+                if (style.getSource(SOURCE_SEARCH_RESULT) == null) {
+                    style.addSource(GeoJsonSource(SOURCE_SEARCH_RESULT))
 
-                // Initial Load
+                    val searchFill = FillLayer(LAYER_SEARCH_RESULT_FILL, SOURCE_SEARCH_RESULT)
+                    searchFill.setProperties(
+                        PropertyFactory.fillColor(HighlightColor.toArgb()),
+                        PropertyFactory.fillOpacity(0.4f)
+                    )
+                    style.addLayer(searchFill)
+
+                    val searchLine = LineLayer(LAYER_SEARCH_RESULT_LINE, SOURCE_SEARCH_RESULT)
+                    searchLine.setProperties(
+                        PropertyFactory.lineColor(HighlightColor.toArgb()),
+                        PropertyFactory.lineWidth(4f)
+                    )
+                    style.addLayer(searchLine)
+                }
+
+                // Carga inicial de proyectos
                 scope.launch {
                     updateProjectsLayer(map, expedientes, visibleProjectIds)
                 }
@@ -462,22 +490,21 @@ fun NativeMap(
     LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
         mapInstance?.let { map ->
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) { }
-            // Re-add project layers after style reload
+            
+            // Re-add extra layers after style reload (projects + search)
             map.getStyle { style ->
                  if (style.getSource(SOURCE_PROJECTS) == null) {
-                    val geoJsonSource = GeoJsonSource(SOURCE_PROJECTS)
-                    style.addSource(geoJsonSource)
-
-                    val projectFill = FillLayer(LAYER_PROJECTS_FILL, SOURCE_PROJECTS)
-                    projectFill.setProperties(PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), PropertyFactory.fillOpacity(0.4f))
-                    style.addLayer(projectFill)
-
-                    val projectLine = LineLayer(LAYER_PROJECTS_LINE, SOURCE_PROJECTS)
-                    projectLine.setProperties(PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()), PropertyFactory.lineWidth(2f))
-                    style.addLayer(projectLine)
-                    
-                    scope.launch { updateProjectsLayer(map, expedientes, visibleProjectIds) }
+                    style.addSource(GeoJsonSource(SOURCE_PROJECTS))
+                    style.addLayer(FillLayer(LAYER_PROJECTS_FILL, SOURCE_PROJECTS).apply { setProperties(PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), PropertyFactory.fillOpacity(0.4f)) })
+                    style.addLayer(LineLayer(LAYER_PROJECTS_LINE, SOURCE_PROJECTS).apply { setProperties(PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()), PropertyFactory.lineWidth(2f)) })
                  }
+                 if (style.getSource(SOURCE_SEARCH_RESULT) == null) {
+                    style.addSource(GeoJsonSource(SOURCE_SEARCH_RESULT))
+                    style.addLayer(FillLayer(LAYER_SEARCH_RESULT_FILL, SOURCE_SEARCH_RESULT).apply { setProperties(PropertyFactory.fillColor(HighlightColor.toArgb()), PropertyFactory.fillOpacity(0.4f)) })
+                    style.addLayer(LineLayer(LAYER_SEARCH_RESULT_LINE, SOURCE_SEARCH_RESULT).apply { setProperties(PropertyFactory.lineColor(HighlightColor.toArgb()), PropertyFactory.lineWidth(4f)) })
+                 }
+                 
+                 scope.launch { updateProjectsLayer(map, expedientes, visibleProjectIds) }
             }
         }
     }

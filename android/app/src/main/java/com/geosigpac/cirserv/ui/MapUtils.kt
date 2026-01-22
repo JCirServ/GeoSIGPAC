@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.geojson.Feature
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
@@ -29,6 +30,11 @@ const val SOURCE_LAYER_ID_RECINTO = "recinto"
 const val SOURCE_CULTIVO = "cultivo-source"
 const val LAYER_CULTIVO_FILL = "cultivo-layer-fill"
 const val SOURCE_LAYER_ID_CULTIVO = "cultivo_declarado"
+
+// NUEVO: Capa de Resultados de Búsqueda (GeoJSON directo)
+const val SOURCE_SEARCH_RESULT = "search-result-source"
+const val LAYER_SEARCH_RESULT_FILL = "search-result-fill"
+const val LAYER_SEARCH_RESULT_LINE = "search-result-line"
 
 // Campos para identificar unívocamente un recinto
 val SIGPAC_KEYS = listOf("provincia", "municipio", "agregado", "zona", "poligono", "parcela", "recinto")
@@ -56,14 +62,18 @@ enum class BaseMap(val title: String) {
     PNOA("Ortofoto PNOA")
 }
 
+data class ParcelSearchResult(
+    val bounds: LatLngBounds,
+    val feature: Feature
+)
+
 // --- FUNCIONES API (WFS & INFO) ---
 
 /**
  * Busca la ubicación de un recinto o parcela utilizando el endpoint GeoJSON de recinfoparc.
- * Si se proporciona 'rec', se calcula el encuadre solo para ese recinto. 
- * Si no, se calcula para toda la parcela.
+ * Devuelve tanto el BoundingBox para la cámara como el Feature para dibujarlo inmediatamente.
  */
-suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): LatLngBounds? = withContext(Dispatchers.IO) {
+suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): ParcelSearchResult? = withContext(Dispatchers.IO) {
     try {
         // Valores por defecto para agregado y zona en búsquedas rápidas
         val ag = "0"
@@ -102,22 +112,25 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
                 var maxLat = -Double.MAX_VALUE
                 var minLng = Double.MAX_VALUE
                 var maxLng = -Double.MAX_VALUE
-                var foundAny = false
+                var foundFeature: JSONObject? = null
 
                 for (i in 0 until features.length()) {
-                    val feature = features.getJSONObject(i)
-                    val props = feature.optJSONObject("properties")
+                    val featureObj = features.getJSONObject(i)
+                    val props = featureObj.optJSONObject("properties")
                     
-                    // Si se especificó un recinto, ignoramos los demás features
+                    // Si se especificó un recinto, buscamos exactamente ese. Si no, tomamos el primero o unimos (aquí simplificado al primero válido)
                     if (rec != null && props != null) {
                         val currentRec = props.optString("recinto")
                         if (currentRec != rec) continue
                     }
 
-                    val geometry = feature.optJSONObject("geometry") ?: continue
+                    // Encontramos el candidato
+                    foundFeature = featureObj
+                    
+                    val geometry = featureObj.optJSONObject("geometry") ?: continue
                     val coordinates = geometry.optJSONArray("coordinates") ?: continue
 
-                    // Función recursiva para extraer puntos
+                    // Calcular Bounds manualmente para asegurar encuadre perfecto
                     fun extractPoints(arr: JSONArray) {
                         if (arr.length() == 0) return
                         val first = arr.get(0)
@@ -128,7 +141,6 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
                             if (lat > maxLat) maxLat = lat
                             if (lng < minLng) minLng = lng
                             if (lng > maxLng) maxLng = lng
-                            foundAny = true
                         } else if (first is JSONArray) {
                             for (j in 0 until arr.length()) {
                                 extractPoints(arr.getJSONArray(j))
@@ -137,19 +149,26 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
                     }
 
                     extractPoints(coordinates)
+                    // Si buscamos un recinto específico, paramos al encontrarlo
+                    if (rec != null) break
                 }
 
-                if (foundAny) {
-                    // Margen de seguridad del 20%
-                    val latPadding = (maxLat - minLat) * 0.20
-                    val lngPadding = (maxLng - minLng) * 0.20
+                if (foundFeature != null && minLat != Double.MAX_VALUE) {
+                    // Crear Feature de MapLibre desde el JSON
+                    val mapLibreFeature = Feature.fromJson(foundFeature.toString())
+
+                    // Margen de seguridad del 30% para que se vea contexto
+                    val latPadding = (maxLat - minLat) * 0.30
+                    val lngPadding = (maxLng - minLng) * 0.30
                     
-                    return@withContext LatLngBounds.from(
+                    val bounds = LatLngBounds.from(
                         maxLat + latPadding, 
                         maxLng + lngPadding, 
                         minLat - latPadding, 
                         minLng - lngPadding
                     )
+                    
+                    return@withContext ParcelSearchResult(bounds, mapLibreFeature)
                 }
             }
         }
