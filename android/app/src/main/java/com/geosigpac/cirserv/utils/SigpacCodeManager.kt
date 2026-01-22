@@ -510,9 +510,13 @@ object SigpacCodeManager {
              return Pair(true, "") // Grupo intercambiable compatible silencioso
         }
 
-        // Pastos
-        if ((expectedUso == "PS" && normalizedSigpac == "PR") || (expectedUso == "PR" && normalizedSigpac == "PS")) {
+        // Pastos (PS, PR, PA) y Pastizales (Code 62)
+        if (expectedUso == "PASTOS" && listOf("PS", "PR", "PA").contains(normalizedSigpac)) {
              return Pair(true, "") // Pastos compatibles silencioso
+        }
+        // Compatibilidad entre tipos de pastos antiguos
+        if ((expectedUso == "PS" && normalizedSigpac == "PR") || (expectedUso == "PR" && normalizedSigpac == "PS")) {
+             return Pair(true, "") 
         }
 
         // Leñosos compatibles
@@ -522,10 +526,12 @@ object SigpacCodeManager {
         if (expectedUso == "VI" && normalizedSigpac == "FV") return Pair(true, "")
         if (expectedUso == "FY" && normalizedSigpac == "OF") return Pair(true, "")
 
-        return Pair(false, "Uso $normalizedSigpac no compatible con cultivo $prodDisplay")
+        return Pair(false, "INCOMPATIBLE: $normalizedSigpac vs $prodDisplay")
     }
 
     private fun inferUsoFromProduct(code: Int?, desc: String?): String? {
+        if (code == 62) return "PASTOS"
+
         if (desc == null) return null
         val d = desc.uppercase(Locale.getDefault())
         
@@ -536,7 +542,7 @@ object SigpacCodeManager {
             d.contains("ALMENDRO") || d.contains("NOGAL") || d.contains("AVELLANO") || d.contains("ALGARROBO") -> "FS"
             d.contains("VIÑEDO") || d.contains("UVA") -> "VI"
             d.contains("MANZANO") || d.contains("PERAL") || d.contains("MELOCOTON") || d.contains("CEREZO") || d.contains("CIRUELO") -> "FY"
-            d.contains("PASTO") -> "PS"
+            d.contains("PASTO") || d.contains("PASTIZAL") -> "PASTOS"
             d.contains("ARROZ") -> "TA" 
             else -> null
         }
