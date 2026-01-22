@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
@@ -49,6 +51,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.geosigpac.cirserv.model.NativeExpediente
+import com.geosigpac.cirserv.utils.SigpacCodeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -715,7 +718,18 @@ fun NativeMap(
                                             Spacer(Modifier.height(12.dp))
                                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f)); AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f)) }
                                             Spacer(Modifier.height(12.dp))
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f)); AttributeItem("Incidencias", recintoData!!["incidencias"]?.takeIf { it.isNotEmpty() } ?: "Ninguna", Modifier.weight(1f)) }
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { 
+                                                AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
+                                                // Manejo de Incidencias Desplegables
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    val incidencias = recintoData!!["incidencias"]
+                                                    if (!incidencias.isNullOrEmpty()) {
+                                                        IncidenciaMapItem(incidencias)
+                                                    } else {
+                                                        AttributeItem("Incidencias", "Ninguna", Modifier)
+                                                    }
+                                                }
+                                            }
                                         }
                                     } else {
                                         if (cultivoData != null) {
@@ -755,6 +769,40 @@ fun NativeMap(
                 onSearch = { performSearch() },
                 onClose = { showCustomKeyboard = false }
             )
+        }
+    }
+}
+
+@Composable
+fun IncidenciaMapItem(rawIncidencias: String) {
+    var expanded by remember { mutableStateOf(false) }
+    val incidenciasList = remember(rawIncidencias) {
+        SigpacCodeManager.getFormattedIncidencias(rawIncidencias)
+    }
+    
+    Column {
+        Row(modifier = Modifier.clickable { expanded = !expanded }.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Incidencias", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
+            Icon(if(expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = FieldGray, modifier = Modifier.size(12.dp))
+        }
+        
+        if (!expanded) {
+            Text(
+                text = "${incidenciasList.size} incidencia(s)", 
+                style = MaterialTheme.typography.bodyMedium, 
+                fontWeight = FontWeight.Bold, 
+                color = Color(0xFFFF5252)
+            )
+        } else {
+            incidenciasList.forEach { incidencia ->
+                Text(
+                    text = "• $incidencia", 
+                    style = MaterialTheme.typography.bodySmall, 
+                    color = Color(0xFFFF5252), 
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
         }
     }
 }

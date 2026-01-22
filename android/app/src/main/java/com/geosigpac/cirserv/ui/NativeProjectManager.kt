@@ -4,6 +4,7 @@ package com.geosigpac.cirserv.ui
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.*
@@ -32,6 +33,7 @@ import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.services.GeminiService
 import com.geosigpac.cirserv.services.SigpacApiService
 import com.geosigpac.cirserv.utils.KmlParser
+import com.geosigpac.cirserv.utils.SigpacCodeManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -348,23 +350,16 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
 
                     if (!parcela.sigpacInfo?.incidencias.isNullOrEmpty()) {
                         Spacer(Modifier.height(12.dp))
-                        Box(modifier = Modifier.fillMaxWidth().background(Color.Red.copy(0.1f), RoundedCornerShape(8.dp)).padding(8.dp)) {
-                            Text("INCIDENCIAS: ${parcela.sigpacInfo?.incidencias}", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
+                        IncidenciasDropdown(parcela.sigpacInfo?.incidencias)
                     }
                     
                     Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = { 
-                            // Formato de búsqueda: Prov:Mun:Pol:Parc:Rec
-                            // La referencia nativa suele ser: Prov:Mun:Ag:Zo:Pol:Parc:Rec (7 partes)
-                            // O a veces viene con guiones
                             val parts = parcela.referencia.split("[:\\-]".toRegex()).filter { it.isNotEmpty() }
                             val searchStr = if (parts.size >= 7) {
-                                // Saltamos Agregado (2) y Zona (3)
                                 "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
                             } else {
-                                // Fallback: usamos lo que haya reemplazando guiones
                                 parts.joinToString(":")
                             }
                             onLocate(searchStr)
@@ -374,6 +369,61 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("LOCALIZAR EN MAPA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun IncidenciasDropdown(rawIncidencias: String?) {
+    var expanded by remember { mutableStateOf(false) }
+    val incidenciasList = remember(rawIncidencias) {
+        SigpacCodeManager.getFormattedIncidencias(rawIncidencias)
+    }
+
+    if (incidenciasList.isNotEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Red.copy(0.1f), RoundedCornerShape(8.dp))
+                .border(1.dp, Color(0xFFFF5252).copy(0.3f), RoundedCornerShape(8.dp))
+                .animateContentSize()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "INCIDENCIAS (${incidenciasList.size})",
+                    color = Color(0xFFFF5252),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = Color(0xFFFF5252),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            if (expanded) {
+                Divider(color = Color(0xFFFF5252).copy(0.2f))
+                Column(modifier = Modifier.padding(8.dp)) {
+                    incidenciasList.forEach { incidencia ->
+                        Text(
+                            text = "• $incidencia",
+                            color = Color(0xFFFF5252),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
                     }
                 }
             }

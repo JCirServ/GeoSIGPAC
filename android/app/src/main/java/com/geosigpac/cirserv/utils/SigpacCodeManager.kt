@@ -21,9 +21,14 @@ object SigpacCodeManager {
     private const val FILE_REGIONES = "cod_region_2023.json"
     private const val URL_REGIONES = "https://sigpac-hubcloud.es/codigossigpac/cod_region_2023.json"
 
+    // INCIDENCIAS
+    private const val FILE_INCIDENCIAS = "cod_incidencia.json"
+    private const val URL_INCIDENCIAS = "https://sigpac-hubcloud.es/codigossigpac/cod_incidencia.json"
+
     // Mapas en memoria: Código -> Descripción
     private var usoMap: MutableMap<String, String> = mutableMapOf()
     private var regionMap: MutableMap<String, String> = mutableMapOf()
+    private var incidenciaMap: MutableMap<String, String> = mutableMapOf()
     
     private var isInitialized = false
 
@@ -53,6 +58,19 @@ object SigpacCodeManager {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing regiones JSON: ${e.message}")
                     fileRegiones.delete()
+                }
+            }
+
+            // --- INCIDENCIAS ---
+            val fileIncidencias = File(context.filesDir, FILE_INCIDENCIAS)
+            if (!fileIncidencias.exists()) downloadFile(URL_INCIDENCIAS, fileIncidencias)
+            if (fileIncidencias.exists()) {
+                try {
+                    parseIncidenciasJson(fileIncidencias.readText())
+                    Log.d(TAG, "Códigos de incidencia cargados: ${incidenciaMap.size}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing incidencias JSON: ${e.message}")
+                    fileIncidencias.delete()
                 }
             }
 
@@ -92,14 +110,9 @@ object SigpacCodeManager {
                 val item = codigos.getJSONObject(i)
                 val codigo = item.optString("codigo")
                 val descripcion = item.optString("descripcion")
-                
-                if (codigo.isNotEmpty()) {
-                    usoMap[codigo] = descripcion
-                }
+                if (codigo.isNotEmpty()) usoMap[codigo] = descripcion
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     private fun parseRegionesJson(jsonString: String) {
@@ -109,43 +122,63 @@ object SigpacCodeManager {
             
             for (i in 0 until codigos.length()) {
                 val item = codigos.getJSONObject(i)
-                // En el JSON de regiones, codigo es un entero (1, 2, ...), lo convertimos a String para mapear
                 val codigo = item.optString("codigo") 
                 val descripcion = item.optString("descripcion")
-                
-                if (codigo.isNotEmpty()) {
-                    regionMap[codigo] = descripcion
-                }
+                if (codigo.isNotEmpty()) regionMap[codigo] = descripcion
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun parseIncidenciasJson(jsonString: String) {
+        try {
+            val root = JSONObject(jsonString)
+            val codigos = root.optJSONArray("codigos") ?: return
+            
+            for (i in 0 until codigos.length()) {
+                val item = codigos.getJSONObject(i)
+                // En incidencias también suele ser numérico
+                val codigo = item.optString("codigo") 
+                val descripcion = item.optString("descripcion")
+                if (codigo.isNotEmpty()) incidenciaMap[codigo] = descripcion
+            }
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     /**
      * Devuelve el código formateado: "CA (VIALES)"
-     * Si no encuentra descripción, devuelve solo el código: "CA"
      */
     fun getUsoDescription(code: String?): String? {
         if (code.isNullOrEmpty()) return null
-        
-        // Normalizar clave por si acaso
         val desc = usoMap[code] ?: usoMap[code.uppercase()]
-        
-        return if (desc != null) {
-            "$code ($desc)"
-        } else {
-            code
-        }
+        return if (desc != null) "$code ($desc)" else code
     }
 
     /**
-     * Devuelve la descripción de la región.
-     * Ejemplo: Si code="1", devuelve "1-TCS"
+     * Devuelve la descripción de la región (ej: "1-TCS")
      */
     fun getRegionDescription(code: String?): String? {
         if (code.isNullOrEmpty()) return null
-        // Si existe en el mapa devolvemos la descripción (ej: "1-TCS"), si no, el código original
         return regionMap[code] ?: code
+    }
+
+    /**
+     * Toma un string raw (ej: "7, 11") y devuelve una lista de strings formateados:
+     * ["7 - Uso asignado por...", "11 - Árboles dispersos"]
+     */
+    fun getFormattedIncidencias(raw: String?): List<String> {
+        if (raw.isNullOrEmpty()) return emptyList()
+        
+        // Limpiar brackets y comillas por si acaso vienen del JSON raw
+        val cleaned = raw.replace("[", "").replace("]", "").replace("\"", "")
+        val parts = cleaned.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        
+        return parts.map { code ->
+            val desc = incidenciaMap[code] ?: incidenciaMap[code.toIntOrNull()?.toString()]
+            if (desc != null) {
+                "$code - $desc"
+            } else {
+                code
+            }
+        }
     }
 }
