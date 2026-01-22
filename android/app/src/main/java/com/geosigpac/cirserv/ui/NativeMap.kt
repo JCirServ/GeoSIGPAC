@@ -418,7 +418,8 @@ fun NativeMap(
 
             // DETECTAR GESTO DE USUARIO PARA DESACTIVAR BÚSQUEDA
             map.addOnCameraMoveStartedListener { reason ->
-                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_GESTURE) {
+                // CORRECCIÓN: Usar REASON_API_GESTURE de MapLibre
+                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
                     if (searchActive) {
                         searchActive = false
                         // Limpiar geometría de búsqueda para evitar confusión
