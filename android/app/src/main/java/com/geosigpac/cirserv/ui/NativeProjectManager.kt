@@ -455,7 +455,8 @@ fun NativeRecintoCard(
     initiallyExpanded: Boolean = false,
     initiallyTechExpanded: Boolean = false
 ) {
-    var expanded by remember { mutableStateOf(initiallyExpanded || parcela.photos.isNotEmpty()) } 
+    // Usamos remember con key para que, si el componente se "reinicia" con initiallyExpanded=true, lo respete
+    var expanded by remember(initiallyExpanded) { mutableStateOf(initiallyExpanded || parcela.photos.isNotEmpty()) } 
     // Secciones internas colapsadas por defecto, salvo si se indica lo contrario
     var inspectionExpanded by remember { mutableStateOf(true) } 
     var dataExpanded by remember { mutableStateOf(initiallyTechExpanded) }
@@ -570,7 +571,7 @@ fun NativeRecintoCard(
                 }
             }
 
-            if (expanded || parcela.photos.isNotEmpty()) { // Siempre expandido si hay fotos recientes
+            if (expanded) {
                 if (parcela.isHydrated && agroAnalysis != null) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         
