@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -197,13 +198,20 @@ fun ProjectListItem(
     val animatedProgress by animateFloatAsState(targetValue = progress)
     val isComplete = progress >= 1.0f
 
+    // Lógica de color de fondo: Verde tintado si está completo, Surface normal si no
+    val backgroundColor = when {
+        isComplete -> Color(0xFF00FF88).copy(alpha = 0.15f) // Verde verificado
+        isActive -> MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+    }
+
     Card(
         modifier = Modifier
             .padding(horizontal = 20.dp, vertical = 8.dp)
             .fillMaxWidth()
             .clickable { onSelect() }
-            .animateContentSize(), // Permite que el cambio de tamaño sea suave
-        colors = CardDefaults.cardColors(containerColor = if(isActive) MaterialTheme.colorScheme.surface.copy(alpha = 0.9f) else MaterialTheme.colorScheme.surface.copy(alpha=0.6f)),
+            .animateContentSize(), 
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(
             if (isActive) 2.dp else 1.dp, 
@@ -224,9 +232,11 @@ fun ProjectListItem(
                 Spacer(Modifier.width(12.dp))
                 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = if(isActive) Color.White else Color.LightGray)
+                    Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = if(isActive || isComplete) Color.White else Color.LightGray)
                     Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 14.sp)
-                    if (isActive) {
+                    if (isComplete) {
+                        Text("COMPLETADO", color = Color(0xFF00FF88), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                    } else if (isActive) {
                         Text("PROYECTO ACTIVO", color = Color(0xFF00FF88), fontSize = 13.sp, fontWeight = FontWeight.Black)
                     }
                 }
@@ -461,6 +471,10 @@ fun NativeRecintoCard(
     var inspectionExpanded by remember { mutableStateOf(true) } 
     var dataExpanded by remember { mutableStateOf(initiallyTechExpanded) }
     
+    // GALERÍA DE FOTOS
+    var showGallery by remember { mutableStateOf(false) }
+    var galleryInitialIndex by remember { mutableIntStateOf(0) }
+
     var selectedTab by remember { mutableIntStateOf(0) }
     val isLoading = !parcela.isHydrated
     
@@ -532,9 +546,29 @@ fun NativeRecintoCard(
         }
     }
 
+    // Lógica de color de fondo: Verde tintado si está completo
+    val cardBackgroundColor = if (isFullyCompleted) {
+        Color(0xFF00FF88).copy(alpha = 0.15f)
+    } else {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+    }
+
+    // --- INTEGRACIÓN GALERÍA ---
+    if (showGallery) {
+        FullScreenPhotoGallery(
+            photos = parcela.photos,
+            initialIndex = galleryInitialIndex,
+            onDismiss = { showGallery = false },
+            onDeletePhoto = { photoUriToDelete ->
+                val updatedPhotos = parcela.photos.filter { it != photoUriToDelete }
+                onUpdateParcela(parcela.copy(photos = updatedPhotos))
+            }
+        )
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+        colors = CardDefaults.cardColors(containerColor = cardBackgroundColor),
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(if(isFullyCompleted) 2.dp else 1.dp, statusColor.copy(alpha = if(parcela.isHydrated) 0.8f else 0.1f))
     ) {
@@ -583,11 +617,18 @@ fun NativeRecintoCard(
                                 modifier = Modifier.fillMaxWidth().height(100.dp).padding(bottom = 12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(parcela.photos) { uriStr ->
+                                itemsIndexed(parcela.photos) { index, uriStr ->
                                     AsyncImage(
                                         model = Uri.parse(uriStr),
                                         contentDescription = "Foto evidencia",
-                                        modifier = Modifier.size(100.dp).clip(RoundedCornerShape(8.dp)).border(1.dp, Color.White.copy(0.2f), RoundedCornerShape(8.dp)),
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(1.dp, Color.White.copy(0.2f), RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                galleryInitialIndex = index
+                                                showGallery = true
+                                            },
                                         contentScale = ContentScale.Crop
                                     )
                                 }
@@ -708,402 +749,4 @@ fun NativeRecintoCard(
 
                                      // CHECKLIST ADICIONAL: PENDIENTE > 10%
                                      val slope = parcela.sigpacInfo?.pendienteMedia ?: 0.0
-                                     val usoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull()?.uppercase() ?: ""
-                                     val isPastos = listOf("PS", "PR", "PA").contains(usoRaw)
-                                     
-                                     val showSlopeCheck = slope > 10.0 && (!isPastos || (isPastos && !agroAnalysis.isCompatible))
-
-                                     if (showSlopeCheck) {
-                                         Spacer(Modifier.height(12.dp))
-                                         val slopeCheckId = "CHECK_PENDIENTE_10"
-                                         val isSlopeChecked = parcela.completedChecks.contains(slopeCheckId)
-                                         
-                                         Row(
-                                             verticalAlignment = Alignment.Top,
-                                             modifier = Modifier.clickable {
-                                                 val newChecks = if (isSlopeChecked) parcela.completedChecks - slopeCheckId else parcela.completedChecks + slopeCheckId
-                                                 onUpdateParcela(parcela.copy(completedChecks = newChecks))
-                                             }
-                                         ) {
-                                             Icon(
-                                                 imageVector = if(isSlopeChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                                                 contentDescription = null,
-                                                 tint = if(isSlopeChecked) Color(0xFF00FF88) else Color.Gray,
-                                                 modifier = Modifier.size(24.dp)
-                                             )
-                                             Spacer(Modifier.width(12.dp))
-                                             Column {
-                                                 Text("Pendiente compensada", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                                 Text("Se observan terrazas, bancales o laboreo a nivel.", color = Color.Gray, fontSize = 12.sp, lineHeight = 16.sp)
-                                             }
-                                         }
-                                     }
-
-                                     // --- NUEVO CHECK: NECESITA CROQUIS (SIEMPRE VISIBLE) ---
-                                     Spacer(Modifier.height(12.dp))
-                                     val croquisCheckId = "CHECK_CROQUIS"
-                                     val isCroquisChecked = parcela.completedChecks.contains(croquisCheckId)
-
-                                     Row(
-                                         verticalAlignment = Alignment.Top,
-                                         modifier = Modifier.clickable {
-                                             val newChecks = if (isCroquisChecked) parcela.completedChecks - croquisCheckId else parcela.completedChecks + croquisCheckId
-                                             onUpdateParcela(parcela.copy(completedChecks = newChecks))
-                                         }
-                                     ) {
-                                         Icon(
-                                             imageVector = if(isCroquisChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                                             contentDescription = null,
-                                             tint = if(isCroquisChecked) Color(0xFF00FF88) else Color.Gray,
-                                             modifier = Modifier.size(24.dp)
-                                         )
-                                         Spacer(Modifier.width(12.dp))
-                                         Column {
-                                             Text("Necesita croquis", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                             Text("Se requiere adjuntar un croquis detallado de la superficie.", color = Color.Gray, fontSize = 12.sp, lineHeight = 16.sp)
-                                         }
-                                     }
-                                 }
-                            }
-
-                            Spacer(Modifier.height(12.dp))
-
-                            // 1.2 REQUISITOS (CHECKLISTS DINÁMICOS)
-                            if (agroAnalysis.requirements.isNotEmpty()) {
-                                agroAnalysis.requirements.forEach { req ->
-                                    val checkId = req.code ?: "REQ_${req.description.hashCode()}"
-                                    val isChecked = parcela.completedChecks.contains(checkId)
-
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 8.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(if(isChecked) Color(0xFF00FF88).copy(0.05f) else Color.Black.copy(0.3f))
-                                            .border(1.dp, if(isChecked) Color(0xFF00FF88).copy(0.3f) else Color.White.copy(0.1f), RoundedCornerShape(12.dp))
-                                            .clickable {
-                                                val newChecks = if (isChecked) parcela.completedChecks - checkId else parcela.completedChecks + checkId
-                                                onUpdateParcela(parcela.copy(completedChecks = newChecks))
-                                            }
-                                            .padding(12.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.Top) {
-                                            Icon(
-                                                 imageVector = if(isChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                                                 contentDescription = null,
-                                                 tint = if(isChecked) Color(0xFF00FF88) else Color.Gray,
-                                                 modifier = Modifier.size(24.dp)
-                                            )
-                                            Spacer(Modifier.width(12.dp))
-                                            
-                                            Column {
-                                                Text(req.description, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if(isChecked) Color(0xFF00FF88) else Color(0xFF62D2FF))
-                                                Spacer(Modifier.height(4.dp))
-                                                req.requirement.split("\n").forEach { line ->
-                                                    if (line.isNotBlank()) {
-                                                        Row(modifier = Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.Top) {
-                                                            Text("•", color = if(isChecked) Color(0xFF00FF88) else Color(0xFF62D2FF), fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 6.dp))
-                                                            Text(line.trim(), fontSize = 14.sp, color = if(isChecked) Color.LightGray else Color.Gray, lineHeight = 18.sp)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 1.3 VEREDICTO FINAL
-                            Spacer(Modifier.height(12.dp))
-                            Text("VEREDICTO FINAL", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
-                            
-                            if (photosEnough) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    // CUMPLE
-                                    Button(
-                                        onClick = { 
-                                            // Toggle logic: si ya es "CUMPLE", poner null
-                                            val newVal = if (parcela.finalVerdict == "CUMPLE") null else "CUMPLE"
-                                            onUpdateParcela(parcela.copy(finalVerdict = newVal)) 
-                                        },
-                                        modifier = Modifier.weight(1f).height(50.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if(parcela.finalVerdict == "CUMPLE") Color(0xFF00FF88) else Color.White.copy(0.05f),
-                                            contentColor = if(parcela.finalVerdict == "CUMPLE") Color.Black else Color.Gray
-                                        ),
-                                        border = if(parcela.finalVerdict == "CUMPLE") null else BorderStroke(1.dp, Color.White.copy(0.1f))
-                                    ) {
-                                        Text("CUMPLE", fontWeight = FontWeight.Black)
-                                    }
-
-                                    // NO CUMPLE
-                                    Button(
-                                        onClick = { 
-                                            // Toggle logic: si ya es "NO_CUMPLE", poner null
-                                            val newVal = if (parcela.finalVerdict == "NO_CUMPLE") null else "NO_CUMPLE"
-                                            onUpdateParcela(parcela.copy(finalVerdict = newVal)) 
-                                        },
-                                        modifier = Modifier.weight(1f).height(50.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if(parcela.finalVerdict == "NO_CUMPLE") Color(0xFFFF5252) else Color.White.copy(0.05f),
-                                            contentColor = if(parcela.finalVerdict == "NO_CUMPLE") Color.White else Color.Gray
-                                        ),
-                                        border = if(parcela.finalVerdict == "NO_CUMPLE") null else BorderStroke(1.dp, Color.White.copy(0.1f))
-                                    ) {
-                                        Text("NO CUMPLE", fontWeight = FontWeight.Black)
-                                    }
-                                }
-                            } else {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.White.copy(0.05f)).padding(12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("Se requieren mínimo 2 fotos para finalizar", color = Color(0xFF62D2FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.height(20.dp))
-                        Divider(color = Color.White.copy(0.1f))
-                        Spacer(Modifier.height(20.dp))
-
-                        // --- SECCIÓN 2: DATOS TÉCNICOS (Collapsible) ---
-                        CollapsibleHeader("DATOS TÉCNICOS & GEOMÉTRICOS", dataExpanded) { dataExpanded = !dataExpanded }
-
-                        if (dataExpanded) {
-                            // PESTAÑAS (Recinto / Cultivo)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(50))
-                                    .background(Color.White.copy(0.05f))
-                                    .padding(4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                // Tab Recinto
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(50))
-                                        .background(if (selectedTab == 0) Color(0xFF00FF88) else Color.Transparent)
-                                        .clickable { selectedTab = 0 }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "Recinto", 
-                                        fontWeight = FontWeight.Bold, 
-                                        fontSize = 15.sp,
-                                        color = if(selectedTab == 0) Color.White else Color.Gray
-                                    )
-                                }
-                                
-                                // Tab Cultivo
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(50))
-                                        .background(if (selectedTab == 1) Color(0xFF62D2FF) else Color.Transparent)
-                                        .clickable { selectedTab = 1 }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "Cultivo", 
-                                        fontWeight = FontWeight.Bold, 
-                                        fontSize = 15.sp,
-                                        color = if(selectedTab == 1) Color.Black else Color.Gray
-                                    )
-                                }
-                            }
-
-                            Spacer(Modifier.height(16.dp))
-                            
-                            if (selectedTab == 0) {
-                                // DATOS RECINTO
-                                Column {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Box(Modifier.weight(1f)) { DataField("USO SIGPAC", parcela.sigpacInfo?.usoSigpac ?: "-") }
-                                        Box(Modifier.weight(1f)) { DataField("SUPERFICIE", "${parcela.sigpacInfo?.superficie ?: "-"} ha") }
-                                    }
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Box(Modifier.weight(1f)) { DataField("PENDIENTE", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %") }
-                                        Box(Modifier.weight(1f)) { DataField("ALTITUD", "${parcela.sigpacInfo?.altitud ?: "-"} m") }
-                                    }
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Box(Modifier.weight(1f)) { DataField("REGIÓN", parcela.sigpacInfo?.region ?: "-") }
-                                        Box(Modifier.weight(1f)) { DataField("COEF. REGADÍO", "${parcela.sigpacInfo?.coefRegadio ?: "-"}") }
-                                    }
-                                    DataField("ADMISIBILIDAD", "${parcela.sigpacInfo?.admisibilidad ?: "-"}")
-                                    
-                                    if (!parcela.sigpacInfo?.incidencias.isNullOrEmpty()) {
-                                        Spacer(Modifier.height(12.dp))
-                                        IncidenciasStaticList(parcela.sigpacInfo?.incidencias)
-                                    }
-                                }
-                            } else {
-                                // DATOS CULTIVO
-                                Column {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Box(Modifier.weight(1f)) { DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-") }
-                                        val sistExpRaw = parcela.cultivoInfo?.parcSistexp
-                                        val sistExpDisplay = when(sistExpRaw) {
-                                            "S" -> "Secano"
-                                            "R" -> "Regadío"
-                                            else -> sistExpRaw ?: "-"
-                                        }
-                                        Box(Modifier.weight(1f)) { DataField("SIST. EXP", sistExpDisplay) }
-                                    }
-                                    
-                                    val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString())
-                                    DataField("PRODUCTO", prodDesc ?: "-")
-                                    
-                                    DataField("SUP. CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
-
-                                     // Ayudas Solicitadas
-                                    if (!parcela.cultivoInfo?.parcAyudasol.isNullOrEmpty()) {
-                                        AyudasStaticList("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol)
-                                    } else {
-                                        DataField("AYUDA SOL", "-")
-                                    }
-
-                                    // Ayudas PDR
-                                    if (!parcela.cultivoInfo?.pdrRec.isNullOrEmpty()) {
-                                        AyudasStaticList("AYUDAS PDR", parcela.cultivoInfo?.pdrRec, isPdr = true)
-                                    } else {
-                                        DataField("AYUDAS PDR", "-")
-                                    }
-
-                                    Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(0.1f))
-
-                                     val prodSecDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.cultsecunProducto?.toString())
-                                    DataField("PROD. SEC", prodSecDesc ?: "-")
-                                    
-                                    // Ayudas Cultivo Secundario
-                                    if (!parcela.cultivoInfo?.cultsecunAyudasol.isNullOrEmpty()) {
-                                        AyudasStaticList("AYUDA SEC", parcela.cultivoInfo?.cultsecunAyudasol)
-                                    } else {
-                                        DataField("AYUDA SEC", "-")
-                                    }
-
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Box(Modifier.weight(1f)) { DataField("IND. CULT", parcela.cultivoInfo?.parcIndcultapro?.toString() ?: "-") }
-                                        Box(Modifier.weight(1f)) { DataField("APROVECHA", parcela.cultivoInfo?.tipoAprovecha ?: "-") }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        Spacer(Modifier.height(20.dp))
-                        Button(
-                            onClick = { 
-                                val parts = parcela.referencia.split("[:\\-]".toRegex()).filter { it.isNotEmpty() }
-                                val searchStr = if (parts.size >= 7) {
-                                    "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
-                                } else {
-                                    parts.joinToString(":")
-                                }
-                                onLocate(searchStr)
-                            },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("LOCALIZAR EN MAPA", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CollapsibleHeader(title: String, isExpanded: Boolean, onToggle: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onToggle() }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray)
-        Icon(
-            if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-            null,
-            tint = Color.Gray
-        )
-    }
-}
-
-@Composable
-fun IncidenciasStaticList(rawIncidencias: String?) {
-    val incidenciasList = remember(rawIncidencias) {
-        SigpacCodeManager.getFormattedIncidencias(rawIncidencias)
-    }
-
-    if (incidenciasList.isNotEmpty()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.White.copy(0.05f), RoundedCornerShape(8.dp))
-                .border(1.dp, Color(0xFFFF5252).copy(0.3f), RoundedCornerShape(8.dp))
-                .padding(10.dp)
-        ) {
-            Text(
-                text = "INCIDENCIAS (${incidenciasList.size})",
-                color = Color(0xFFFF5252),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Black
-            )
-            Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=6.dp))
-            incidenciasList.forEach { incidencia ->
-                Text(
-                    text = "• $incidencia",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(vertical = 3.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun AyudasStaticList(label: String, rawAyudas: String?, isPdr: Boolean = false) {
-    val ayudasList = remember(rawAyudas, isPdr) {
-        if (isPdr) SigpacCodeManager.getFormattedAyudasPdr(rawAyudas)
-        else SigpacCodeManager.getFormattedAyudas(rawAyudas)
-    }
-
-    if (ayudasList.isNotEmpty()) {
-         Column(modifier = Modifier.padding(vertical = 6.dp)) {
-             Text(label, color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-             Column(modifier = Modifier.padding(top = 4.dp)) {
-                 ayudasList.forEach { ayuda ->
-                     Text(
-                        text = "• $ayuda",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp,
-                        lineHeight = 18.sp,
-                        modifier = Modifier.padding(vertical = 2.dp)
-                    )
-                 }
-             }
-         }
-    } else {
-        DataField(label, "-")
-    }
-}
-
-@Composable
-fun DataField(label: String, value: String) {
-    Column(modifier = Modifier.padding(vertical = 6.dp)) {
-        Text(label, color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-    }
-}
+                                     val usoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull()?.

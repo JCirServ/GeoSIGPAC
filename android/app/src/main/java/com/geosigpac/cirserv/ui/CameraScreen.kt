@@ -118,8 +118,9 @@ fun CameraScreen(
     var showGrid by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     
-    // Control de la Tarjeta de Recinto (Overlay)
+    // Control de la Tarjeta de Recinto (Overlay) y Galería
     var showParcelSheet by remember { mutableStateOf(false) }
+    var showGallery by remember { mutableStateOf(false) }
 
     // --- OBJETOS CAMERAX ---
     var camera by remember { mutableStateOf<Camera?>(null) }
@@ -135,24 +136,6 @@ fun CameraScreen(
     // --- ESTADO TAP TO FOCUS ---
     var focusRingPosition by remember { mutableStateOf<Offset?>(null) }
     var showFocusRing by remember { mutableStateOf(false) }
-
-    // --- ESTADO PREVISUALIZACIÓN FOTO (Carga de Bitmap) ---
-    var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-
-    // Efecto para cargar el bitmap
-    LaunchedEffect(lastCapturedUri) {
-        lastCapturedUri?.let { uri ->
-            withContext(Dispatchers.IO) {
-                try {
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    val bitmap = BitmapFactory.decodeStream(inputStream)
-                    capturedBitmap = bitmap?.asImageBitmap()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-    }
 
     // Estado para información GPS y SIGPAC
     var locationText by remember { mutableStateOf("Obteniendo ubicación...") }
@@ -180,6 +163,39 @@ fun CameraScreen(
         if (foundParcel != null && foundExp != null) {
             Pair(foundExp!!, foundParcel)
         } else null
+    }
+
+    // --- ESTADO PREVISUALIZACIÓN FOTO (Carga de Bitmap) ---
+    var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+
+    // Efecto para cargar el bitmap: Prioriza la última foto de la parcela detectada, sino usa lastCapturedUri
+    val targetPreviewUri = remember(matchedParcelInfo, lastCapturedUri) {
+        if (matchedParcelInfo != null && matchedParcelInfo.second.photos.isNotEmpty()) {
+            Uri.parse(matchedParcelInfo.second.photos.last())
+        } else {
+            lastCapturedUri
+        }
+    }
+    
+    // Contador real basado en la parcela
+    val currentPhotoCount = remember(matchedParcelInfo, photoCount) {
+        if (matchedParcelInfo != null) matchedParcelInfo.second.photos.size else photoCount
+    }
+
+    LaunchedEffect(targetPreviewUri) {
+        targetPreviewUri?.let { uri ->
+            withContext(Dispatchers.IO) {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val bitmap = BitmapFactory.decodeStream(inputStream)
+                    capturedBitmap = bitmap?.asImageBitmap()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        } ?: run {
+            capturedBitmap = null
+        }
     }
 
     // Animación de Parpadeo
@@ -398,7 +414,7 @@ fun CameraScreen(
         )
     }
 
-    // Preview de Foto con Badge
+    // Preview de Foto con Badge y Apertura de Galería
     val PreviewButton = @Composable {
         Box(contentAlignment = Alignment.TopEnd) {
             Box(
@@ -407,7 +423,17 @@ fun CameraScreen(
                     .clip(RoundedCornerShape(24.dp)) 
                     .background(Color.Black.copy(0.5f))
                     .border(2.dp, NeonGreen, RoundedCornerShape(24.dp))
-                    .clickable { onClose() }, 
+                    .clickable { 
+                        // Abrir galería si hay fotos en la parcela actual
+                        if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) {
+                            showGallery = true
+                        } else if (capturedBitmap != null) {
+                            // Si solo hay una foto "suelta" (sin proyecto o antes de asociar), cerrar cámara (comportamiento original) o no hacer nada
+                            onClose()
+                        } else {
+                            onClose()
+                        }
+                    }, 
                 contentAlignment = Alignment.Center
             ) { 
                 if (capturedBitmap != null) {
@@ -416,12 +442,12 @@ fun CameraScreen(
                     Icon(imageVector = Icons.Default.Image, contentDescription = "Sin Foto", tint = NeonGreen, modifier = Modifier.size(36.dp))
                 }
             }
-            if (photoCount > 0) {
+            if (currentPhotoCount > 0) {
                 Box(
                     modifier = Modifier.offset(x = 8.dp, y = (-8).dp).size(28.dp).background(Color.Red, CircleShape).border(2.dp, Color.White, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = photoCount.toString(), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Text(text = currentPhotoCount.toString(), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -626,6 +652,23 @@ fun CameraScreen(
                     }
                 }
             }
+        }
+        
+        // --- GALERÍA A PANTALLA COMPLETA ---
+        if (showGallery && matchedParcelInfo != null) {
+            val (exp, parc) = matchedParcelInfo!!
+            FullScreenPhotoGallery(
+                photos = parc.photos,
+                initialIndex = parc.photos.lastIndex, // Abrir en la última foto
+                onDismiss = { showGallery = false },
+                onDeletePhoto = { photoUri ->
+                    // 1. Borrar de la lista de la parcela
+                    val updatedPhotos = parc.photos.filter { it != photoUri }
+                    val updatedParcela = parc.copy(photos = updatedPhotos)
+                    val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                    onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                }
+            )
         }
     }
 }
