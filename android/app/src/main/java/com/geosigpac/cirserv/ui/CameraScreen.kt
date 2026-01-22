@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -88,12 +87,14 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import androidx.compose.ui.graphics.TransformOrigin
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CameraScreen(
     expedientes: List<NativeExpediente>,
     projectId: String?,
     lastCapturedUri: Uri?,
     photoCount: Int,
+    onUpdateExpedientes: (List<NativeExpediente>) -> Unit,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit,
     onClose: () -> Unit,
@@ -111,7 +112,10 @@ fun CameraScreen(
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) }
     var showGrid by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var showInfoDialog by remember { mutableStateOf(false) }
+    
+    // Control del Modal Bottom Sheet (Tarjeta de Recinto)
+    var showParcelSheet by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // --- OBJETOS CAMERAX ---
     var camera by remember { mutableStateOf<Camera?>(null) }
@@ -157,13 +161,8 @@ fun CameraScreen(
     var lastApiTimestamp by remember { mutableStateOf(0L) }
 
     // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO ---
-    // Busca si la referencia actual coincide con alguna parcela de los proyectos cargados
     val matchedParcelInfo = remember(sigpacRef, expedientes) {
         if (sigpacRef == null) return@remember null
-        
-        // Formato normalizado simple para comparar (a veces vienen con ceros, aquí asumimos string exacto por ahora)
-        // Podríamos mejorar esto normalizando strings, pero KmlParser ya formatea bastante bien.
-        
         var foundExp: NativeExpediente? = null
         val foundParcel = expedientes.flatMap { exp ->
             exp.parcelas.map { p -> 
@@ -336,7 +335,7 @@ fun CameraScreen(
                     .clip(CircleShape)
                     .background(Color.Black.copy(0.7f))
                     .border(2.dp, NeonYellow.copy(alpha = blinkAlpha), CircleShape) // Borde parpadeante
-                    .clickable { showInfoDialog = true },
+                    .clickable { showParcelSheet = true },
                 contentAlignment = Alignment.Center
             ) { 
                 Icon(
@@ -385,7 +384,16 @@ fun CameraScreen(
                 .background(NeonGreen, CircleShape)
                 .clickable {
                     takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
-                        onImageCaptured = { uri -> onImageCaptured(uri) }, onError)
+                        onImageCaptured = { uri -> 
+                            // Si estamos en un recinto reconocido, añadir la foto automáticamente
+                            if (matchedParcelInfo != null) {
+                                val (exp, parc) = matchedParcelInfo
+                                val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
+                                val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                                onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                            }
+                            onImageCaptured(uri) 
+                        }, onError)
                 }
         )
     }
@@ -637,32 +645,27 @@ fun CameraScreen(
             )
         }
         
-        // --- DIÁLOGO INFO PARCELA ---
-        if (showInfoDialog && matchedParcelInfo != null) {
+        // --- PANEL INSPECCIÓN RECINTO (Modal Bottom Sheet) ---
+        if (showParcelSheet && matchedParcelInfo != null) {
             val (exp, parc) = matchedParcelInfo
-            AlertDialog(
-                onDismissRequest = { showInfoDialog = false },
-                icon = { Icon(Icons.Default.Info, null, tint = NeonGreen) },
-                title = { Text("Estás en un recinto cargado", fontWeight = FontWeight.Bold, color = NeonGreen) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Proyecto", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Divider()
-                        Text("Parcela / Referencia", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Text(parc.referencia, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                        Divider()
-                        Text("Uso KML", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Text(parc.uso, fontWeight = FontWeight.Bold)
-                    }
-                },
-                confirmButton = { 
-                    TextButton(onClick = { showInfoDialog = false }) { Text("Entendido", color = NeonGreen) } 
-                },
-                containerColor = Color(0xFF252525),
-                titleContentColor = NeonGreen,
-                textContentColor = Color.White
-            )
+            ModalBottomSheet(
+                onDismissRequest = { showParcelSheet = false },
+                sheetState = sheetState,
+                containerColor = MaterialTheme.colorScheme.background
+            ) {
+                // Reutilizamos NativeRecintoCard dentro de un contenedor con padding
+                Box(modifier = Modifier.padding(16.dp).padding(bottom = 32.dp)) {
+                    NativeRecintoCard(
+                        parcela = parc,
+                        onLocate = { }, // No action inside modal
+                        onCamera = { showParcelSheet = false }, // Close modal to take photo
+                        onUpdateParcela = { updatedParcela ->
+                            val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                            onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                        }
+                    )
+                }
+            }
         }
     }
 }

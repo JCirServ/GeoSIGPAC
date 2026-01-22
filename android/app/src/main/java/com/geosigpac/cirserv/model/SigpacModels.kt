@@ -43,7 +43,8 @@ data class NativeParcela(
     // Nuevos campos para el Checklist
     val verifiedUso: String? = null,
     val completedChecks: List<String> = emptyList(),
-    val finalVerdict: String? = null // "CUMPLE" | "NO_CUMPLE"
+    val finalVerdict: String? = null, // "CUMPLE" | "NO_CUMPLE"
+    val photos: List<String> = emptyList() // Lista de URIs de fotos
 )
 
 data class NativeExpediente(

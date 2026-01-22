@@ -114,12 +114,13 @@ fun GeoSigpacApp() {
     if (isCameraOpen) {
         BackHandler { isCameraOpen = false }
         CameraScreen(
-            expedientes = expedientes, // Pasamos la lista completa para el chequeo de ubicación
+            expedientes = expedientes, 
             projectId = currentParcelaId,
             lastCapturedUri = null,
             photoCount = 0,
-            onImageCaptured = { isCameraOpen = false },
-            onError = { isCameraOpen = false },
+            onUpdateExpedientes = { newList -> expedientes = newList },
+            onImageCaptured = { /* Local handling */ },
+            onError = { /* Error handling */ },
             onClose = { isCameraOpen = false },
             onGoToMap = { 
                 isCameraOpen = false
