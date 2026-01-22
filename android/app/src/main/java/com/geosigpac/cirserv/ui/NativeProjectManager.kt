@@ -56,22 +56,13 @@ fun NativeProjectManager(
     var selectedExpedienteId by remember { mutableStateOf<String?>(null) }
     val currentExpedientesState = rememberUpdatedState(expedientes)
     
-    val debugLogs = remember { mutableStateListOf<String>() }
-    val logListState = rememberLazyListState()
     var activeHydrations by remember { mutableStateOf<Set<String>>(setOf()) }
-
-    fun addLog(msg: String) {
-        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        debugLogs.add("[$time] $msg")
-        if (debugLogs.size > 60) debugLogs.removeAt(0)
-    }
 
     fun startHydrationSequence(targetExpId: String) {
         if (activeHydrations.contains(targetExpId)) return
         activeHydrations = activeHydrations + targetExpId
         
         scope.launch {
-            addLog("Analizando proyecto: $targetExpId")
             try {
                 while (true) {
                     val currentList = currentExpedientesState.value
@@ -105,7 +96,7 @@ fun NativeProjectManager(
                     delay(400)
                 }
             } catch (e: Exception) {
-                addLog("[ERROR] $targetExpId: ${e.message}")
+                Log.e("Hydration", "Error hydrating $targetExpId: ${e.message}")
             } finally {
                 activeHydrations = activeHydrations - targetExpId
             }
@@ -183,29 +174,6 @@ fun NativeProjectManager(
                         onSelect = { selectedExpedienteId = exp.id }, 
                         onDelete = { onUpdateExpedientes(expedientes.filter { it.id != exp.id }) }
                     )
-                }
-            }
-
-            // Consola de Log
-            Card(
-                modifier = Modifier.fillMaxWidth().height(140.dp).padding(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Black),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color.White.copy(0.1f))
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("REGISTRO DE RED", color = Color(0xFF00FF88), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        IconButton(onClick = { debugLogs.clear() }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.DeleteSweep, null, tint = Color.Gray, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical = 4.dp))
-                    LazyColumn(state = logListState, modifier = Modifier.fillMaxSize()) {
-                        items(debugLogs.reversed()) { log ->
-                            Text(text = log, color = if(log.contains("[ERROR]")) Color.Red else Color.LightGray, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                        }
-                    }
                 }
             }
         }
