@@ -501,7 +501,17 @@ fun NativeRecintoCard(
                                  }
 
                                  // CHECKLIST ADICIONAL: PENDIENTE > 10%
-                                 if ((parcela.sigpacInfo?.pendienteMedia ?: 0.0) > 10.0) {
+                                 // LOGICA: Solo mostrar si pendiente > 10. Si es pasto, solo mostrar si hay discrepancia.
+                                 val slope = parcela.sigpacInfo?.pendienteMedia ?: 0.0
+                                 val usoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull()?.uppercase() ?: ""
+                                 val isPastos = listOf("PS", "PR", "PA").contains(usoRaw)
+                                 
+                                 // Si es pasto y es compatible, NO mostramos la condición de pendiente.
+                                 // Si es pasto pero hay error (no compatible), SÍ mostramos la condición.
+                                 // Si no es pasto y supera el 10%, SIEMPRE mostramos la condición.
+                                 val showSlopeCheck = slope > 10.0 && (!isPastos || (isPastos && !agroAnalysis.isCompatible))
+
+                                 if (showSlopeCheck) {
                                      Spacer(Modifier.height(12.dp))
                                      val slopeCheckId = "CHECK_PENDIENTE_10"
                                      val isSlopeChecked = parcela.completedChecks.contains(slopeCheckId)

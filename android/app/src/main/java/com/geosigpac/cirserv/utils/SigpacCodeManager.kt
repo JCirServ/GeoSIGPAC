@@ -492,6 +492,7 @@ object SigpacCodeManager {
         if (sigpacUso.isNullOrEmpty()) return Pair(false, "Falta uso SIGPAC")
         
         val normalizedSigpac = sigpacUso.trim().split(" ")[0].uppercase() // "TA (TIERRAS...)" -> "TA"
+        val prodDisplay = productoDesc ?: "Desconocido"
         
         // Mapeo Heurístico Rápido de Producto -> Uso SIGPAC Esperado
         val expectedUso = inferUsoFromProduct(productoCode, productoDesc) ?: return Pair(true, "Producto sin regla definida, asumiendo compatible.")
@@ -518,7 +519,7 @@ object SigpacCodeManager {
         if (expectedUso == "VI" && normalizedSigpac == "FV") return Pair(true, "Viñedo compatible con Frutales-Viñedo (FV).")
         if (expectedUso == "FY" && normalizedSigpac == "OF") return Pair(true, "Frutales compatible con Olivar-Frutal (OF).")
 
-        return Pair(false, "Incompatible. Requiere $expectedUso, recinto es $normalizedSigpac.")
+        return Pair(false, "Uso $normalizedSigpac no compatible con cultivo $prodDisplay")
     }
 
     private fun inferUsoFromProduct(code: Int?, desc: String?): String? {
