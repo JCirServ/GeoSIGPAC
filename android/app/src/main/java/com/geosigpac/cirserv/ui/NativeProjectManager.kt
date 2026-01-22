@@ -456,7 +456,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                             
                             if (!parcela.sigpacInfo?.incidencias.isNullOrEmpty()) {
                                 Spacer(Modifier.height(12.dp))
-                                IncidenciasDropdown(parcela.sigpacInfo?.incidencias)
+                                IncidenciasStaticList(parcela.sigpacInfo?.incidencias)
                             }
                         }
                     } else {
@@ -474,14 +474,14 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
 
                              // Ayudas Solicitadas
                             if (!parcela.cultivoInfo?.parcAyudasol.isNullOrEmpty()) {
-                                AyudasDropdown("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol)
+                                AyudasStaticList("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol)
                             } else {
                                 DataField("AYUDA SOL", "-")
                             }
 
                             // Ayudas PDR
                             if (!parcela.cultivoInfo?.pdrRec.isNullOrEmpty()) {
-                                AyudasDropdown("AYUDAS PDR", parcela.cultivoInfo?.pdrRec, isPdr = true)
+                                AyudasStaticList("AYUDAS PDR", parcela.cultivoInfo?.pdrRec, isPdr = true)
                             } else {
                                 DataField("AYUDAS PDR", "-")
                             }
@@ -493,7 +493,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                             
                             // Ayudas Cultivo Secundario
                             if (!parcela.cultivoInfo?.cultsecunAyudasol.isNullOrEmpty()) {
-                                AyudasDropdown("AYUDA SEC", parcela.cultivoInfo?.cultsecunAyudasol)
+                                AyudasStaticList("AYUDA SEC", parcela.cultivoInfo?.cultsecunAyudasol)
                             } else {
                                 DataField("AYUDA SEC", "-")
                             }
@@ -529,8 +529,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
 }
 
 @Composable
-fun IncidenciasDropdown(rawIncidencias: String?) {
-    var expanded by remember { mutableStateOf(false) }
+fun IncidenciasStaticList(rawIncidencias: String?) {
     val incidenciasList = remember(rawIncidencias) {
         SigpacCodeManager.getFormattedIncidencias(rawIncidencias)
     }
@@ -540,52 +539,31 @@ fun IncidenciasDropdown(rawIncidencias: String?) {
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color.White.copy(0.05f), RoundedCornerShape(8.dp))
-                .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(8.dp))
-                .animateContentSize()
+                .border(1.dp, Color(0xFFFF5252).copy(0.3f), RoundedCornerShape(8.dp))
+                .padding(8.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Text(
+                text = "INCIDENCIAS (${incidenciasList.size})",
+                color = Color(0xFFFF5252),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black
+            )
+            Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=4.dp))
+            incidenciasList.forEach { incidencia ->
                 Text(
-                    text = "INCIDENCIAS (${incidenciasList.size})",
+                    text = "• $incidencia",
                     color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(vertical = 2.dp)
                 )
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-
-            if (expanded) {
-                Divider(color = Color.White.copy(0.1f))
-                Column(modifier = Modifier.padding(8.dp)) {
-                    incidenciasList.forEach { incidencia ->
-                        Text(
-                            text = "• $incidencia",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        )
-                    }
-                }
             }
         }
     }
 }
 
 @Composable
-fun AyudasDropdown(label: String, rawAyudas: String?, isPdr: Boolean = false) {
-    var expanded by remember { mutableStateOf(false) }
+fun AyudasStaticList(label: String, rawAyudas: String?, isPdr: Boolean = false) {
     val ayudasList = remember(rawAyudas, isPdr) {
         if (isPdr) SigpacCodeManager.getFormattedAyudasPdr(rawAyudas)
         else SigpacCodeManager.getFormattedAyudas(rawAyudas)
@@ -594,48 +572,17 @@ fun AyudasDropdown(label: String, rawAyudas: String?, isPdr: Boolean = false) {
     if (ayudasList.isNotEmpty()) {
          Column(modifier = Modifier.padding(vertical = 4.dp)) {
              Text(label, color = Color.Gray, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp)
-                    .background(Color.White.copy(0.05f), RoundedCornerShape(4.dp))
-                    .clickable { expanded = !expanded }
-                    .padding(4.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+             Column(modifier = Modifier.padding(top = 2.dp)) {
+                 ayudasList.forEach { ayuda ->
                      Text(
-                        text = if (expanded) "Ocultar" else "${ayudasList.size} línea(s)",
-                        color = MaterialTheme.colorScheme.onSurface, 
-                        fontSize = 11.sp, 
-                        fontWeight = FontWeight.Bold, 
-                        fontFamily = FontFamily.Monospace
+                        text = "• $ayuda",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        modifier = Modifier.padding(vertical = 1.dp)
                     )
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = Color.Gray,
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
-            }
-            
-            AnimatedVisibility(visible = expanded) {
-                Column(modifier = Modifier.padding(top = 4.dp, start = 4.dp)) {
-                    ayudasList.forEach { ayuda ->
-                        Text(
-                            text = "• $ayuda",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 10.sp,
-                            lineHeight = 12.sp,
-                            modifier = Modifier.padding(bottom = 2.dp)
-                        )
-                    }
-                }
-            }
+                 }
+             }
          }
     } else {
         DataField(label, "-")

@@ -26,8 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
@@ -736,7 +734,7 @@ fun NativeMap(
                                             Spacer(Modifier.height(12.dp))
                                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { 
                                                 AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
-                                                // Manejo de Incidencias Desplegables
+                                                // Manejo de Incidencias Listado
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     val incidencias = recintoData!!["incidencias"]
                                                     if (!incidencias.isNullOrEmpty()) {
@@ -818,7 +816,6 @@ fun NativeMap(
 
 @Composable
 fun IncidenciaMapItem(rawIncidencias: String, type: String = "INCIDENCIA") {
-    var expanded by remember { mutableStateOf(false) }
     val itemsList = remember(rawIncidencias, type) {
         when(type) {
             "AYUDA" -> SigpacCodeManager.getFormattedAyudas(rawIncidencias)
@@ -828,28 +825,17 @@ fun IncidenciaMapItem(rawIncidencias: String, type: String = "INCIDENCIA") {
     }
     
     Column {
-        Row(modifier = Modifier.clickable { expanded = !expanded }.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Detalles", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
-            Icon(if(expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = FieldGray, modifier = Modifier.size(12.dp))
-        }
+        val label = if (type == "INCIDENCIA") "Incidencias" else "Detalles"
+        Text(label, style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
         
-        if (!expanded) {
+        itemsList.forEach { item ->
             Text(
-                text = "${itemsList.size} elemento(s)", 
-                style = MaterialTheme.typography.bodyMedium, 
-                fontWeight = FontWeight.Bold, 
-                color = Color.White 
+                text = "• $item", 
+                style = MaterialTheme.typography.bodySmall, 
+                color = Color.White, 
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 2.dp)
             )
-        } else {
-            itemsList.forEach { item ->
-                Text(
-                    text = "• $item", 
-                    style = MaterialTheme.typography.bodySmall, 
-                    color = Color.White, 
-                    fontSize = 10.sp,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-            }
         }
     }
 }
