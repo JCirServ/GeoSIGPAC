@@ -133,7 +133,9 @@ fun GeoSigpacApp() {
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                if (selectedTab == 1 || selectedTab == 2) { // Mostrar barra en ambas pantallas principales
+                // Solo mostramos la barra de navegación en la pantalla de Proyectos (Tab 1)
+                // En el mapa (Tab 2) usamos los botones flotantes propios del mapa.
+                if (selectedTab == 1) { 
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp
