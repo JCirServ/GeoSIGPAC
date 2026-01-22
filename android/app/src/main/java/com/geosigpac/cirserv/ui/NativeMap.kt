@@ -567,7 +567,7 @@ fun NativeMap(
             }
 
             // Botón Proyectos (Visibilidad KML)
-            SmallFloatingActionButton(onClick = { showProjectsMenu = !showProjectsMenu; showLayerMenu = false }, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF2196F3), shape = CircleShape) { Icon(Icons.Default.Folder, "Proyectos") }
+            SmallFloatingActionButton(onClick = { showProjectsMenu = !showProjectsMenu; showLayerMenu = false }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.Folder, "Proyectos") }
 
             AnimatedVisibility(visible = showProjectsMenu) {
                 Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
@@ -591,7 +591,7 @@ fun NativeMap(
                                             checked = isVisible, 
                                             onCheckedChange = { chk -> visibleProjectIds = if (chk) visibleProjectIds + exp.id else visibleProjectIds - exp.id },
                                             modifier = Modifier.size(30.dp).padding(4.dp),
-                                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2196F3))
+                                            colors = CheckboxDefaults.colors(checkedColor = FieldGreen)
                                         )
                                         Text(exp.titular, fontSize = 12.sp, maxLines = 1)
                                     }
@@ -699,16 +699,15 @@ fun NativeMap(
                     }
                 }
             }
-        }
 
-        // TECLADO PERSONALIZADO
-        AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-            CustomSigpacKeyboard(
-                onKey = { char -> searchQuery += char },
-                onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
-                onSearch = { performSearch() },
-                onClose = { showCustomKeyboard = false }
-            )
-        }
+            // TECLADO PERSONALIZADO
+            AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
+                CustomSigpacKeyboard(
+                    onKey = { char -> searchQuery += char },
+                    onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
+                    onSearch = { performSearch() },
+                    onClose = { showCustomKeyboard = false }
+                )
+            }
     }
 }
