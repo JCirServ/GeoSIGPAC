@@ -78,7 +78,6 @@ fun NativeProjectManager(
                     
                     if (parcelaToHydrate == null) break
                     
-                    // fetchHydration ahora devuelve Triple(Sigpac, Cultivo, Centroide)
                     val (sigpac, cultivo, centroid) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                     val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                     
@@ -101,7 +100,7 @@ fun NativeProjectManager(
                         } else e
                     }
                     onUpdateExpedientes(updatedList)
-                    delay(400) // Delay ligeramente mayor para no saturar las 3 llamadas concurrentes por recinto
+                    delay(400)
                 }
             } catch (e: Exception) {
                 addLog("[ERROR] $targetExpId: ${e.message}")
@@ -520,7 +519,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                             onLocate(searchStr)
                         },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.copy().colorScheme.outline.copy(0.1f)),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("LOCALIZAR EN MAPA", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
