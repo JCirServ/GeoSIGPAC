@@ -7,15 +7,18 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.view.ViewGroup
+import android.view.WindowManager
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -188,7 +191,25 @@ fun CameraScreen(
                 try {
                     val inputStream = context.contentResolver.openInputStream(uri)
                     val bitmap = BitmapFactory.decodeStream(inputStream)
-                    capturedBitmap = bitmap?.asImageBitmap()
+                    inputStream?.close()
+
+                    // Rotar Bitmap según EXIF para que el botón de preview se vea correcto
+                    var finalBitmap = bitmap
+                    context.contentResolver.openInputStream(uri)?.use { exifInput ->
+                        val exif = ExifInterface(exifInput)
+                        val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                        val matrix = Matrix()
+                        when (orientation) {
+                            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                        }
+                        if (bitmap != null) {
+                            finalBitmap = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                        }
+                    }
+
+                    capturedBitmap = finalBitmap?.asImageBitmap()
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -721,6 +742,12 @@ private fun takePhoto(
     onError: (ImageCaptureException) -> Unit
 ) {
     val imageCapture = imageCapture ?: return
+
+    // FIX: Set target rotation based on current display rotation
+    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+    val rotation = windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
+    imageCapture.targetRotation = rotation
+
     val projectFolder = projectId ?: "SIN PROYECTO"
     val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
     val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
