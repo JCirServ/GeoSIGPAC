@@ -334,14 +334,14 @@ fun CameraScreen(
                     .size(50.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(0.7f))
-                    .border(2.dp, NeonYellow.copy(alpha = blinkAlpha), CircleShape) // Borde parpadeante
+                    // Borde eliminado según petición
                     .clickable { showParcelSheet = true },
                 contentAlignment = Alignment.Center
             ) { 
                 Icon(
                     Icons.Default.Info, 
                     contentDescription = "Info Parcela", 
-                    tint = NeonYellow.copy(alpha = blinkAlpha), // Icono parpadeante
+                    tint = NeonGreen, // Color cambiado a Verde Neón
                     modifier = Modifier.size(32.dp)
                 ) 
             }
