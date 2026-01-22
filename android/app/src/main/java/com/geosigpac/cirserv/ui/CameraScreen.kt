@@ -26,11 +26,14 @@ import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,8 +42,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -113,9 +118,8 @@ fun CameraScreen(
     var showGrid by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     
-    // Control del Modal Bottom Sheet (Tarjeta de Recinto)
+    // Control de la Tarjeta de Recinto (Overlay)
     var showParcelSheet by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // --- OBJETOS CAMERAX ---
     var camera by remember { mutableStateOf<Camera?>(null) }
@@ -184,7 +188,7 @@ fun CameraScreen(
         initialValue = 0.2f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(600),
+            animation = tween(500),
             repeatMode = RepeatMode.Reverse
         ),
         label = "Blink"
@@ -259,7 +263,7 @@ fun CameraScreen(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // --- BUCLE SIGPAC Y GPS (Lógica igual que antes) ---
+    // --- BUCLE SIGPAC Y GPS ---
     LaunchedEffect(Unit) {
         while (true) {
             val loc = currentLocation
@@ -334,14 +338,13 @@ fun CameraScreen(
                     .size(50.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(0.7f))
-                    // Borde eliminado según petición
                     .clickable { showParcelSheet = true },
                 contentAlignment = Alignment.Center
             ) { 
                 Icon(
                     Icons.Default.Info, 
                     contentDescription = "Info Parcela", 
-                    tint = NeonGreen, // Color cambiado a Verde Neón
+                    tint = NeonGreen.copy(alpha = blinkAlpha), // PARPADEO APLICADO
                     modifier = Modifier.size(32.dp)
                 ) 
             }
@@ -350,7 +353,6 @@ fun CameraScreen(
 
     // Cajetín de Información
     val InfoBox = @Composable {
-        // Se ha movido el botón de alerta fuera de este componente
         Box(
             modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
@@ -361,7 +363,6 @@ fun CameraScreen(
                     Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
                     Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
                     
-                    // Subtexto indicador
                     if (matchedParcelInfo != null) {
                         Text("EN PROYECTO", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     }
@@ -385,7 +386,6 @@ fun CameraScreen(
                 .clickable {
                     takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
                         onImageCaptured = { uri -> 
-                            // Si estamos en un recinto reconocido, añadir la foto automáticamente
                             if (matchedParcelInfo != null) {
                                 val (exp, parc) = matchedParcelInfo
                                 val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
@@ -440,10 +440,9 @@ fun CameraScreen(
         ) { Icon(MapIcon, "Mapa", tint = NeonGreen, modifier = Modifier.size(36.dp)) }
     }
 
-    // Slider Zoom (Vertical u Horizontal)
+    // Slider Zoom
     val ZoomControl = @Composable { isLandscapeMode: Boolean ->
         val containerModifier = if (isLandscapeMode) {
-             // Horizontal y alargado
              Modifier
                 .width(260.dp)
                 .height(40.dp)
@@ -451,7 +450,6 @@ fun CameraScreen(
                 .background(Color.Black.copy(alpha = 0.5f))
                 .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
         } else {
-            // Vertical (contenedor alto)
             Modifier
                 .height(300.dp)
                 .width(30.dp)
@@ -468,14 +466,14 @@ fun CameraScreen(
                 value = currentLinearZoom,
                 onValueChange = { valz -> camera?.cameraControl?.setLinearZoom(valz) },
                 modifier = if (isLandscapeMode) {
-                    Modifier.width(240.dp) // Slider horizontal normal
+                    Modifier.width(240.dp)
                 } else {
                     Modifier
                         .graphicsLayer {
                             rotationZ = 270f
                             transformOrigin = TransformOrigin.Center
                         }
-                        .requiredWidth(260.dp) // Ancho rotado se convierte en alto visual
+                        .requiredWidth(260.dp)
                 }, 
                 colors = SliderDefaults.colors(
                     thumbColor = Color.White,
@@ -537,81 +535,21 @@ fun CameraScreen(
         // --- CAPA DE INTERFAZ (Layout Responsivo) ---
         
         if (isLandscape) {
-            // ================= LANDSCAPE LAYOUT =================
-            
-            // Arriba Izquierda: Botones en FILA (Configuración izq, Proyectos der, Info match der)
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SettingsBtn()
-                    ProjectsBtn()
-                    MatchInfoBtn()
-                }
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { SettingsBtn(); ProjectsBtn(); MatchInfoBtn() }
             }
-
-            // Arriba Derecha: Info
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
-                InfoBox()
-            }
-
-            // Centro Derecha: Disparador
-            Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) {
-                ShutterButton()
-            }
-
-            // Abajo Izquierda: Preview y Mapa (Horizontal)
-            Row(
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                PreviewButton()
-                MapButton()
-            }
-
-            // Abajo Derecha: Slider Horizontal
-            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 32.dp)) {
-                // Para que no se solape con el disparador si la pantalla es estrecha, 
-                // lo movemos un poco a la izquierda del borde derecho
-                ZoomControl(true)
-            }
-
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) { InfoBox() }
+            Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) { ShutterButton() }
+            Row(modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) { PreviewButton(); MapButton() }
+            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 32.dp)) { ZoomControl(true) }
         } else {
-            // ================= PORTRAIT LAYOUT =================
-            
-            // Arriba Izquierda: Botones en COLUMNA (Configuración arriba, Proyectos abajo, Info match abajo)
             Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SettingsBtn()
-                    ProjectsBtn()
-                    MatchInfoBtn()
-                }
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { SettingsBtn(); ProjectsBtn(); MatchInfoBtn() }
             }
-
-            // Arriba Derecha: Info
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) {
-                InfoBox()
-            }
-
-            // Centro Izquierda: Zoom Vertical
-            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
-                ZoomControl(false)
-            }
-
-            // Abajo: Fila de controles (Preview - Disparador - Mapa)
-            Column(
-                modifier = Modifier.fillMaxSize().padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.Bottom,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    PreviewButton()
-                    ShutterButton()
-                    MapButton()
-                }
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) { InfoBox() }
+            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) { ZoomControl(false) }
+            Column(modifier = Modifier.fillMaxSize().padding(bottom = 32.dp), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { PreviewButton(); ShutterButton(); MapButton() }
             }
         }
         
@@ -645,25 +583,47 @@ fun CameraScreen(
             )
         }
         
-        // --- PANEL INSPECCIÓN RECINTO (Modal Bottom Sheet) ---
-        if (showParcelSheet && matchedParcelInfo != null) {
-            val (exp, parc) = matchedParcelInfo
-            ModalBottomSheet(
-                onDismissRequest = { showParcelSheet = false },
-                sheetState = sheetState,
-                containerColor = MaterialTheme.colorScheme.background
-            ) {
-                // Reutilizamos NativeRecintoCard dentro de un contenedor con padding
-                Box(modifier = Modifier.padding(16.dp).padding(bottom = 32.dp)) {
-                    NativeRecintoCard(
-                        parcela = parc,
-                        onLocate = { }, // No action inside modal
-                        onCamera = { showParcelSheet = false }, // Close modal to take photo
-                        onUpdateParcela = { updatedParcela ->
-                            val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
-                            onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+        // --- PANEL INSPECCIÓN RECINTO (REEMPLAZO DE MODALBOTTOMSHEET) ---
+        // Scrim oscuro (clic cierra)
+        if (showParcelSheet) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.7f)).clickable { showParcelSheet = false })
+        }
+
+        // Panel Deslizante (Mantiene Immersive Mode)
+        AnimatedVisibility(
+            visible = showParcelSheet && matchedParcelInfo != null,
+            enter = slideInVertically { it }, // Desliza desde abajo
+            exit = slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            matchedParcelInfo?.let { (exp, parc) ->
+                 Surface(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp
+                ) {
+                    Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+                        // Header de cierre pequeño
+                        Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
+                             Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.Gray.copy(0.4f)))
                         }
-                    )
+                        
+                        NativeRecintoCard(
+                            parcela = parc,
+                            onLocate = { query ->
+                                onGoToMap() // Cambiar al tab mapa
+                            }, 
+                            onCamera = { showParcelSheet = false }, // Cerrar panel para tomar foto
+                            onUpdateParcela = { updatedParcela ->
+                                val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                                onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                            },
+                            // PARÁMETROS CLAVE: Forzar expansión y mostrar datos técnicos
+                            initiallyExpanded = true,
+                            initiallyTechExpanded = true
+                        )
+                        Spacer(Modifier.height(32.dp)) // Padding inferior extra
+                    }
                 }
             }
         }

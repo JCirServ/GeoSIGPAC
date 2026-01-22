@@ -451,12 +451,14 @@ fun NativeRecintoCard(
     parcela: NativeParcela, 
     onLocate: (String) -> Unit, 
     onCamera: (String) -> Unit,
-    onUpdateParcela: (NativeParcela) -> Unit
+    onUpdateParcela: (NativeParcela) -> Unit,
+    initiallyExpanded: Boolean = false,
+    initiallyTechExpanded: Boolean = false
 ) {
-    var expanded by remember { mutableStateOf(false) } 
-    // Secciones internas colapsadas por defecto
-    var inspectionExpanded by remember { mutableStateOf(true) } // Expanded by default if triggered via info button
-    var dataExpanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(initiallyExpanded || parcela.photos.isNotEmpty()) } 
+    // Secciones internas colapsadas por defecto, salvo si se indica lo contrario
+    var inspectionExpanded by remember { mutableStateOf(true) } 
+    var dataExpanded by remember { mutableStateOf(initiallyTechExpanded) }
     
     var selectedTab by remember { mutableIntStateOf(0) }
     val isLoading = !parcela.isHydrated
