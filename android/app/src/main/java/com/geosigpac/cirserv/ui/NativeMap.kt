@@ -86,6 +86,7 @@ private const val LAYER_PROJECTS_CENTROID = "projects-centroid"
 fun NativeMap(
     expedientes: List<NativeExpediente>,
     searchTarget: String?,
+    followUserTrigger: Long = 0L, // Nuevo parámetro Trigger
     onNavigateToProjects: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
@@ -429,7 +430,6 @@ fun NativeMap(
                         setProperties(PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()), PropertyFactory.lineWidth(1.5f))
                         setFilter(Expression.eq(Expression.get("type"), Expression.literal("parcela")))
                     })
-                    // CAPA DE CENTROIDES
                     style.addLayer(CircleLayer(LAYER_PROJECTS_CENTROID, SOURCE_PROJECTS).apply {
                         setProperties(
                             PropertyFactory.circleColor(Color(0xFF00FF88).toArgb()),
@@ -463,6 +463,16 @@ fun NativeMap(
             delay(800)
             searchQuery = searchTarget
             performSearch()
+        }
+    }
+
+    // LISTENER PARA FORZAR CENTRADO EN USUARIO
+    LaunchedEffect(followUserTrigger) {
+        if (followUserTrigger > 0 && mapInstance != null) {
+            // Limpiar visualización de búsqueda anterior
+            clearSearch()
+            // Activar y centrar ubicación
+            enableLocation(mapInstance, context, shouldCenter = true)
         }
     }
 

@@ -292,7 +292,9 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                 productoDesc = prodDesc,
                 sigpacUso = parcela.sigpacInfo?.usoSigpac,
                 ayudasRaw = parcela.cultivoInfo?.parcAyudasol,
-                pdrRaw = parcela.cultivoInfo?.pdrRec
+                pdrRaw = parcela.cultivoInfo?.pdrRec,
+                sistExp = parcela.cultivoInfo?.parcSistexp,
+                coefRegadio = parcela.sigpacInfo?.coefRegadio
             )
         } else null
     }
@@ -466,7 +468,13 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                         Column {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Box(Modifier.weight(1f)) { DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-") }
-                                Box(Modifier.weight(1f)) { DataField("SIST. EXP", parcela.cultivoInfo?.parcSistexp ?: "-") }
+                                val sistExpRaw = parcela.cultivoInfo?.parcSistexp
+                                val sistExpDisplay = when(sistExpRaw) {
+                                    "S" -> "Secano"
+                                    "R" -> "Regadío"
+                                    else -> sistExpRaw ?: "-"
+                                }
+                                Box(Modifier.weight(1f)) { DataField("SIST. EXP", sistExpDisplay) }
                             }
                             
                             val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString())

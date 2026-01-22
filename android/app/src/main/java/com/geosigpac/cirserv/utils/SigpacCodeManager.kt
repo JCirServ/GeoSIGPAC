@@ -416,19 +416,57 @@ object SigpacCodeManager {
         productoDesc: String?,
         sigpacUso: String?,
         ayudasRaw: String?,
-        pdrRaw: String?
+        pdrRaw: String?,
+        sistExp: String?,
+        coefRegadio: Double?
     ): AgroAnalysisResult {
         // 1. Compatibilidad Cultivo vs Uso SIGPAC
         val compatibility = checkCompatibility(productoCode, productoDesc, sigpacUso)
         
-        // 2. Requisitos de Ayudas (Guía de Campo)
+        // 2. Compatibilidad Riego
+        val irrigationCheck = checkIrrigationConsistency(sistExp, coefRegadio)
+
+        // 3. Requisitos
         val requirements = getFieldRequirements(ayudasRaw, pdrRaw)
 
+        val finalIsCompatible = compatibility.first && irrigationCheck.first
+        
+        val sb = StringBuilder()
+        sb.append(compatibility.second)
+        if (irrigationCheck.second != null) {
+            sb.append("\n").append(irrigationCheck.second)
+        }
+
         return AgroAnalysisResult(
-            isCompatible = compatibility.first,
-            explanation = compatibility.second,
+            isCompatible = finalIsCompatible,
+            explanation = sb.toString(),
             requirements = requirements
         )
+    }
+
+    private fun checkIrrigationConsistency(sistExp: String?, coefRegadio: Double?): Pair<Boolean, String?> {
+        if (sistExp == null || coefRegadio == null) return Pair(true, null)
+        
+        val sys = sistExp.trim().uppercase()
+        // SistExp suele venir como "S" o "R" (o palabras completas)
+        val isRegadio = sys == "R" || sys.startsWith("REGAD")
+        val isSecano = sys == "S" || sys.startsWith("SECAN")
+
+        if (isRegadio) {
+            if (coefRegadio == 0.0) {
+                return Pair(false, "ERROR RIEGO: Declarado Regadío en recinto de Secano (Coef 0%).")
+            }
+            if (coefRegadio < 100.0) {
+                 return Pair(true, "AVISO RIEGO: Declarado Regadío con Coeficiente parcial ($coefRegadio%).")
+            }
+        } else if (isSecano) {
+            if (coefRegadio == 100.0) {
+                 // Si declaras Secano en una parcela de Regadío 100%, es compatible (simplemente no riegas),
+                 // pero el usuario solicita verificar la "correspondencia". Generamos un aviso.
+                 return Pair(true, "Nota: Declarado Secano en recinto apto para Regadío (100%).")
+            }
+        }
+        return Pair(true, null)
     }
 
     private fun checkCompatibility(productoCode: Int?, productoDesc: String?, sigpacUso: String?): Pair<Boolean, String> {

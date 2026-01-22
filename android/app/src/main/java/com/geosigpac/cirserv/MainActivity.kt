@@ -72,7 +72,10 @@ fun GeoSigpacApp() {
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
+    
+    // Estados de navegación del mapa
     var mapSearchTarget by remember { mutableStateOf<String?>(null) }
+    var followUserTrigger by remember { mutableLongStateOf(0L) } // Trigger para centrar en usuario
     var activeProjectId by remember { mutableStateOf<String?>(expedientes.firstOrNull()?.id) }
 
     // Inicialización de diccionarios (solo una vez)
@@ -81,7 +84,6 @@ fun GeoSigpacApp() {
     }
 
     // Persistencia reactiva: Guarda cada vez que la lista cambie
-    // Al haber inicializado 'expedientes' con los datos reales, este efecto solo guardará cambios nuevos
     LaunchedEffect(expedientes) {
         ProjectStorage.saveExpedientes(context, expedientes)
         
@@ -118,7 +120,12 @@ fun GeoSigpacApp() {
             onImageCaptured = { isCameraOpen = false },
             onError = { isCameraOpen = false },
             onClose = { isCameraOpen = false },
-            onGoToMap = { isCameraOpen = false; selectedTab = 2 },
+            onGoToMap = { 
+                isCameraOpen = false
+                selectedTab = 2
+                mapSearchTarget = null
+                followUserTrigger = System.currentTimeMillis() // Forzar centrado en usuario
+            },
             onGoToProjects = { isCameraOpen = false; selectedTab = 1 }
         )
     } else {
@@ -126,7 +133,7 @@ fun GeoSigpacApp() {
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                if (selectedTab == 1) {
+                if (selectedTab == 1 || selectedTab == 2) { // Mostrar barra en ambas pantallas principales
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp
@@ -147,10 +154,14 @@ fun GeoSigpacApp() {
                         )
                         NavigationBarItem(
                             selected = selectedTab == 2,
-                            onClick = { selectedTab = 2 },
+                            onClick = { 
+                                selectedTab = 2
+                                mapSearchTarget = null
+                                followUserTrigger = System.currentTimeMillis() // Forzar centrado en usuario
+                            },
                             icon = { Icon(Icons.Default.Map, "Mapa") },
                             label = { Text("Mapa", fontSize = 13.sp) },
-                            colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
+                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                     }
                 }
@@ -162,16 +173,20 @@ fun GeoSigpacApp() {
                         expedientes = expedientes,
                         activeProjectId = activeProjectId,
                         onUpdateExpedientes = { newList -> 
-                            // Aseguramos nueva instancia para disparar LaunchedEffect
                             expedientes = newList.toList() 
                         },
                         onActivateProject = { id -> activeProjectId = id },
-                        onNavigateToMap = { query -> mapSearchTarget = query; selectedTab = 2 },
+                        onNavigateToMap = { query -> 
+                            mapSearchTarget = query
+                            selectedTab = 2 
+                            // Aquí NO actualizamos followUserTrigger porque queremos ir a una parcela específica
+                        },
                         onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }
                     )
                     2 -> NativeMap(
                         expedientes = expedientes, 
                         searchTarget = mapSearchTarget,
+                        followUserTrigger = followUserTrigger,
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )
