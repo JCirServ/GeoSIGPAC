@@ -534,7 +534,9 @@ fun NativeMap(
                     }
                 }
             }
-            SmallFloatingActionButton(onClick = { showProjectsMenu = !showProjectsMenu; showLayerMenu = false }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.Folder, "Proyectos") }
+            SmallFloatingActionButton(onClick = { showProjectsMenu = !showProjectsMenu; showLayerMenu = false }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { 
+                Text("KML", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
             AnimatedVisibility(visible = showProjectsMenu) {
                 Card(modifier = Modifier.width(220.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
                     Column(modifier = Modifier.padding(14.dp)) {
