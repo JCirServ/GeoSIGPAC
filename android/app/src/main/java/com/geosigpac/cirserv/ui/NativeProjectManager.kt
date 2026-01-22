@@ -445,9 +445,14 @@ fun NativeRecintoCard(
                                 .padding(12.dp)
                         ) {
                              Column {
-                                 // Mostrar Discrepancia Explicita
-                                 if (!agroAnalysis.isCompatible) {
-                                     Text("DISCREPANCIA DETECTADA", color = Color(0xFFFF5252), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                 // Mostrar Discrepancia Explicita o Aviso
+                                 val isWarning = agroAnalysis.explanation.contains("AVISO", ignoreCase = true) || agroAnalysis.explanation.contains("Nota", ignoreCase = true)
+                                 
+                                 if (!agroAnalysis.isCompatible || isWarning) {
+                                     val title = if (!agroAnalysis.isCompatible) "DISCREPANCIA DETECTADA" else "AVISO DE COHERENCIA"
+                                     val color = if (!agroAnalysis.isCompatible) Color(0xFFFF5252) else Color(0xFFFF9800)
+
+                                     Text(title, color = color, fontSize = 12.sp, fontWeight = FontWeight.Black)
                                      Spacer(Modifier.height(4.dp))
                                      
                                      val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString()) ?: "Desconocido"
@@ -456,7 +461,7 @@ fun NativeRecintoCard(
                                      Text("• SIGPAC: $sigpacUso", color = Color.White, fontSize = 13.sp)
                                      Text("• Declarado: $prodDesc", color = Color.White, fontSize = 13.sp)
                                      Spacer(Modifier.height(4.dp))
-                                     Text(agroAnalysis.explanation, color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                     Text(agroAnalysis.explanation, color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                      Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=8.dp))
                                  }
 
