@@ -399,6 +399,12 @@ fun NativeMap(
                  if (props != null) {
                     val mapProps = mutableMapOf<String, String>()
                     props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
+                    
+                    // Traducir Tipo Aprovechamiento directamente en el mapa
+                    val rawAprovecha = mapProps["tipo_aprovecha"]
+                    val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
+                    mapProps["tipo_aprovecha"] = translatedAprovecha ?: rawAprovecha ?: "-"
+                    
                     cultivoData = mapProps
                 }
             } else {

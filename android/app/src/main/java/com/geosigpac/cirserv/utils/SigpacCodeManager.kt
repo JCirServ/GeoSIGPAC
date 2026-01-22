@@ -25,10 +25,15 @@ object SigpacCodeManager {
     private const val FILE_INCIDENCIAS = "cod_incidencia.json"
     private const val URL_INCIDENCIAS = "https://sigpac-hubcloud.es/codigossigpac/cod_incidencia.json"
 
+    // APROVECHAMIENTO
+    private const val FILE_APROVECHAMIENTO = "cod_aprovechamiento.json"
+    private const val URL_APROVECHAMIENTO = "https://sigpac-hubcloud.es/codigossigpac/cod_aprovechamiento.json"
+
     // Mapas en memoria: Código -> Descripción
     private var usoMap: MutableMap<String, String> = mutableMapOf()
     private var regionMap: MutableMap<String, String> = mutableMapOf()
     private var incidenciaMap: MutableMap<String, String> = mutableMapOf()
+    private var aprovechamientoMap: MutableMap<String, String> = mutableMapOf()
     
     private var isInitialized = false
 
@@ -71,6 +76,19 @@ object SigpacCodeManager {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing incidencias JSON: ${e.message}")
                     fileIncidencias.delete()
+                }
+            }
+
+            // --- APROVECHAMIENTO ---
+            val fileAprovecha = File(context.filesDir, FILE_APROVECHAMIENTO)
+            if (!fileAprovecha.exists()) downloadFile(URL_APROVECHAMIENTO, fileAprovecha)
+            if (fileAprovecha.exists()) {
+                try {
+                    parseAprovechamientoJson(fileAprovecha.readText())
+                    Log.d(TAG, "Códigos de aprovechamiento cargados: ${aprovechamientoMap.size}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing aprovechamiento JSON: ${e.message}")
+                    fileAprovecha.delete()
                 }
             }
 
@@ -136,10 +154,23 @@ object SigpacCodeManager {
             
             for (i in 0 until codigos.length()) {
                 val item = codigos.getJSONObject(i)
-                // En incidencias también suele ser numérico
                 val codigo = item.optString("codigo") 
                 val descripcion = item.optString("descripcion")
                 if (codigo.isNotEmpty()) incidenciaMap[codigo] = descripcion
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun parseAprovechamientoJson(jsonString: String) {
+        try {
+            val root = JSONObject(jsonString)
+            val codigos = root.optJSONArray("codigos") ?: return
+            
+            for (i in 0 until codigos.length()) {
+                val item = codigos.getJSONObject(i)
+                val codigo = item.optString("codigo") 
+                val descripcion = item.optString("descripcion")
+                if (codigo.isNotEmpty()) aprovechamientoMap[codigo] = descripcion
             }
         } catch (e: Exception) { e.printStackTrace() }
     }
@@ -162,13 +193,23 @@ object SigpacCodeManager {
     }
 
     /**
+     * Devuelve SOLO la descripción del aprovechamiento.
+     * Ejemplo: Si code="1", devuelve "Subproductos Pastables" (sin el número).
+     */
+    fun getAprovechamientoDescription(code: String?): String? {
+        if (code.isNullOrEmpty()) return null
+        // Intentamos buscar por string exacto o parseando a entero (por si en json viene int)
+        val desc = aprovechamientoMap[code] ?: aprovechamientoMap[code.toIntOrNull()?.toString()]
+        return desc ?: code
+    }
+
+    /**
      * Toma un string raw (ej: "7, 11") y devuelve una lista de strings formateados:
      * ["7 - Uso asignado por...", "11 - Árboles dispersos"]
      */
     fun getFormattedIncidencias(raw: String?): List<String> {
         if (raw.isNullOrEmpty()) return emptyList()
         
-        // Limpiar brackets y comillas por si acaso vienen del JSON raw
         val cleaned = raw.replace("[", "").replace("]", "").replace("\"", "")
         val parts = cleaned.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         

@@ -70,6 +70,11 @@ object SigpacApiService {
                 val features = root.optJSONArray("features")
                 if (features != null && features.length() > 0) {
                     val props = features.getJSONObject(0).getJSONObject("properties")
+                    
+                    // Traducir código de aprovechamiento
+                    val rawAprovecha = props.optString("tipo_aprovecha")
+                    val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
+
                     CultivoData(
                         expNum = props.optString("exp_num"),
                         parcProducto = if (props.isNull("parc_producto")) null else props.optInt("parc_producto"),
@@ -80,7 +85,7 @@ object SigpacApiService {
                         cultsecunProducto = if (props.isNull("cultsecun_producto")) null else props.optInt("cultsecun_producto"),
                         cultsecunAyudasol = props.optString("cultsecun_ayudasol"),
                         parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
-                        tipoAprovecha = props.optString("tipo_aprovecha")
+                        tipoAprovecha = translatedAprovecha
                     )
                 } else null
             } catch (e: Exception) { null }
