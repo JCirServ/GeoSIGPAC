@@ -37,7 +37,9 @@ data class NativeParcela(
     val sigpacInfo: SigpacData? = null,
     val cultivoInfo: CultivoData? = null,
     val informeIA: String? = null,
-    val isHydrated: Boolean = false
+    val isHydrated: Boolean = false,
+    val centroidLat: Double? = null,
+    val centroidLng: Double? = null
 )
 
 data class NativeExpediente(

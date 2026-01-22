@@ -49,7 +49,7 @@ class MainActivity : ComponentActivity() {
                     primary = Color(0xFF00FF88),
                     secondary = Color(0xFF62D2FF),
                     surface = Color(0xFF2D3033),
-                    background = Color(0xFF1A1C1E), // Charcoal Dark
+                    background = Color(0xFF1A1C1E),
                     onSurface = Color(0xFFE2E2E6),
                     outline = Color(0xFF44474B)
                 )
@@ -63,43 +63,33 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun GeoSigpacApp() {
     val context = LocalContext.current
+    
+    // FIX: Inicializar directamente desde storage para evitar el wipe de la lista vacía al arrancar
+    var expedientes by remember { 
+        mutableStateOf(ProjectStorage.loadExpedientes(context)) 
+    }
+    
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
-    
-    // Estado para búsqueda y navegación al mapa
     var mapSearchTarget by remember { mutableStateOf<String?>(null) }
-    
-    // Estado principal de expedientes con persistencia
-    var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
-    
-    // Estado del Proyecto Activo (Sobre el que se trabaja)
-    var activeProjectId by remember { mutableStateOf<String?>(null) }
+    var activeProjectId by remember { mutableStateOf<String?>(expedientes.firstOrNull()?.id) }
 
-    // Carga inicial y configuración
+    // Inicialización de diccionarios (solo una vez)
     LaunchedEffect(Unit) {
-        // Cargar códigos SIGPAC (Usos)
         SigpacCodeManager.initialize(context)
-        // Cargar Expedientes
-        expedientes = ProjectStorage.loadExpedientes(context)
     }
 
-    // Persistencia automática
+    // Persistencia reactiva: Guarda cada vez que la lista cambie
+    // Al haber inicializado 'expedientes' con los datos reales, este efecto solo guardará cambios nuevos
     LaunchedEffect(expedientes) {
         ProjectStorage.saveExpedientes(context, expedientes)
         
-        // Lógica de autoselección:
-        // 1. Si solo hay un proyecto, se selecciona automáticamente.
-        if (expedientes.size == 1) {
-            activeProjectId = expedientes.first().id
-        }
-        // 2. Si el proyecto activo fue borrado, limpiar la selección.
+        // Mantener coherencia del proyecto activo
         if (activeProjectId != null && expedientes.none { it.id == activeProjectId }) {
-            activeProjectId = null
-        }
-        // 3. Si no hay proyectos, limpiar selección
-        if (expedientes.isEmpty()) {
-            activeProjectId = null
+            activeProjectId = expedientes.firstOrNull()?.id
+        } else if (activeProjectId == null && expedientes.isNotEmpty()) {
+            activeProjectId = expedientes.first().id
         }
     }
 
@@ -145,21 +135,21 @@ fun GeoSigpacApp() {
                             selected = false,
                             onClick = { isCameraOpen = true },
                             icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
-                            label = { Text("Cámara", fontSize = 12.sp) },
+                            label = { Text("Cámara", fontSize = 13.sp) },
                             colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
                         )
                         NavigationBarItem(
-                            selected = true,
+                            selected = selectedTab == 1,
                             onClick = { selectedTab = 1 },
                             icon = { Icon(Icons.Default.Folder, "Proyectos") },
-                            label = { Text("Proyectos", fontSize = 12.sp) },
+                            label = { Text("Proyectos", fontSize = 13.sp) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                         NavigationBarItem(
-                            selected = false,
+                            selected = selectedTab == 2,
                             onClick = { selectedTab = 2 },
                             icon = { Icon(Icons.Default.Map, "Mapa") },
-                            label = { Text("Mapa", fontSize = 12.sp) },
+                            label = { Text("Mapa", fontSize = 13.sp) },
                             colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
                         )
                     }
@@ -171,7 +161,10 @@ fun GeoSigpacApp() {
                     1 -> NativeProjectManager(
                         expedientes = expedientes,
                         activeProjectId = activeProjectId,
-                        onUpdateExpedientes = { newList -> expedientes = newList.toList() },
+                        onUpdateExpedientes = { newList -> 
+                            // Aseguramos nueva instancia para disparar LaunchedEffect
+                            expedientes = newList.toList() 
+                        },
                         onActivateProject = { id -> activeProjectId = id },
                         onNavigateToMap = { query -> mapSearchTarget = query; selectedTab = 2 },
                         onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }

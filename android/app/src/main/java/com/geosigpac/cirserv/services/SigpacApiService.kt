@@ -16,7 +16,7 @@ object SigpacApiService {
 
     private const val TAG = "SigpacApiService"
 
-    suspend fun fetchHydration(referencia: String): Pair<SigpacData?, CultivoData?> = withContext(Dispatchers.IO) {
+    suspend fun fetchHydration(referencia: String): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
         val prov = parts.getOrNull(0) ?: ""
@@ -36,17 +36,16 @@ object SigpacApiService {
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
+        // 3. CONSULTA CENTROIDE (GeoJSON)
+        val centroidUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recincentroid/$prov/$mun/$ag/$zo/$pol/$parc/$rec.geojson"
+
         val sigpac = fetchUrl(recintoUrl)?.let { jsonStr ->
             try {
                 val array = JSONArray(jsonStr)
                 if (array.length() > 0) {
                     val props = array.getJSONObject(0)
-                    
-                    // Traducir código de uso
                     val rawUso = props.optString("uso_sigpac")
                     val translatedUso = SigpacCodeManager.getUsoDescription(rawUso)
-
-                    // Traducir código de región
                     val rawRegion = props.optString("region")
                     val translatedRegion = SigpacCodeManager.getRegionDescription(rawRegion)
 
@@ -70,8 +69,6 @@ object SigpacApiService {
                 val features = root.optJSONArray("features")
                 if (features != null && features.length() > 0) {
                     val props = features.getJSONObject(0).getJSONObject("properties")
-                    
-                    // Traducir código de aprovechamiento
                     val rawAprovecha = props.optString("tipo_aprovecha")
                     val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
 
@@ -91,15 +88,28 @@ object SigpacApiService {
             } catch (e: Exception) { null }
         }
 
-        Pair(sigpac, cultivo)
+        val centroid = fetchUrl(centroidUrl)?.let { jsonStr ->
+            try {
+                val root = JSONNative(jsonStr)
+                val features = root.getJSONArray("features")
+                if (features.length() > 0) {
+                    val geometry = features.getJSONObject(0).getJSONObject("geometry")
+                    val coords = geometry.getJSONArray("coordinates")
+                    // coordinates[0] = lng, coordinates[1] = lat
+                    Pair(coords.getDouble(1), coords.getDouble(0))
+                } else null
+            } catch (e: Exception) { null }
+        }
+
+        Triple(sigpac, cultivo, centroid)
     }
 
     private fun fetchUrl(urlString: String): String? {
         return try {
             val url = URL(urlString)
             val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 12000
-            conn.readTimeout = 12000
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
             conn.setRequestProperty("User-Agent", "GeoSIGPAC-Mobile/1.0")
             if (conn.responseCode == 200) {
                 conn.inputStream.bufferedReader().use { it.readText() }
