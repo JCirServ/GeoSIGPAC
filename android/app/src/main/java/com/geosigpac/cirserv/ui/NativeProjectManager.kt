@@ -369,6 +369,7 @@ fun ExpedienteHeader(
     onToggle: () -> Unit
 ) {
     val isUnassigned = expNum == null
+    val NeonGreen = Color(0xFF00FF88)
     
     Surface(
         modifier = Modifier
@@ -382,7 +383,10 @@ fun ExpedienteHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (isUnassigned) Color(0xFF424242) else Color(0xFF2E7D32)) 
+                // CAMBIO: Fondo oscuro neutro (Gris oscuro) en lugar de verde sólido
+                .background(Color(0xFF252525)) 
+                // CAMBIO: Borde verde neón sutil para los válidos
+                .border(1.dp, if(isUnassigned) Color.White.copy(0.1f) else NeonGreen.copy(0.3f), RoundedCornerShape(8.dp))
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -391,7 +395,8 @@ fun ExpedienteHeader(
                 Icon(
                     imageVector = if (isUnassigned) Icons.Default.Warning else Icons.Default.FolderOpen,
                     contentDescription = null,
-                    tint = Color.White,
+                    // CAMBIO: El color verde pasa al icono
+                    tint = if (isUnassigned) Color.Gray else NeonGreen,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(Modifier.width(12.dp))
@@ -430,7 +435,7 @@ fun ExpedienteHeader(
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = if (isExpanded) "Colapsar" else "Expandir",
-                    tint = Color.White.copy(0.8f)
+                    tint = Color.White.copy(0.5f)
                 )
             }
         }
