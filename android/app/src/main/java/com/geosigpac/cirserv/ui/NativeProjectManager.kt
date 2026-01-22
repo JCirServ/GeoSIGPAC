@@ -325,6 +325,10 @@ fun NativeRecintoCard(
     onUpdateParcela: (NativeParcela) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) } 
+    // Secciones internas colapsadas por defecto
+    var inspectionExpanded by remember { mutableStateOf(false) }
+    var dataExpanded by remember { mutableStateOf(false) }
+    
     var selectedTab by remember { mutableIntStateOf(0) }
     val isLoading = !parcela.isHydrated
     
@@ -360,7 +364,6 @@ fun NativeRecintoCard(
     }
 
     // --- ESTADO DE COMPLETADO GLOBAL ---
-    // Está terminado si se ha marcado el VEREDICTO FINAL (CUMPLE o NO CUMPLE)
     val isFullyCompleted = remember(parcela.finalVerdict) {
         parcela.finalVerdict != null
     }
@@ -425,26 +428,15 @@ fun NativeRecintoCard(
                 }
             }
 
-            if (expanded && parcela.isHydrated) {
+            if (expanded && parcela.isHydrated && agroAnalysis != null) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     
-                    // IA REPORT (Compacto)
-                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(0.03f)).padding(12.dp)) {
-                         Row(verticalAlignment = Alignment.Top) {
-                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF62D2FF), modifier = Modifier.size(18.dp).padding(top=2.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(parcela.informeIA ?: "Sin análisis disponible", fontSize = 14.sp, lineHeight = 18.sp, color = Color.Gray)
-                        }
-                    }
-
-                    Spacer(Modifier.height(8.dp))
-
-                    // --- ANÁLISIS TÉCNICO & CHECKLISTS ---
-                    if (agroAnalysis != null) {
-                        
-                        // 1. SECCIÓN: VERIFICACIÓN DE USO
-                        Text("INSPECCIÓN VISUAL", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
-                        Box(
+                    // --- SECCIÓN 1: INSPECCIÓN VISUAL (Collapsible) ---
+                    CollapsibleHeader("INSPECCIÓN VISUAL & REQUISITOS", inspectionExpanded) { inspectionExpanded = !inspectionExpanded }
+                    
+                    if (inspectionExpanded) {
+                        // 1.1 Bloque de Discrepancia
+                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
@@ -453,6 +445,21 @@ fun NativeRecintoCard(
                                 .padding(12.dp)
                         ) {
                              Column {
+                                 // Mostrar Discrepancia Explicita
+                                 if (!agroAnalysis.isCompatible) {
+                                     Text("DISCREPANCIA DETECTADA", color = Color(0xFFFF5252), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                     Spacer(Modifier.height(4.dp))
+                                     
+                                     val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString()) ?: "Desconocido"
+                                     val sigpacUso = parcela.sigpacInfo?.usoSigpac ?: "Desconocido"
+                                     
+                                     Text("• SIGPAC: $sigpacUso", color = Color.White, fontSize = 13.sp)
+                                     Text("• Declarado: $prodDesc", color = Color.White, fontSize = 13.sp)
+                                     Spacer(Modifier.height(4.dp))
+                                     Text(agroAnalysis.explanation, color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                     Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=8.dp))
+                                 }
+
                                  // Checkbox implícito: Seleccionar uso
                                  Row(verticalAlignment = Alignment.CenterVertically) {
                                      val isUsoChecked = parcela.verifiedUso != null
@@ -522,12 +529,10 @@ fun NativeRecintoCard(
                              }
                         }
 
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(12.dp))
 
-                        // 2. SECCIÓN: REQUISITOS (CHECKLISTS DINÁMICOS)
+                        // 1.2 REQUISITOS (CHECKLISTS DINÁMICOS)
                         if (agroAnalysis.requirements.isNotEmpty()) {
-                            Text("REQUISITOS DE CAMPO (GUÍA)", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
-                            
                             agroAnalysis.requirements.forEach { req ->
                                 val checkId = req.code ?: "REQ_${req.description.hashCode()}"
                                 val isChecked = parcela.completedChecks.contains(checkId)
@@ -571,7 +576,7 @@ fun NativeRecintoCard(
                             }
                         }
 
-                        // 3. SECCIÓN: VEREDICTO FINAL
+                        // 1.3 VEREDICTO FINAL
                         Spacer(Modifier.height(12.dp))
                         Text("VEREDICTO FINAL", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -606,125 +611,132 @@ fun NativeRecintoCard(
                     }
 
                     Spacer(Modifier.height(20.dp))
+                    Divider(color = Color.White.copy(0.1f))
+                    Spacer(Modifier.height(20.dp))
 
-                    // PESTAÑAS (Recinto / Cultivo)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.White.copy(0.05f))
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // Tab Recinto
-                        Box(
+                    // --- SECCIÓN 2: DATOS TÉCNICOS (Collapsible) ---
+                    CollapsibleHeader("DATOS TÉCNICOS & GEOMÉTRICOS", dataExpanded) { dataExpanded = !dataExpanded }
+
+                    if (dataExpanded) {
+                        // PESTAÑAS (Recinto / Cultivo)
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .clip(RoundedCornerShape(50))
-                                .background(if (selectedTab == 0) Color(0xFF00FF88) else Color.Transparent)
-                                .clickable { selectedTab = 0 }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                                .background(Color.White.copy(0.05f))
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(
-                                "Recinto", 
-                                fontWeight = FontWeight.Bold, 
-                                fontSize = 15.sp,
-                                color = if(selectedTab == 0) Color.White else Color.Gray
-                            )
+                            // Tab Recinto
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (selectedTab == 0) Color(0xFF00FF88) else Color.Transparent)
+                                    .clickable { selectedTab = 0 }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Recinto", 
+                                    fontWeight = FontWeight.Bold, 
+                                    fontSize = 15.sp,
+                                    color = if(selectedTab == 0) Color.White else Color.Gray
+                                )
+                            }
+                            
+                            // Tab Cultivo
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (selectedTab == 1) Color(0xFF62D2FF) else Color.Transparent)
+                                    .clickable { selectedTab = 1 }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Cultivo", 
+                                    fontWeight = FontWeight.Bold, 
+                                    fontSize = 15.sp,
+                                    color = if(selectedTab == 1) Color.Black else Color.Gray
+                                )
+                            }
                         }
+
+                        Spacer(Modifier.height(16.dp))
                         
-                        // Tab Cultivo
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(50))
-                                .background(if (selectedTab == 1) Color(0xFF62D2FF) else Color.Transparent)
-                                .clickable { selectedTab = 1 }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "Cultivo", 
-                                fontWeight = FontWeight.Bold, 
-                                fontSize = 15.sp,
-                                color = if(selectedTab == 1) Color.Black else Color.Gray
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-                    
-                    if (selectedTab == 0) {
-                        // DATOS RECINTO
-                        Column {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Box(Modifier.weight(1f)) { DataField("USO SIGPAC", parcela.sigpacInfo?.usoSigpac ?: "-") }
-                                Box(Modifier.weight(1f)) { DataField("SUPERFICIE", "${parcela.sigpacInfo?.superficie ?: "-"} ha") }
-                            }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Box(Modifier.weight(1f)) { DataField("PENDIENTE", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %") }
-                                Box(Modifier.weight(1f)) { DataField("ALTITUD", "${parcela.sigpacInfo?.altitud ?: "-"} m") }
-                            }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Box(Modifier.weight(1f)) { DataField("REGIÓN", parcela.sigpacInfo?.region ?: "-") }
-                                Box(Modifier.weight(1f)) { DataField("COEF. REGADÍO", "${parcela.sigpacInfo?.coefRegadio ?: "-"}") }
-                            }
-                            DataField("ADMISIBILIDAD", "${parcela.sigpacInfo?.admisibilidad ?: "-"}")
-                            
-                            if (!parcela.sigpacInfo?.incidencias.isNullOrEmpty()) {
-                                Spacer(Modifier.height(12.dp))
-                                IncidenciasStaticList(parcela.sigpacInfo?.incidencias)
-                            }
-                        }
-                    } else {
-                        // DATOS CULTIVO
-                        Column {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Box(Modifier.weight(1f)) { DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-") }
-                                val sistExpRaw = parcela.cultivoInfo?.parcSistexp
-                                val sistExpDisplay = when(sistExpRaw) {
-                                    "S" -> "Secano"
-                                    "R" -> "Regadío"
-                                    else -> sistExpRaw ?: "-"
+                        if (selectedTab == 0) {
+                            // DATOS RECINTO
+                            Column {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Box(Modifier.weight(1f)) { DataField("USO SIGPAC", parcela.sigpacInfo?.usoSigpac ?: "-") }
+                                    Box(Modifier.weight(1f)) { DataField("SUPERFICIE", "${parcela.sigpacInfo?.superficie ?: "-"} ha") }
                                 }
-                                Box(Modifier.weight(1f)) { DataField("SIST. EXP", sistExpDisplay) }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Box(Modifier.weight(1f)) { DataField("PENDIENTE", "${parcela.sigpacInfo?.pendienteMedia ?: "-"} %") }
+                                    Box(Modifier.weight(1f)) { DataField("ALTITUD", "${parcela.sigpacInfo?.altitud ?: "-"} m") }
+                                }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Box(Modifier.weight(1f)) { DataField("REGIÓN", parcela.sigpacInfo?.region ?: "-") }
+                                    Box(Modifier.weight(1f)) { DataField("COEF. REGADÍO", "${parcela.sigpacInfo?.coefRegadio ?: "-"}") }
+                                }
+                                DataField("ADMISIBILIDAD", "${parcela.sigpacInfo?.admisibilidad ?: "-"}")
+                                
+                                if (!parcela.sigpacInfo?.incidencias.isNullOrEmpty()) {
+                                    Spacer(Modifier.height(12.dp))
+                                    IncidenciasStaticList(parcela.sigpacInfo?.incidencias)
+                                }
                             }
-                            
-                            val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString())
-                            DataField("PRODUCTO", prodDesc ?: "-")
-                            
-                            DataField("SUP. CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
+                        } else {
+                            // DATOS CULTIVO
+                            Column {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Box(Modifier.weight(1f)) { DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-") }
+                                    val sistExpRaw = parcela.cultivoInfo?.parcSistexp
+                                    val sistExpDisplay = when(sistExpRaw) {
+                                        "S" -> "Secano"
+                                        "R" -> "Regadío"
+                                        else -> sistExpRaw ?: "-"
+                                    }
+                                    Box(Modifier.weight(1f)) { DataField("SIST. EXP", sistExpDisplay) }
+                                }
+                                
+                                val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString())
+                                DataField("PRODUCTO", prodDesc ?: "-")
+                                
+                                DataField("SUP. CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
 
-                             // Ayudas Solicitadas
-                            if (!parcela.cultivoInfo?.parcAyudasol.isNullOrEmpty()) {
-                                AyudasStaticList("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol)
-                            } else {
-                                DataField("AYUDA SOL", "-")
-                            }
+                                 // Ayudas Solicitadas
+                                if (!parcela.cultivoInfo?.parcAyudasol.isNullOrEmpty()) {
+                                    AyudasStaticList("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol)
+                                } else {
+                                    DataField("AYUDA SOL", "-")
+                                }
 
-                            // Ayudas PDR
-                            if (!parcela.cultivoInfo?.pdrRec.isNullOrEmpty()) {
-                                AyudasStaticList("AYUDAS PDR", parcela.cultivoInfo?.pdrRec, isPdr = true)
-                            } else {
-                                DataField("AYUDAS PDR", "-")
-                            }
+                                // Ayudas PDR
+                                if (!parcela.cultivoInfo?.pdrRec.isNullOrEmpty()) {
+                                    AyudasStaticList("AYUDAS PDR", parcela.cultivoInfo?.pdrRec, isPdr = true)
+                                } else {
+                                    DataField("AYUDAS PDR", "-")
+                                }
 
-                            Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(0.1f))
+                                Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(0.1f))
 
-                             val prodSecDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.cultsecunProducto?.toString())
-                            DataField("PROD. SEC", prodSecDesc ?: "-")
-                            
-                            // Ayudas Cultivo Secundario
-                            if (!parcela.cultivoInfo?.cultsecunAyudasol.isNullOrEmpty()) {
-                                AyudasStaticList("AYUDA SEC", parcela.cultivoInfo?.cultsecunAyudasol)
-                            } else {
-                                DataField("AYUDA SEC", "-")
-                            }
+                                 val prodSecDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.cultsecunProducto?.toString())
+                                DataField("PROD. SEC", prodSecDesc ?: "-")
+                                
+                                // Ayudas Cultivo Secundario
+                                if (!parcela.cultivoInfo?.cultsecunAyudasol.isNullOrEmpty()) {
+                                    AyudasStaticList("AYUDA SEC", parcela.cultivoInfo?.cultsecunAyudasol)
+                                } else {
+                                    DataField("AYUDA SEC", "-")
+                                }
 
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Box(Modifier.weight(1f)) { DataField("IND. CULT", parcela.cultivoInfo?.parcIndcultapro?.toString() ?: "-") }
-                                Box(Modifier.weight(1f)) { DataField("APROVECHA", parcela.cultivoInfo?.tipoAprovecha ?: "-") }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Box(Modifier.weight(1f)) { DataField("IND. CULT", parcela.cultivoInfo?.parcIndcultapro?.toString() ?: "-") }
+                                    Box(Modifier.weight(1f)) { DataField("APROVECHA", parcela.cultivoInfo?.tipoAprovecha ?: "-") }
+                                }
                             }
                         }
                     }
@@ -749,6 +761,25 @@ fun NativeRecintoCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun CollapsibleHeader(title: String, isExpanded: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggle() }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray)
+        Icon(
+            if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            null,
+            tint = Color.Gray
+        )
     }
 }
 
