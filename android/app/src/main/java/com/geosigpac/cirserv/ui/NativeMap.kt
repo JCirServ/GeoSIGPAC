@@ -750,13 +750,34 @@ fun NativeMap(
                                             Spacer(Modifier.height(8.dp))
                                             AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
                                             Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            
+                                            // AYUDAS SOLICITADAS
                                             Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            AttributeItem("Ayudas Parc.", c["parc_ayudasol"], Modifier.fillMaxWidth())
+                                            
+                                            if (!c["parc_ayudasol"].isNullOrEmpty()) {
+                                                IncidenciaMapItem(c["parc_ayudasol"]!!) // Reutilizamos el componente desplegable
+                                            } else {
+                                                AttributeItem("Ayudas Parc.", "Ninguna", Modifier.fillMaxWidth())
+                                            }
+                                            
                                             Spacer(Modifier.height(4.dp))
                                             AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
+                                            
                                             Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            
+                                            // CULTIVO SECUNDARIO
                                             Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
-                                            Row(Modifier.fillMaxWidth()) { AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); AttributeItem("Ayuda Sec.", c["cultsecun_ayudasol"], Modifier.weight(1f)) }
+                                            Row(Modifier.fillMaxWidth()) { 
+                                                AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); 
+                                                
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    if (!c["cultsecun_ayudasol"].isNullOrEmpty()) {
+                                                        IncidenciaMapItem(c["cultsecun_ayudasol"]!!)
+                                                    } else {
+                                                        AttributeItem("Ayuda Sec.", "Ninguna", Modifier)
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -782,29 +803,53 @@ fun NativeMap(
 @Composable
 fun IncidenciaMapItem(rawIncidencias: String) {
     var expanded by remember { mutableStateOf(false) }
-    val incidenciasList = remember(rawIncidencias) {
-        SigpacCodeManager.getFormattedIncidencias(rawIncidencias)
+    // Este método sirve tanto para incidencias como para Ayudas, ya que formatean igual (Codigo - Descripcion)
+    val itemsList = remember(rawIncidencias) {
+        // Intenta parsear como ayuda primero, si falla o es incidencia usa el mismo formato
+        // Para simplificar, asumimos que el caller sabe qué tipo es. 
+        // Si es Ayuda, SigpacCodeManager tiene getFormattedAyudas. 
+        // Si es Incidencia, getFormattedIncidencias.
+        // Haremos una comprobación simple o usaremos un helper genérico si existiera.
+        // Dado que aqui no sabemos el contexto, probaremos getFormattedAyudas si getFormattedIncidencias devuelve solo el codigo.
+        // Pero lo más limpio es que SigpacCodeManager tenga un método genérico o que asumamos que el formato "Code, Code" se maneja igual.
+        // UPDATE: Usaremos getFormattedAyudas si parece ser ayuda (contexto), pero aqui es genérico.
+        // Para no duplicar código en UI, vamos a probar parsear con Ayudas si Incidencias devuelve vacio o igual.
+        // MEJOR: Crear un helper unificado o usar el de Ayudas explícitamente cuando sea ayuda.
+        // Como este componente se llama IncidenciaMapItem, lo ideal es renombrarlo o crear otro.
+        // Por simplicidad en este parche, usaremos una lógica mixta o crearemos otro componente.
+        // VOY A CREAR UN COMPONENTE GENÉRICO MEJOR.
+        
+        // Sin embargo, para no romper compatibilidad, si detecto que es Ayuda (por el contexto de llamada en NativeMap), uso el formatter de ayudas.
+        // Como no puedo pasar flags facilmente sin cambiar firma en todos lados, voy a usar getFormattedAyudas aqui directamente
+        // si el nombre del componente sugiere ayudas, pero aqui se llama IncidenciaMapItem.
+        // Lo que haré es: Intentar formatear como Incidencia. Si el resultado es igual al input (no encontró descripciones), probar como Ayuda.
+        
+        val incs = SigpacCodeManager.getFormattedIncidencias(rawIncidencias)
+        val ayudas = SigpacCodeManager.getFormattedAyudas(rawIncidencias)
+        
+        // Si ayudas tiene descripciones (contiene " - ") y incidencias no, devolvemos ayudas.
+        if (ayudas.any { it.contains(" - ") } && !incs.any { it.contains(" - ") }) ayudas else incs
     }
     
     Column {
         Row(modifier = Modifier.clickable { expanded = !expanded }.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Incidencias", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
+            Text("Detalles", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
             Icon(if(expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = FieldGray, modifier = Modifier.size(12.dp))
         }
         
         if (!expanded) {
             Text(
-                text = "${incidenciasList.size} incidencia(s)", 
+                text = "${itemsList.size} elemento(s)", 
                 style = MaterialTheme.typography.bodyMedium, 
                 fontWeight = FontWeight.Bold, 
-                color = Color.White // Blanco en vez de rojo
+                color = Color.White 
             )
         } else {
-            incidenciasList.forEach { incidencia ->
+            itemsList.forEach { item ->
                 Text(
-                    text = "• $incidencia", 
+                    text = "• $item", 
                     style = MaterialTheme.typography.bodySmall, 
-                    color = Color.White, // Blanco en vez de rojo
+                    color = Color.White, 
                     fontSize = 10.sp,
                     modifier = Modifier.padding(top = 2.dp)
                 )

@@ -340,9 +340,23 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                             DataField("PRODUCTO", parcela.cultivoInfo?.parcProducto?.toString() ?: "-")
                             DataField("SIST. EXP", parcela.cultivoInfo?.parcSistexp ?: "-")
                             DataField("SUP. CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
-                            DataField("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol ?: "-")
+                            
+                            // Reemplazamos campos simples por Dropdowns si hay contenido, o texto simple si no.
+                            if (!parcela.cultivoInfo?.parcAyudasol.isNullOrEmpty()) {
+                                AyudasDropdown("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol)
+                            } else {
+                                DataField("AYUDA SOL", "-")
+                            }
+
                             DataField("PDR REC", parcela.cultivoInfo?.pdrRec ?: "-")
                             DataField("PROD. SEC", parcela.cultivoInfo?.cultsecunProducto?.toString() ?: "-")
+                            
+                            if (!parcela.cultivoInfo?.cultsecunAyudasol.isNullOrEmpty()) {
+                                AyudasDropdown("AYUDA SEC", parcela.cultivoInfo?.cultsecunAyudasol)
+                            } else {
+                                DataField("AYUDA SEC", "-")
+                            }
+                            
                             DataField("IND. CULT", parcela.cultivoInfo?.parcIndcultapro?.toString() ?: "-")
                             DataField("APROVECHA", parcela.cultivoInfo?.tipoAprovecha ?: "-")
                         }
@@ -428,6 +442,64 @@ fun IncidenciasDropdown(rawIncidencias: String?) {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun AyudasDropdown(label: String, rawAyudas: String?) {
+    var expanded by remember { mutableStateOf(false) }
+    val ayudasList = remember(rawAyudas) {
+        SigpacCodeManager.getFormattedAyudas(rawAyudas)
+    }
+
+    if (ayudasList.isNotEmpty()) {
+         Column(modifier = Modifier.padding(vertical = 4.dp)) {
+             Text(label, color = Color.Gray, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+             Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp)
+                    .background(Color.White.copy(0.05f), RoundedCornerShape(4.dp))
+                    .clickable { expanded = !expanded }
+                    .padding(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                     Text(
+                        text = if (expanded) "Ocultar" else "${ayudasList.size} línea(s)",
+                        color = MaterialTheme.colorScheme.onSurface, 
+                        fontSize = 11.sp, 
+                        fontWeight = FontWeight.Bold, 
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = Color.Gray,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
+            
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.padding(top = 4.dp, start = 4.dp)) {
+                    ayudasList.forEach { ayuda ->
+                        Text(
+                            text = "• $ayuda",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp,
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        )
+                    }
+                }
+            }
+         }
+    } else {
+        DataField(label, "-")
     }
 }
 

@@ -29,11 +29,16 @@ object SigpacCodeManager {
     private const val FILE_APROVECHAMIENTO = "cod_aprovechamiento.json"
     private const val URL_APROVECHAMIENTO = "https://sigpac-hubcloud.es/codigossigpac/cod_aprovechamiento.json"
 
+    // LINEAS DE AYUDA (Solicitadas)
+    private const val FILE_LINEASAD = "cod_lineasad.json"
+    private const val URL_LINEASAD = "https://sigpac-hubcloud.es/codigossigpac/cod_lineasad.json"
+
     // Mapas en memoria: Código -> Descripción
     private var usoMap: MutableMap<String, String> = mutableMapOf()
     private var regionMap: MutableMap<String, String> = mutableMapOf()
     private var incidenciaMap: MutableMap<String, String> = mutableMapOf()
     private var aprovechamientoMap: MutableMap<String, String> = mutableMapOf()
+    private var lineasadMap: MutableMap<String, String> = mutableMapOf()
     
     private var isInitialized = false
 
@@ -89,6 +94,19 @@ object SigpacCodeManager {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing aprovechamiento JSON: ${e.message}")
                     fileAprovecha.delete()
+                }
+            }
+
+            // --- LINEAS DE AYUDA ---
+            val fileLineas = File(context.filesDir, FILE_LINEASAD)
+            if (!fileLineas.exists()) downloadFile(URL_LINEASAD, fileLineas)
+            if (fileLineas.exists()) {
+                try {
+                    parseLineasAdJson(fileLineas.readText())
+                    Log.d(TAG, "Códigos de líneas ayuda cargados: ${lineasadMap.size}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing lineas ayuda JSON: ${e.message}")
+                    fileLineas.delete()
                 }
             }
 
@@ -175,6 +193,20 @@ object SigpacCodeManager {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
+    private fun parseLineasAdJson(jsonString: String) {
+        try {
+            val root = JSONObject(jsonString)
+            val codigos = root.optJSONArray("codigos") ?: return
+            
+            for (i in 0 until codigos.length()) {
+                val item = codigos.getJSONObject(i)
+                val codigo = item.optString("codigo") 
+                val descripcion = item.optString("descripcion")
+                if (codigo.isNotEmpty()) lineasadMap[codigo] = descripcion
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
     /**
      * Devuelve el código formateado: "CA (VIALES)"
      */
@@ -215,6 +247,25 @@ object SigpacCodeManager {
         
         return parts.map { code ->
             val desc = incidenciaMap[code] ?: incidenciaMap[code.toIntOrNull()?.toString()]
+            if (desc != null) {
+                "$code - $desc"
+            } else {
+                code
+            }
+        }
+    }
+
+    /**
+     * Toma un string raw de Ayudas (ej: "1, 2") y devuelve una lista formateada.
+     */
+    fun getFormattedAyudas(raw: String?): List<String> {
+        if (raw.isNullOrEmpty()) return emptyList()
+        
+        val cleaned = raw.replace("[", "").replace("]", "").replace("\"", "")
+        val parts = cleaned.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        
+        return parts.map { code ->
+            val desc = lineasadMap[code] ?: lineasadMap[code.toIntOrNull()?.toString()]
             if (desc != null) {
                 "$code - $desc"
             } else {
