@@ -700,5 +700,15 @@ fun NativeMap(
                 }
             }
         }
+
+        // TECLADO PERSONALIZADO
+        AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
+            CustomSigpacKeyboard(
+                onKey = { char -> searchQuery += char },
+                onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
+                onSearch = { performSearch() },
+                onClose = { showCustomKeyboard = false }
+            )
+        }
     }
 }
