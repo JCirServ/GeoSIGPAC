@@ -32,6 +32,7 @@ import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.NativeMap
 import com.geosigpac.cirserv.ui.NativeProjectManager
 import com.geosigpac.cirserv.utils.ProjectStorage
+import com.geosigpac.cirserv.utils.SigpacCodeManager
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,8 +76,11 @@ fun GeoSigpacApp() {
     // Estado del Proyecto Activo (Sobre el que se trabaja)
     var activeProjectId by remember { mutableStateOf<String?>(null) }
 
-    // Carga inicial
+    // Carga inicial y configuración
     LaunchedEffect(Unit) {
+        // Cargar códigos SIGPAC (Usos)
+        SigpacCodeManager.initialize(context)
+        // Cargar Expedientes
         expedientes = ProjectStorage.loadExpedientes(context)
     }
 

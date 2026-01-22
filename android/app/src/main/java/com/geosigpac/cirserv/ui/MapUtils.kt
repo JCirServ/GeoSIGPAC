@@ -3,6 +3,7 @@ package com.geosigpac.cirserv.ui
 
 import android.util.Log
 import androidx.compose.ui.graphics.Color
+import com.geosigpac.cirserv.utils.SigpacCodeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -217,11 +218,15 @@ suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? 
                 val superficieRaw = getProp("superficie")
                 var altitudVal = getProp("altitud"); if (altitudVal.isEmpty()) { altitudVal = getProp("altitud_media") }
 
+                // Traducir Uso
+                val rawUso = getProp("uso_sigpac")
+                val translatedUso = SigpacCodeManager.getUsoDescription(rawUso) ?: rawUso
+
                 return@withContext mapOf(
                     "provincia" to prov, "municipio" to mun, "agregado" to getProp("agregado"),
                     "zona" to getProp("zona"), "poligono" to pol, "parcela" to getProp("parcela"), "recinto" to getProp("recinto"),
                     "superficie" to superficieRaw, "pendiente_media" to getProp("pendiente_media"), "altitud" to altitudVal,
-                    "uso_sigpac" to getProp("uso_sigpac"), "subvencionabilidad" to getProp("coef_admisibilidad_pastos"),
+                    "uso_sigpac" to translatedUso, "subvencionabilidad" to getProp("coef_admisibilidad_pastos"),
                     "coef_regadio" to getProp("coef_regadio"), "incidencias" to getProp("incidencias").replace("[", "").replace("]", "").replace("\"", ""),
                     "region" to getProp("region")
                 )

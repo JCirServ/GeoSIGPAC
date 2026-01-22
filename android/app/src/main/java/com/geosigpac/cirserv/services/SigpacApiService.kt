@@ -4,6 +4,7 @@ package com.geosigpac.cirserv.services
 import android.util.Log
 import com.geosigpac.cirserv.model.CultivoData
 import com.geosigpac.cirserv.model.SigpacData
+import com.geosigpac.cirserv.utils.SigpacCodeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -40,13 +41,18 @@ object SigpacApiService {
                 val array = JSONArray(jsonStr)
                 if (array.length() > 0) {
                     val props = array.getJSONObject(0)
+                    
+                    // Traducir código de uso si está disponible
+                    val rawUso = props.optString("uso_sigpac")
+                    val translatedUso = SigpacCodeManager.getUsoDescription(rawUso)
+
                     SigpacData(
                         superficie = if (props.isNull("superficie")) null else props.optDouble("superficie"),
                         pendienteMedia = if (props.isNull("pendiente_media")) null else props.optDouble("pendiente_media"),
                         coefRegadio = if (props.isNull("coef_regadio")) null else props.optDouble("coef_regadio"),
                         admisibilidad = if (props.isNull("admisibilidad")) null else props.optDouble("admisibilidad"),
                         incidencias = props.optString("incidencias")?.replace("[", "")?.replace("]", "")?.replace("\"", ""),
-                        usoSigpac = props.optString("uso_sigpac"),
+                        usoSigpac = translatedUso,
                         region = props.optString("region"),
                         altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                     )
