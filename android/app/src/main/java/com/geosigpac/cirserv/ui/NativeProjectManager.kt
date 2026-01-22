@@ -336,8 +336,9 @@ fun NativeRecintoCard(
     val commonUsos = remember { SigpacCodeManager.getCommonUsos() }
     var showUsoDropdown by remember { mutableStateOf(false) }
 
-    // Cálculo de Análisis Agronómico
-    val agroAnalysis = remember(parcela) {
+    // Cálculo de Análisis Agronómico - OPTIMIZADO: Depende solo de datos, no de toda la parcela
+    // Esto evita que se recalcule y re-asigne el verifiedUso cuando el usuario lo desmarca manualmente
+    val agroAnalysis = remember(parcela.sigpacInfo, parcela.cultivoInfo, parcela.isHydrated) {
         if (parcela.isHydrated) {
             val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString())
             SigpacCodeManager.performAgroAnalysis(
@@ -354,6 +355,7 @@ fun NativeRecintoCard(
     }
     
     // --- LÓGICA DE AUTOCOMPLETADO DE USO ---
+    // Solo se ejecuta cuando cambia el análisis (carga de datos), no cuando cambia el verifiedUso manualmente
     LaunchedEffect(agroAnalysis) {
         if (agroAnalysis != null && parcela.verifiedUso == null) {
              val sigpacUsoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull() // "TA (TIERRAS..)" -> "TA"
@@ -468,7 +470,13 @@ fun NativeRecintoCard(
                                          imageVector = if(isUsoChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
                                          contentDescription = null,
                                          tint = if(isUsoChecked) Color(0xFF00FF88) else Color.Gray,
-                                         modifier = Modifier.size(24.dp)
+                                         modifier = Modifier.size(24.dp).clickable {
+                                             if (isUsoChecked) {
+                                                 onUpdateParcela(parcela.copy(verifiedUso = null))
+                                             } else {
+                                                 showUsoDropdown = true
+                                             }
+                                         }
                                      )
                                      Spacer(Modifier.width(12.dp))
                                      
@@ -488,6 +496,14 @@ fun NativeRecintoCard(
                                              onDismissRequest = { showUsoDropdown = false },
                                              modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                                          ) {
+                                             // Opción para deseleccionar
+                                             DropdownMenuItem(
+                                                 text = { Text("Ninguno (Borrar)", fontSize = 14.sp, color = Color(0xFFFF5252)) },
+                                                 onClick = { 
+                                                     onUpdateParcela(parcela.copy(verifiedUso = null))
+                                                     showUsoDropdown = false 
+                                                 }
+                                             )
                                              commonUsos.forEach { (code, desc) ->
                                                  DropdownMenuItem(
                                                      text = { Text("$code - $desc", fontSize = 14.sp) },
@@ -502,7 +518,6 @@ fun NativeRecintoCard(
                                  }
 
                                  // CHECKLIST ADICIONAL: PENDIENTE > 10%
-                                 // LOGICA: Solo mostrar si pendiente > 10. Si es pasto, solo mostrar si hay discrepancia.
                                  val slope = parcela.sigpacInfo?.pendienteMedia ?: 0.0
                                  val usoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull()?.uppercase() ?: ""
                                  val isPastos = listOf("PS", "PR", "PA").contains(usoRaw)
@@ -535,6 +550,31 @@ fun NativeRecintoCard(
                                              Text("Pendiente compensada", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                              Text("Se observan terrazas, bancales o laboreo a nivel.", color = Color.Gray, fontSize = 12.sp, lineHeight = 16.sp)
                                          }
+                                     }
+                                 }
+
+                                 // --- NUEVO CHECK: NECESITA CROQUIS (SIEMPRE VISIBLE) ---
+                                 Spacer(Modifier.height(12.dp))
+                                 val croquisCheckId = "CHECK_CROQUIS"
+                                 val isCroquisChecked = parcela.completedChecks.contains(croquisCheckId)
+
+                                 Row(
+                                     verticalAlignment = Alignment.Top,
+                                     modifier = Modifier.clickable {
+                                         val newChecks = if (isCroquisChecked) parcela.completedChecks - croquisCheckId else parcela.completedChecks + croquisCheckId
+                                         onUpdateParcela(parcela.copy(completedChecks = newChecks))
+                                     }
+                                 ) {
+                                     Icon(
+                                         imageVector = if(isCroquisChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                         contentDescription = null,
+                                         tint = if(isCroquisChecked) Color(0xFF00FF88) else Color.Gray,
+                                         modifier = Modifier.size(24.dp)
+                                     )
+                                     Spacer(Modifier.width(12.dp))
+                                     Column {
+                                         Text("Necesita croquis", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                         Text("Se requiere adjuntar un croquis detallado de la superficie.", color = Color.Gray, fontSize = 12.sp, lineHeight = 16.sp)
                                      }
                                  }
                              }
@@ -593,7 +633,11 @@ fun NativeRecintoCard(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             // CUMPLE
                             Button(
-                                onClick = { onUpdateParcela(parcela.copy(finalVerdict = "CUMPLE")) },
+                                onClick = { 
+                                    // Toggle logic: si ya es "CUMPLE", poner null
+                                    val newVal = if (parcela.finalVerdict == "CUMPLE") null else "CUMPLE"
+                                    onUpdateParcela(parcela.copy(finalVerdict = newVal)) 
+                                },
                                 modifier = Modifier.weight(1f).height(50.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
@@ -607,7 +651,11 @@ fun NativeRecintoCard(
 
                             // NO CUMPLE
                             Button(
-                                onClick = { onUpdateParcela(parcela.copy(finalVerdict = "NO_CUMPLE")) },
+                                onClick = { 
+                                    // Toggle logic: si ya es "NO_CUMPLE", poner null
+                                    val newVal = if (parcela.finalVerdict == "NO_CUMPLE") null else "NO_CUMPLE"
+                                    onUpdateParcela(parcela.copy(finalVerdict = newVal)) 
+                                },
                                 modifier = Modifier.weight(1f).height(50.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
