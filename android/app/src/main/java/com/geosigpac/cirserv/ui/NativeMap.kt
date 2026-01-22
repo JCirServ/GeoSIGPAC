@@ -480,8 +480,11 @@ fun NativeMap(
         }
     }
 
-    LaunchedEffect(searchTarget) {
-        if (!searchTarget.isNullOrEmpty()) {
+    // TRIGGER BÚSQUEDA CON DELAY DE SEGURIDAD
+    LaunchedEffect(searchTarget, mapInstance) {
+        if (!searchTarget.isNullOrEmpty() && mapInstance != null) {
+            // Retraso para asegurar que el mapa y los estilos estén listos antes de ejecutar la búsqueda
+            delay(800)
             searchQuery = searchTarget
             performSearch()
         }
