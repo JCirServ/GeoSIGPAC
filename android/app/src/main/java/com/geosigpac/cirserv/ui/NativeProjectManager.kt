@@ -299,24 +299,57 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
         } else null
     }
 
+    // Determinar Estado Visual (Semáforo)
+    val statusColor = remember(agroAnalysis, isLoading) {
+        when {
+            isLoading -> Color.Gray
+            agroAnalysis == null -> Color.Gray
+            !agroAnalysis.isCompatible -> Color(0xFFFF5252) // ERROR (Rojo)
+            agroAnalysis.explanation.contains("AVISO", ignoreCase = true) || agroAnalysis.explanation.contains("Nota", ignoreCase = true) -> Color(0xFFFF9800) // WARNING (Naranja)
+            else -> Color(0xFF00FF88) // OK (Verde)
+        }
+    }
+
+    val statusIcon = remember(agroAnalysis, isLoading) {
+         when {
+            isLoading -> null
+            agroAnalysis == null -> null
+            !agroAnalysis.isCompatible -> Icons.Default.Error
+            agroAnalysis.explanation.contains("AVISO", ignoreCase = true) -> Icons.Default.Warning
+            else -> null
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, if(parcela.isHydrated) Color(0xFF00FF88).copy(0.2f) else Color.White.copy(0.05f))
+        border = BorderStroke(1.dp, statusColor.copy(alpha = if(parcela.isHydrated) 0.5f else 0.1f))
     ) {
         Column {
             Row(
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if(parcela.isHydrated) Color(0xFF00FF88) else Color.Yellow))
+                // Indicador de Estado (Punto de color)
+                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if(isLoading) Color.Yellow else statusColor))
                 Spacer(Modifier.width(12.dp))
+                
                 Column(modifier = Modifier.weight(1f)) {
                     Text(parcela.referencia, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, fontFamily = FontFamily.Monospace)
-                    if (isLoading) Text("Cargando atributos...", color = Color.Gray, fontSize = 14.sp)
+                    if (isLoading) {
+                        Text("Cargando atributos...", color = Color.Gray, fontSize = 14.sp)
+                    } else if (agroAnalysis != null && statusIcon != null) {
+                         // Mostrar texto de alerta resumido en cabecera si hay problema
+                         val alertText = if(!agroAnalysis.isCompatible) "INCOMPATIBLE / ERROR" else "AVISO AGRONÓMICO"
+                         Text(alertText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
+
                 if (!isLoading) {
+                    if (statusIcon != null) {
+                        Icon(statusIcon, null, tint = statusColor, modifier = Modifier.size(24.dp).padding(end = 8.dp))
+                    }
                     IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.PhotoCamera, null, tint = Color.Gray, modifier = Modifier.size(24.dp)) }
                 } else {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.Yellow)
@@ -337,28 +370,35 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
 
                     Spacer(Modifier.height(8.dp))
 
-                    // --- ANÁLISIS TÉCNICO (NUEVO) ---
+                    // --- ANÁLISIS TÉCNICO ---
                     if (agroAnalysis != null) {
-                        val colorCompat = if (agroAnalysis.isCompatible) Color(0xFF00FF88) else Color(0xFFFF5252)
-                        
-                        // Banner Compatibilidad
+                        // Banner Compatibilidad / Error
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(colorCompat.copy(0.1f))
-                                .border(1.dp, colorCompat.copy(0.3f), RoundedCornerShape(12.dp))
+                                .background(statusColor.copy(0.1f))
+                                .border(1.dp, statusColor.copy(0.3f), RoundedCornerShape(12.dp))
                                 .padding(12.dp)
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(if(agroAnalysis.isCompatible) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = colorCompat, modifier = Modifier.size(20.dp))
+                                    Icon(
+                                        imageVector = if(!agroAnalysis.isCompatible) Icons.Default.Error else if(statusColor == Color(0xFFFF9800)) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                        contentDescription = null, 
+                                        tint = statusColor, 
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        if(agroAnalysis.isCompatible) "USO COMPATIBLE" else "USO INCOMPATIBLE", 
+                                        text = when {
+                                            !agroAnalysis.isCompatible -> "INCOMPATIBLE / ERROR"
+                                            statusColor == Color(0xFFFF9800) -> "AVISO AGRONÓMICO"
+                                            else -> "USO COMPATIBLE"
+                                        }, 
                                         fontWeight = FontWeight.Black, 
                                         fontSize = 15.sp,
-                                        color = colorCompat
+                                        color = statusColor
                                     )
                                 }
                                 Spacer(Modifier.height(4.dp))
