@@ -232,7 +232,7 @@ fun ProjectListItem(
             .clickable { onSelect() }
             .animateContentSize(), // Permite que el cambio de tamaño sea suave
         colors = CardDefaults.cardColors(containerColor = if(isActive) MaterialTheme.colorScheme.surface.copy(alpha = 0.9f) else MaterialTheme.colorScheme.surface.copy(alpha=0.6f)),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(8.dp),
         border = BorderStroke(
             if (isActive) 2.dp else 1.dp, 
             if (isActive) Color(0xFF00FF88) else Color.White.copy(0.05f)
@@ -396,7 +396,7 @@ fun NativeRecintoCard(
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(8.dp),
         border = BorderStroke(if(isFullyCompleted) 2.dp else 1.dp, statusColor.copy(alpha = if(parcela.isHydrated) 0.8f else 0.1f))
     ) {
         Column {
