@@ -350,8 +350,6 @@ fun NativeRecintoCard(
     }
     
     // --- LÓGICA DE AUTOCOMPLETADO DE USO ---
-    // Si no hay discrepancia (Compatible) y no hay uso verificado, se rellena automáticamente.
-    // Si hay discrepancia, se deja vacío.
     LaunchedEffect(agroAnalysis) {
         if (agroAnalysis != null && parcela.verifiedUso == null) {
              val sigpacUsoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull() // "TA (TIERRAS..)" -> "TA"
@@ -361,22 +359,10 @@ fun NativeRecintoCard(
         }
     }
 
-    // --- CÁLCULO DE CHECKS NECESARIOS ---
-    val requiredChecks = remember(agroAnalysis, parcela.sigpacInfo) {
-        val list = mutableListOf<String>()
-        // Requisitos de la guía
-        agroAnalysis?.requirements?.forEach { list.add(it.code ?: "REQ_${it.description.hashCode()}") }
-        // Pendiente compensada (Si pendiente > 10%)
-        if ((parcela.sigpacInfo?.pendienteMedia ?: 0.0) > 10.0) {
-            list.add("CHECK_PENDIENTE_10")
-        }
-        list
-    }
-
     // --- ESTADO DE COMPLETADO GLOBAL ---
-    // Está completado si: Uso Verificado seleccionado Y todos los checks marcados
-    val isFullyCompleted = remember(parcela.verifiedUso, parcela.completedChecks, requiredChecks) {
-        parcela.verifiedUso != null && requiredChecks.all { parcela.completedChecks.contains(it) }
+    // Está terminado si se ha marcado el VEREDICTO FINAL (CUMPLE o NO CUMPLE)
+    val isFullyCompleted = remember(parcela.finalVerdict) {
+        parcela.finalVerdict != null
     }
 
     // Determinar Estado Visual (Semáforo)
@@ -422,9 +408,8 @@ fun NativeRecintoCard(
                     if (isLoading) {
                         Text("Cargando atributos...", color = Color.Gray, fontSize = 14.sp)
                     } else if (isFullyCompleted) {
-                        Text("VERIFICADO Y CONFORME", color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("VERIFICADO: ${parcela.finalVerdict?.replace("_", " ")}", color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     } else if (agroAnalysis != null) {
-                         // Mostrar texto de alerta resumido en cabecera si hay problema
                          val alertText = if(!agroAnalysis.isCompatible) "INCOMPATIBLE / ERROR" else "PENDIENTE DE VERIFICACIÓN"
                          Text(alertText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
@@ -457,7 +442,7 @@ fun NativeRecintoCard(
                     // --- ANÁLISIS TÉCNICO & CHECKLISTS ---
                     if (agroAnalysis != null) {
                         
-                        // 1. SECCIÓN: VERIFICACIÓN DE USO (CHECKLIST #1)
+                        // 1. SECCIÓN: VERIFICACIÓN DE USO
                         Text("INSPECCIÓN VISUAL", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
                         Box(
                             modifier = Modifier
@@ -572,8 +557,6 @@ fun NativeRecintoCard(
                                         Column {
                                             Text(req.description, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if(isChecked) Color(0xFF00FF88) else Color(0xFF62D2FF))
                                             Spacer(Modifier.height(4.dp))
-                                            
-                                            // FORMATO LISTA CON VIÑETAS (BULLETS)
                                             req.requirement.split("\n").forEach { line ->
                                                 if (line.isNotBlank()) {
                                                     Row(modifier = Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.Top) {
@@ -585,6 +568,39 @@ fun NativeRecintoCard(
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        // 3. SECCIÓN: VEREDICTO FINAL
+                        Spacer(Modifier.height(12.dp))
+                        Text("VEREDICTO FINAL", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // CUMPLE
+                            Button(
+                                onClick = { onUpdateParcela(parcela.copy(finalVerdict = "CUMPLE")) },
+                                modifier = Modifier.weight(1f).height(50.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if(parcela.finalVerdict == "CUMPLE") Color(0xFF00FF88) else Color.White.copy(0.05f),
+                                    contentColor = if(parcela.finalVerdict == "CUMPLE") Color.Black else Color.Gray
+                                ),
+                                border = if(parcela.finalVerdict == "CUMPLE") null else BorderStroke(1.dp, Color.White.copy(0.1f))
+                            ) {
+                                Text("CUMPLE", fontWeight = FontWeight.Black)
+                            }
+
+                            // NO CUMPLE
+                            Button(
+                                onClick = { onUpdateParcela(parcela.copy(finalVerdict = "NO_CUMPLE")) },
+                                modifier = Modifier.weight(1f).height(50.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if(parcela.finalVerdict == "NO_CUMPLE") Color(0xFFFF5252) else Color.White.copy(0.05f),
+                                    contentColor = if(parcela.finalVerdict == "NO_CUMPLE") Color.White else Color.Gray
+                                ),
+                                border = if(parcela.finalVerdict == "NO_CUMPLE") null else BorderStroke(1.dp, Color.White.copy(0.1f))
+                            ) {
+                                Text("NO CUMPLE", fontWeight = FontWeight.Black)
                             }
                         }
                     }
