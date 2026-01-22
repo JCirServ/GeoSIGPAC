@@ -791,14 +791,14 @@ fun IncidenciaMapItem(rawIncidencias: String) {
                 text = "${incidenciasList.size} incidencia(s)", 
                 style = MaterialTheme.typography.bodyMedium, 
                 fontWeight = FontWeight.Bold, 
-                color = Color(0xFFFF5252)
+                color = Color.White // Blanco en vez de rojo
             )
         } else {
             incidenciasList.forEach { incidencia ->
                 Text(
                     text = "• $incidencia", 
                     style = MaterialTheme.typography.bodySmall, 
-                    color = Color(0xFFFF5252), 
+                    color = Color.White, // Blanco en vez de rojo
                     fontSize = 10.sp,
                     modifier = Modifier.padding(top = 2.dp)
                 )

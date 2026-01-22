@@ -387,8 +387,8 @@ fun IncidenciasDropdown(rawIncidencias: String?) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.Red.copy(0.1f), RoundedCornerShape(8.dp))
-                .border(1.dp, Color(0xFFFF5252).copy(0.3f), RoundedCornerShape(8.dp))
+                .background(Color.White.copy(0.05f), RoundedCornerShape(8.dp))
+                .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(8.dp))
                 .animateContentSize()
         ) {
             Row(
@@ -401,25 +401,25 @@ fun IncidenciasDropdown(rawIncidencias: String?) {
             ) {
                 Text(
                     text = "INCIDENCIAS (${incidenciasList.size})",
-                    color = Color(0xFFFF5252),
+                    color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black
                 )
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = null,
-                    tint = Color(0xFFFF5252),
+                    tint = Color.White,
                     modifier = Modifier.size(16.dp)
                 )
             }
 
             if (expanded) {
-                Divider(color = Color(0xFFFF5252).copy(0.2f))
+                Divider(color = Color.White.copy(0.1f))
                 Column(modifier = Modifier.padding(8.dp)) {
                     incidenciasList.forEach { incidencia ->
                         Text(
                             text = "• $incidencia",
-                            color = Color(0xFFFF5252),
+                            color = Color.White,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(vertical = 2.dp)
