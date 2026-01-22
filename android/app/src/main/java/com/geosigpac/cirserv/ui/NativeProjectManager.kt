@@ -337,7 +337,10 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                         Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
                             Text("CULTIVO DECLARADO", color = Color(0xFF62D2FF), fontSize = 9.sp, fontWeight = FontWeight.Black)
                             DataField("EXP. NUM", parcela.cultivoInfo?.expNum ?: "-")
-                            DataField("PRODUCTO", parcela.cultivoInfo?.parcProducto?.toString() ?: "-")
+                            
+                            val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString())
+                            DataField("PRODUCTO", prodDesc ?: "-")
+                            
                             DataField("SIST. EXP", parcela.cultivoInfo?.parcSistexp ?: "-")
                             DataField("SUP. CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
                             
@@ -354,8 +357,9 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                             } else {
                                 DataField("AYUDAS PDR", "-")
                             }
-
-                            DataField("PROD. SEC", parcela.cultivoInfo?.cultsecunProducto?.toString() ?: "-")
+                            
+                            val prodSecDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.cultsecunProducto?.toString())
+                            DataField("PROD. SEC", prodSecDesc ?: "-")
                             
                             // Ayudas Cultivo Secundario
                             if (!parcela.cultivoInfo?.cultsecunAyudasol.isNullOrEmpty()) {

@@ -37,6 +37,10 @@ object SigpacCodeManager {
     private const val FILE_LINEASAD_PDR = "cod_lineasad_pdr.json"
     private const val URL_LINEASAD_PDR = "https://sigpac-hubcloud.es/codigossigpac/cod_lineasad_pdr.json"
 
+    // PRODUCTOS (CULTIVOS)
+    private const val FILE_PRODUCTO = "cod_producto.json"
+    private const val URL_PRODUCTO = "https://sigpac-hubcloud.es/codigossigpac/cod_producto.json"
+
     // Mapas en memoria: Código -> Descripción
     private var usoMap: MutableMap<String, String> = mutableMapOf()
     private var regionMap: MutableMap<String, String> = mutableMapOf()
@@ -44,6 +48,7 @@ object SigpacCodeManager {
     private var aprovechamientoMap: MutableMap<String, String> = mutableMapOf()
     private var lineasadMap: MutableMap<String, String> = mutableMapOf()
     private var lineasadPdrMap: MutableMap<String, String> = mutableMapOf()
+    private var productoMap: MutableMap<String, String> = mutableMapOf()
     
     private var isInitialized = false
 
@@ -127,6 +132,19 @@ object SigpacCodeManager {
                     fileLineasPdr.delete()
                 }
             }
+
+            // --- PRODUCTOS ---
+            val fileProducto = File(context.filesDir, FILE_PRODUCTO)
+            if (!fileProducto.exists()) downloadFile(URL_PRODUCTO, fileProducto)
+            if (fileProducto.exists()) {
+                try {
+                    parseProductosJson(fileProducto.readText())
+                    Log.d(TAG, "Códigos de producto cargados: ${productoMap.size}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing productos JSON: ${e.message}")
+                    fileProducto.delete()
+                }
+            }
             
             // --- INYECCIÓN MANUAL DE CÓDIGOS ---
             injectManualCodes()
@@ -136,7 +154,6 @@ object SigpacCodeManager {
     }
 
     private fun injectManualCodes() {
-        // Códigos específicos solicitados que no aparecen en los JSON oficiales
         val manualCodes = mapOf(
             "17651010502" to "Apicultura para la biodiversidad. Convocatoria 2025",
             "17651011401" to "Mantenimiento o mejora de hábitats y de actividades agrarias tradicionales que preserven la biodiversidad (cultivo de arroz). Convocatoria 2023",
@@ -147,7 +164,6 @@ object SigpacCodeManager {
             "17013020003" to "Ayuda a zonas distintas de las de montaña con limitaciones naturales. Convocatoria 2025"
         )
         
-        // Añadimos a ambos mapas por seguridad (ya que son IDs largos tipo PDR pero pueden venir en ayudas solicitadas)
         manualCodes.forEach { (code, desc) ->
             if (!lineasadMap.containsKey(code)) {
                 lineasadMap[code] = desc
@@ -156,7 +172,6 @@ object SigpacCodeManager {
                 lineasadPdrMap[code] = desc
             }
         }
-        Log.d(TAG, "Códigos manuales inyectados: ${manualCodes.size}")
     }
 
     private fun downloadFile(urlStr: String, destFile: File) {
@@ -266,6 +281,20 @@ object SigpacCodeManager {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
+    private fun parseProductosJson(jsonString: String) {
+        try {
+            val root = JSONObject(jsonString)
+            val codigos = root.optJSONArray("codigos") ?: return
+            
+            for (i in 0 until codigos.length()) {
+                val item = codigos.getJSONObject(i)
+                val codigo = item.optString("codigo") 
+                val descripcion = item.optString("descripcion")
+                if (codigo.isNotEmpty()) productoMap[codigo] = descripcion
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
     /**
      * Devuelve el código formateado: "CA (VIALES)"
      */
@@ -273,6 +302,15 @@ object SigpacCodeManager {
         if (code.isNullOrEmpty()) return null
         val desc = usoMap[code] ?: usoMap[code.uppercase()]
         return if (desc != null) "$code ($desc)" else code
+    }
+
+    /**
+     * Devuelve "Código - Descripción" del producto.
+     */
+    fun getProductoDescription(code: String?): String? {
+        if (code.isNullOrEmpty()) return null
+        val desc = productoMap[code] ?: productoMap[code.toIntOrNull()?.toString()]
+        return if (desc != null) "$code - $desc" else code
     }
 
     /**
@@ -285,70 +323,49 @@ object SigpacCodeManager {
 
     /**
      * Devuelve SOLO la descripción del aprovechamiento.
-     * Ejemplo: Si code="1", devuelve "Subproductos Pastables" (sin el número).
      */
     fun getAprovechamientoDescription(code: String?): String? {
         if (code.isNullOrEmpty()) return null
-        // Intentamos buscar por string exacto o parseando a entero (por si en json viene int)
         val desc = aprovechamientoMap[code] ?: aprovechamientoMap[code.toIntOrNull()?.toString()]
         return desc ?: code
     }
 
     /**
-     * Toma un string raw (ej: "7, 11") y devuelve una lista de strings formateados:
-     * ["7 - Uso asignado por...", "11 - Árboles dispersos"]
+     * Formatea incidencias.
      */
     fun getFormattedIncidencias(raw: String?): List<String> {
         if (raw.isNullOrEmpty()) return emptyList()
-        
         val cleaned = raw.replace("[", "").replace("]", "").replace("\"", "")
         val parts = cleaned.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        
         return parts.map { code ->
             val desc = incidenciaMap[code] ?: incidenciaMap[code.toIntOrNull()?.toString()]
-            if (desc != null) {
-                "$code - $desc"
-            } else {
-                code
-            }
+            if (desc != null) "$code - $desc" else code
         }
     }
 
     /**
-     * Toma un string raw de Ayudas (ej: "1, 2") y devuelve una lista formateada.
+     * Formatea ayudas solicitadas.
      */
     fun getFormattedAyudas(raw: String?): List<String> {
         if (raw.isNullOrEmpty()) return emptyList()
-        
         val cleaned = raw.replace("[", "").replace("]", "").replace("\"", "")
         val parts = cleaned.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        
         return parts.map { code ->
             val desc = lineasadMap[code] ?: lineasadMap[code.toIntOrNull()?.toString()]
-            if (desc != null) {
-                "$code - $desc"
-            } else {
-                code
-            }
+            if (desc != null) "$code - $desc" else code
         }
     }
 
     /**
-     * Toma un string raw de Ayudas PDR (ej: "1, 2") y devuelve una lista formateada.
+     * Formatea ayudas PDR.
      */
     fun getFormattedAyudasPdr(raw: String?): List<String> {
         if (raw.isNullOrEmpty()) return emptyList()
-        
         val cleaned = raw.replace("[", "").replace("]", "").replace("\"", "")
         val parts = cleaned.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        
         return parts.map { code ->
             val desc = lineasadPdrMap[code] ?: lineasadPdrMap[code.toIntOrNull()?.toString()]
-            if (desc != null) {
-                "$code - $desc"
-            } else {
-                code
-            }
+            if (desc != null) "$code - $desc" else code
         }
     }
 }

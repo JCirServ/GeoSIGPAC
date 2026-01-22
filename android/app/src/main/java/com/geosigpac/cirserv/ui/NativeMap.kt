@@ -405,6 +405,16 @@ fun NativeMap(
                     val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
                     mapProps["tipo_aprovecha"] = translatedAprovecha ?: rawAprovecha ?: "-"
                     
+                    // Traducir Producto
+                    val rawProd = mapProps["parc_producto"]
+                    val translatedProd = SigpacCodeManager.getProductoDescription(rawProd)
+                    mapProps["parc_producto"] = translatedProd ?: rawProd ?: "-"
+
+                    // Traducir Producto Secundario
+                    val rawProdSec = mapProps["cultsecun_producto"]
+                    val translatedProdSec = SigpacCodeManager.getProductoDescription(rawProdSec)
+                    mapProps["cultsecun_producto"] = translatedProdSec ?: rawProdSec ?: "-"
+                    
                     cultivoData = mapProps
                 }
             } else {
