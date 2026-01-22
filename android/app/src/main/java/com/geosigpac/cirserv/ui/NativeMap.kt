@@ -82,8 +82,7 @@ private const val LAYER_PROJECTS_LINE = "projects-line"
 @Composable
 fun NativeMap(
     expedientes: List<NativeExpediente>,
-    targetLat: Double?,
-    targetLng: Double?,
+    searchTarget: String?,
     onNavigateToProjects: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
@@ -453,9 +452,10 @@ fun NativeMap(
         }
     }
 
-    LaunchedEffect(targetLat, targetLng) {
-        if (targetLat != null && targetLng != null) {
-            mapInstance?.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder().target(LatLng(targetLat, targetLng)).zoom(18.0).tilt(0.0).build()), 1500)
+    LaunchedEffect(searchTarget) {
+        if (!searchTarget.isNullOrEmpty()) {
+            searchQuery = searchTarget
+            performSearch()
         }
     }
 
@@ -699,16 +699,6 @@ fun NativeMap(
                     }
                 }
             }
-        }
-
-        // TECLADO PERSONALIZADO
-        AnimatedVisibility(visible = showCustomKeyboard, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-            CustomSigpacKeyboard(
-                onKey = { char -> searchQuery += char },
-                onBackspace = { if (searchQuery.isNotEmpty()) searchQuery = searchQuery.dropLast(1) },
-                onSearch = { performSearch() },
-                onClose = { showCustomKeyboard = false }
-            )
         }
     }
 }

@@ -65,7 +65,9 @@ fun GeoSigpacApp() {
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
-    var mapTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    
+    // Estado para búsqueda y navegación al mapa
+    var mapSearchTarget by remember { mutableStateOf<String?>(null) }
     
     // Estado principal de expedientes con persistencia
     var expedientes by remember { mutableStateOf<List<NativeExpediente>>(emptyList()) }
@@ -167,13 +169,12 @@ fun GeoSigpacApp() {
                         activeProjectId = activeProjectId,
                         onUpdateExpedientes = { newList -> expedientes = newList.toList() },
                         onActivateProject = { id -> activeProjectId = id },
-                        onNavigateToMap = { lat, lng -> mapTarget = if(lat != null) lat to lng!! else null; selectedTab = 2 },
+                        onNavigateToMap = { query -> mapSearchTarget = query; selectedTab = 2 },
                         onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }
                     )
                     2 -> NativeMap(
-                        expedientes = expedientes, // NEW
-                        targetLat = mapTarget?.first,
-                        targetLng = mapTarget?.second,
+                        expedientes = expedientes, 
+                        searchTarget = mapSearchTarget,
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true }
                     )

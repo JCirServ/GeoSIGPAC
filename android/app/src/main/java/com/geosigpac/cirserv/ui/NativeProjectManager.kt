@@ -44,7 +44,7 @@ fun NativeProjectManager(
     activeProjectId: String?,
     onUpdateExpedientes: (List<NativeExpediente>) -> Unit,
     onActivateProject: (String) -> Unit,
-    onNavigateToMap: (Double?, Double?) -> Unit,
+    onNavigateToMap: (String) -> Unit,
     onOpenCamera: (String?) -> Unit
 ) {
     val context = LocalContext.current
@@ -253,7 +253,7 @@ fun ProjectListItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (Double?, Double?) -> Unit, onCamera: (String) -> Unit) {
+fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (String) -> Unit, onCamera: (String) -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -266,7 +266,7 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (D
     ) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
             items(exp.parcelas, key = { it.id }) { parcela ->
-                NativeRecintoCard(parcela, { lat, lng -> onLocate(lat, lng) }, onCamera)
+                NativeRecintoCard(parcela, onLocate, onCamera)
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -274,7 +274,7 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (D
 }
 
 @Composable
-fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit, onCamera: (String) -> Unit) {
+fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCamera: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) } 
     val isLoading = !parcela.isHydrated
 
@@ -355,7 +355,20 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (Double, Double) -> Unit
                     
                     Spacer(Modifier.height(16.dp))
                     Button(
-                        onClick = { onLocate(parcela.lat, parcela.lng) },
+                        onClick = { 
+                            // Formato de búsqueda: Prov:Mun:Pol:Parc:Rec
+                            // La referencia nativa suele ser: Prov:Mun:Ag:Zo:Pol:Parc:Rec (7 partes)
+                            // O a veces viene con guiones
+                            val parts = parcela.referencia.split("[:\\-]".toRegex()).filter { it.isNotEmpty() }
+                            val searchStr = if (parts.size >= 7) {
+                                // Saltamos Agregado (2) y Zona (3)
+                                "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
+                            } else {
+                                // Fallback: usamos lo que haya reemplazando guiones
+                                parts.joinToString(":")
+                            }
+                            onLocate(searchStr)
+                        },
                         modifier = Modifier.fillMaxWidth().height(40.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(0.1f)),
                         shape = RoundedCornerShape(12.dp)
