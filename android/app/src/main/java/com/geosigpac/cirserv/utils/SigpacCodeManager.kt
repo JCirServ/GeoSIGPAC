@@ -127,9 +127,36 @@ object SigpacCodeManager {
                     fileLineasPdr.delete()
                 }
             }
+            
+            // --- INYECCIÓN MANUAL DE CÓDIGOS ---
+            injectManualCodes()
 
             isInitialized = true
         }
+    }
+
+    private fun injectManualCodes() {
+        // Códigos específicos solicitados que no aparecen en los JSON oficiales
+        val manualCodes = mapOf(
+            "17651010502" to "Apicultura para la biodiversidad. Convocatoria 2025",
+            "17651011401" to "Mantenimiento o mejora de hábitats y de actividades agrarias tradicionales que preserven la biodiversidad (cultivo de arroz). Convocatoria 2023",
+            "17651010701" to "Protección de la avifauna (aves esteparias). Convocatoria 2023",
+            "17653000101" to "Compromisos de gestión medioambiental en agricultura ecológica. Convocatoria 2023",
+            "17655010201" to "Compromisos de conservación de recursos genéticos: conservación oveja guirra. Convocatoria 2023",
+            "17013010005" to "Ayudas compensatorias a zonas de montaña. Convocatoria 2025",
+            "17013020003" to "Ayuda a zonas distintas de las de montaña con limitaciones naturales. Convocatoria 2025"
+        )
+        
+        // Añadimos a ambos mapas por seguridad (ya que son IDs largos tipo PDR pero pueden venir en ayudas solicitadas)
+        manualCodes.forEach { (code, desc) ->
+            if (!lineasadMap.containsKey(code)) {
+                lineasadMap[code] = desc
+            }
+            if (!lineasadPdrMap.containsKey(code)) {
+                lineasadPdrMap[code] = desc
+            }
+        }
+        Log.d(TAG, "Códigos manuales inyectados: ${manualCodes.size}")
     }
 
     private fun downloadFile(urlStr: String, destFile: File) {
