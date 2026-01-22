@@ -266,18 +266,19 @@ fun CameraScreen(
     // --- COMPONENTES UI REUTILIZABLES ---
     val NeonGreen = Color(0xFF00FF88)
 
-    // Botones Superiores (Config y Proyectos)
-    val TopLeftButtons = @Composable {
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Box(
-                modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { onGoToProjects() },
-                contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.List, "Proyectos", tint = NeonGreen) }
-            Box(
-                modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { showSettingsDialog = true },
-                contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.Settings, "Configuración", tint = NeonGreen) }
-        }
+    // Definición individual de botones para reorganización flexible
+    val ProjectsBtn = @Composable {
+        Box(
+            modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { onGoToProjects() },
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Default.List, "Proyectos", tint = NeonGreen) }
+    }
+
+    val SettingsBtn = @Composable {
+        Box(
+            modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { showSettingsDialog = true },
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Default.Settings, "Configuración", tint = NeonGreen) }
     }
 
     // Cajetín de Información
@@ -456,9 +457,12 @@ fun CameraScreen(
         if (isLandscape) {
             // ================= LANDSCAPE LAYOUT =================
             
-            // Arriba Izquierda: Botones
+            // Arriba Izquierda: Botones en FILA (Configuración izq, Proyectos der)
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
-                TopLeftButtons()
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    SettingsBtn()
+                    ProjectsBtn()
+                }
             }
 
             // Arriba Derecha: Info
@@ -489,14 +493,17 @@ fun CameraScreen(
             }
 
         } else {
-            // ================= PORTRAIT LAYOUT (Original) =================
+            // ================= PORTRAIT LAYOUT =================
             
-            // Arriba Izquierda
+            // Arriba Izquierda: Botones en COLUMNA (Configuración arriba, Proyectos abajo)
             Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) {
-                TopLeftButtons()
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    SettingsBtn()
+                    ProjectsBtn()
+                }
             }
 
-            // Arriba Derecha
+            // Arriba Derecha: Info
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) {
                 InfoBox()
             }
