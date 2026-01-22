@@ -416,6 +416,21 @@ fun NativeMap(
                 map.cameraPosition = CameraPosition.Builder().target(LatLng(VALENCIA_LAT, VALENCIA_LNG)).zoom(DEFAULT_ZOOM).build()
             }
 
+            // DETECTAR GESTO DE USUARIO PARA DESACTIVAR BÚSQUEDA
+            map.addOnCameraMoveStartedListener { reason ->
+                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_GESTURE) {
+                    if (searchActive) {
+                        searchActive = false
+                        // Limpiar geometría de búsqueda para evitar confusión
+                        map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+                        // Limpiar filtros MVT
+                        val emptyFilter = Expression.literal(false)
+                        map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
+                        map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+                    }
+                }
+            }
+
             map.addOnCameraMoveListener { updateRealtimeInfo(map) }
             map.addOnCameraIdleListener { updateExtendedData(map) }
 
