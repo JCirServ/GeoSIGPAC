@@ -448,14 +448,16 @@ fun NativeRecintoCard(
                         ) {
                              Column {
                                  // Variables de condición para el selector de uso
-                                 val isWarning = agroAnalysis.explanation.contains("AVISO", ignoreCase = true) || agroAnalysis.explanation.contains("Nota", ignoreCase = true)
-                                 val hasError = !agroAnalysis.isCompatible
+                                 val explanation = agroAnalysis.explanation
+                                 val isWarning = explanation.contains("AVISO", ignoreCase = true) || explanation.contains("Nota", ignoreCase = true)
+                                 val isIrrigationError = explanation.contains("ERROR RIEGO", ignoreCase = true)
+                                 val isUseIncompatible = !agroAnalysis.isCompatible && !isIrrigationError
                                  val hasManualOverride = parcela.verifiedUso != null
                                  
                                  // Mostrar Discrepancia Explicita o Aviso
-                                 if (hasError || isWarning) {
-                                     val title = if (hasError) "DISCREPANCIA DETECTADA" else "AVISO DE COHERENCIA"
-                                     val color = if (hasError) Color(0xFFFF5252) else Color(0xFFFF9800)
+                                 if (!agroAnalysis.isCompatible || isWarning) {
+                                     val title = if (!agroAnalysis.isCompatible) "DISCREPANCIA DETECTADA" else "AVISO DE COHERENCIA"
+                                     val color = if (!agroAnalysis.isCompatible) Color(0xFFFF5252) else Color(0xFFFF9800)
 
                                      Text(title, color = color, fontSize = 12.sp, fontWeight = FontWeight.Black)
                                      Spacer(Modifier.height(4.dp))
@@ -466,9 +468,19 @@ fun NativeRecintoCard(
                                      Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=8.dp))
                                  }
 
+                                 // Lógica de ERROR DE RIEGO
+                                 if (isIrrigationError) {
+                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                                         Icon(Icons.Default.Warning, null, tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
+                                         Spacer(Modifier.width(8.dp))
+                                         Text("Comprobar documentalmente", color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                     }
+                                 }
+
                                  // Checkbox implícito: Seleccionar uso
-                                 // SOLO SE MUESTRA SI: Hay Error, Hay Aviso, o el usuario YA lo ha tocado.
-                                 if (hasError || isWarning || hasManualOverride) {
+                                 // SOLO SE MUESTRA SI: Error de Uso Incompatible o Manual Override.
+                                 // Se oculta si es solo Error de Riego o solo Aviso Naranja.
+                                 if (isUseIncompatible || hasManualOverride) {
                                      Row(verticalAlignment = Alignment.CenterVertically) {
                                          val isUsoChecked = parcela.verifiedUso != null
                                          Icon(
