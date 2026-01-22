@@ -39,7 +39,10 @@ data class NativeParcela(
     val informeIA: String? = null,
     val isHydrated: Boolean = false,
     val centroidLat: Double? = null,
-    val centroidLng: Double? = null
+    val centroidLng: Double? = null,
+    // Nuevos campos para el Checklist
+    val verifiedUso: String? = null,
+    val completedChecks: List<String> = emptyList() 
 )
 
 data class NativeExpediente(

@@ -139,7 +139,15 @@ fun NativeProjectManager(
     if (selectedExpedienteId != null) {
         val currentExp = expedientes.find { it.id == selectedExpedienteId }
         if (currentExp != null) {
-            ProjectDetailsScreen(currentExp, { selectedExpedienteId = null }, onNavigateToMap, onOpenCamera)
+            ProjectDetailsScreen(
+                exp = currentExp, 
+                onBack = { selectedExpedienteId = null }, 
+                onLocate = onNavigateToMap, 
+                onCamera = onOpenCamera,
+                onUpdateExpediente = { updatedExp ->
+                    onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                }
+            )
         } else {
             selectedExpedienteId = null
         }
@@ -276,7 +284,13 @@ fun ProjectListItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (String) -> Unit, onCamera: (String) -> Unit) {
+fun ProjectDetailsScreen(
+    exp: NativeExpediente, 
+    onBack: () -> Unit, 
+    onLocate: (String) -> Unit, 
+    onCamera: (String) -> Unit,
+    onUpdateExpediente: (NativeExpediente) -> Unit
+) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -289,7 +303,14 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (S
     ) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
             items(exp.parcelas, key = { it.id }) { parcela ->
-                NativeRecintoCard(parcela, onLocate, onCamera)
+                NativeRecintoCard(
+                    parcela = parcela, 
+                    onLocate = onLocate, 
+                    onCamera = onCamera,
+                    onUpdateParcela = { updatedParcela ->
+                        onUpdateExpediente(exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it }))
+                    }
+                )
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -297,10 +318,19 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (S
 }
 
 @Composable
-fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCamera: (String) -> Unit) {
+fun NativeRecintoCard(
+    parcela: NativeParcela, 
+    onLocate: (String) -> Unit, 
+    onCamera: (String) -> Unit,
+    onUpdateParcela: (NativeParcela) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) } 
     var selectedTab by remember { mutableIntStateOf(0) }
     val isLoading = !parcela.isHydrated
+    
+    // Lista de usos comunes para el desplegable
+    val commonUsos = remember { SigpacCodeManager.getCommonUsos() }
+    var showUsoDropdown by remember { mutableStateOf(false) }
 
     // Cálculo de Análisis Agronómico
     val agroAnalysis = remember(parcela) {
@@ -318,21 +348,53 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
             )
         } else null
     }
-
-    // Determinar Estado Visual (Semáforo)
-    val statusColor = remember(agroAnalysis, isLoading) {
-        when {
-            isLoading -> Color.Gray
-            agroAnalysis == null -> Color.Gray
-            !agroAnalysis.isCompatible -> Color(0xFFFF5252) // ERROR (Rojo)
-            agroAnalysis.explanation.contains("AVISO", ignoreCase = true) || agroAnalysis.explanation.contains("Nota", ignoreCase = true) -> Color(0xFFFF9800) // WARNING (Naranja)
-            else -> Color(0xFF00FF88) // OK (Verde)
+    
+    // --- LÓGICA DE AUTOCOMPLETADO DE USO ---
+    // Si no hay discrepancia (Compatible) y no hay uso verificado, se rellena automáticamente.
+    // Si hay discrepancia, se deja vacío.
+    LaunchedEffect(agroAnalysis) {
+        if (agroAnalysis != null && parcela.verifiedUso == null) {
+             val sigpacUsoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull() // "TA (TIERRAS..)" -> "TA"
+             if (agroAnalysis.isCompatible && !agroAnalysis.explanation.contains("AVISO") && sigpacUsoRaw != null) {
+                 onUpdateParcela(parcela.copy(verifiedUso = sigpacUsoRaw))
+             }
         }
     }
 
-    val statusIcon = remember(agroAnalysis, isLoading) {
+    // --- CÁLCULO DE CHECKS NECESARIOS ---
+    val requiredChecks = remember(agroAnalysis, parcela.sigpacInfo) {
+        val list = mutableListOf<String>()
+        // Requisitos de la guía
+        agroAnalysis?.requirements?.forEach { list.add(it.code ?: "REQ_${it.description.hashCode()}") }
+        // Pendiente compensada (Si pendiente > 10%)
+        if ((parcela.sigpacInfo?.pendienteMedia ?: 0.0) > 10.0) {
+            list.add("CHECK_PENDIENTE_10")
+        }
+        list
+    }
+
+    // --- ESTADO DE COMPLETADO GLOBAL ---
+    // Está completado si: Uso Verificado seleccionado Y todos los checks marcados
+    val isFullyCompleted = remember(parcela.verifiedUso, parcela.completedChecks, requiredChecks) {
+        parcela.verifiedUso != null && requiredChecks.all { parcela.completedChecks.contains(it) }
+    }
+
+    // Determinar Estado Visual (Semáforo)
+    val statusColor = remember(agroAnalysis, isLoading, isFullyCompleted) {
+        when {
+            isLoading -> Color.Gray
+            isFullyCompleted -> Color(0xFF62D2FF) // AZUL/CYAN = VERIFICADO OK
+            agroAnalysis == null -> Color.Gray
+            !agroAnalysis.isCompatible -> Color(0xFFFF5252) // ERROR (Rojo)
+            agroAnalysis.explanation.contains("AVISO", ignoreCase = true) || agroAnalysis.explanation.contains("Nota", ignoreCase = true) -> Color(0xFFFF9800) // WARNING (Naranja)
+            else -> Color(0xFF00FF88) // Compatible pero no verificado (Verde)
+        }
+    }
+
+    val statusIcon = remember(agroAnalysis, isLoading, isFullyCompleted) {
          when {
             isLoading -> null
+            isFullyCompleted -> Icons.Default.Verified
             agroAnalysis == null -> null
             !agroAnalysis.isCompatible -> Icons.Default.Error
             agroAnalysis.explanation.contains("AVISO", ignoreCase = true) -> Icons.Default.Warning
@@ -344,7 +406,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, statusColor.copy(alpha = if(parcela.isHydrated) 0.5f else 0.1f))
+        border = BorderStroke(if(isFullyCompleted) 2.dp else 1.dp, statusColor.copy(alpha = if(parcela.isHydrated) 0.8f else 0.1f))
     ) {
         Column {
             Row(
@@ -359,9 +421,11 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                     Text(parcela.referencia, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, fontFamily = FontFamily.Monospace)
                     if (isLoading) {
                         Text("Cargando atributos...", color = Color.Gray, fontSize = 14.sp)
-                    } else if (agroAnalysis != null && statusIcon != null) {
+                    } else if (isFullyCompleted) {
+                        Text("VERIFICADO Y CONFORME", color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    } else if (agroAnalysis != null) {
                          // Mostrar texto de alerta resumido en cabecera si hay problema
-                         val alertText = if(!agroAnalysis.isCompatible) "INCOMPATIBLE / ERROR" else "AVISO AGRONÓMICO"
+                         val alertText = if(!agroAnalysis.isCompatible) "INCOMPATIBLE / ERROR" else "PENDIENTE DE VERIFICACIÓN"
                          Text(alertText, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -390,66 +454,132 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
 
                     Spacer(Modifier.height(8.dp))
 
-                    // --- ANÁLISIS TÉCNICO ---
+                    // --- ANÁLISIS TÉCNICO & CHECKLISTS ---
                     if (agroAnalysis != null) {
-                        // Banner Compatibilidad / Error
+                        
+                        // 1. SECCIÓN: VERIFICACIÓN DE USO (CHECKLIST #1)
+                        Text("INSPECCIÓN VISUAL", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(statusColor.copy(0.1f))
-                                .border(1.dp, statusColor.copy(0.3f), RoundedCornerShape(12.dp))
+                                .background(Color.Black.copy(0.3f))
+                                .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(12.dp))
                                 .padding(12.dp)
                         ) {
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = if(!agroAnalysis.isCompatible) Icons.Default.Error else if(statusColor == Color(0xFFFF9800)) Icons.Default.Warning else Icons.Default.CheckCircle,
-                                        contentDescription = null, 
-                                        tint = statusColor, 
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = when {
-                                            !agroAnalysis.isCompatible -> "INCOMPATIBLE / ERROR"
-                                            statusColor == Color(0xFFFF9800) -> "AVISO AGRONÓMICO"
-                                            else -> "USO COMPATIBLE"
-                                        }, 
-                                        fontWeight = FontWeight.Black, 
-                                        fontSize = 15.sp,
-                                        color = statusColor
-                                    )
-                                }
-                                Spacer(Modifier.height(4.dp))
-                                Text(agroAnalysis.explanation, fontSize = 14.sp, color = Color.White)
-                            }
+                             Column {
+                                 // Checkbox implícito: Seleccionar uso
+                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                     val isUsoChecked = parcela.verifiedUso != null
+                                     Icon(
+                                         imageVector = if(isUsoChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                         contentDescription = null,
+                                         tint = if(isUsoChecked) Color(0xFF00FF88) else Color.Gray,
+                                         modifier = Modifier.size(24.dp)
+                                     )
+                                     Spacer(Modifier.width(12.dp))
+                                     
+                                     // Desplegable de Uso
+                                     Box(modifier = Modifier.weight(1f)) {
+                                         OutlinedButton(
+                                             onClick = { showUsoDropdown = true },
+                                             modifier = Modifier.fillMaxWidth(),
+                                             colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                                             border = BorderStroke(1.dp, if(isUsoChecked) Color(0xFF00FF88) else Color.Gray)
+                                         ) {
+                                             Text(text = if(parcela.verifiedUso != null) "USO OBSERVADO: ${parcela.verifiedUso}" else "SELECCIONAR USO REAL...", fontSize = 13.sp)
+                                         }
+                                         
+                                         DropdownMenu(
+                                             expanded = showUsoDropdown,
+                                             onDismissRequest = { showUsoDropdown = false },
+                                             modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                                         ) {
+                                             commonUsos.forEach { (code, desc) ->
+                                                 DropdownMenuItem(
+                                                     text = { Text("$code - $desc", fontSize = 14.sp) },
+                                                     onClick = { 
+                                                         onUpdateParcela(parcela.copy(verifiedUso = code))
+                                                         showUsoDropdown = false 
+                                                     }
+                                                 )
+                                             }
+                                         }
+                                     }
+                                 }
+
+                                 // CHECKLIST ADICIONAL: PENDIENTE > 10%
+                                 if ((parcela.sigpacInfo?.pendienteMedia ?: 0.0) > 10.0) {
+                                     Spacer(Modifier.height(12.dp))
+                                     val slopeCheckId = "CHECK_PENDIENTE_10"
+                                     val isSlopeChecked = parcela.completedChecks.contains(slopeCheckId)
+                                     
+                                     Row(
+                                         verticalAlignment = Alignment.Top,
+                                         modifier = Modifier.clickable {
+                                             val newChecks = if (isSlopeChecked) parcela.completedChecks - slopeCheckId else parcela.completedChecks + slopeCheckId
+                                             onUpdateParcela(parcela.copy(completedChecks = newChecks))
+                                         }
+                                     ) {
+                                         Icon(
+                                             imageVector = if(isSlopeChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                             contentDescription = null,
+                                             tint = if(isSlopeChecked) Color(0xFF00FF88) else Color.Gray,
+                                             modifier = Modifier.size(24.dp)
+                                         )
+                                         Spacer(Modifier.width(12.dp))
+                                         Column {
+                                             Text("Pendiente compensada", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                             Text("Se observan terrazas, bancales o laboreo a nivel.", color = Color.Gray, fontSize = 12.sp, lineHeight = 16.sp)
+                                         }
+                                     }
+                                 }
+                             }
                         }
 
-                        // Requisitos de Campo (Checklist)
+                        Spacer(Modifier.height(20.dp))
+
+                        // 2. SECCIÓN: REQUISITOS (CHECKLISTS DINÁMICOS)
                         if (agroAnalysis.requirements.isNotEmpty()) {
-                            Spacer(Modifier.height(12.dp))
-                            Text("REQUISITOS DE CAMPO (GUÍA)", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp))
-                            Spacer(Modifier.height(6.dp))
+                            Text("REQUISITOS DE CAMPO (GUÍA)", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                            
                             agroAnalysis.requirements.forEach { req ->
+                                val checkId = req.code ?: "REQ_${req.description.hashCode()}"
+                                val isChecked = parcela.completedChecks.contains(checkId)
+
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(bottom = 8.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.Black.copy(0.3f))
-                                        .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(8.dp))
-                                        .padding(10.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if(isChecked) Color(0xFF00FF88).copy(0.05f) else Color.Black.copy(0.3f))
+                                        .border(1.dp, if(isChecked) Color(0xFF00FF88).copy(0.3f) else Color.White.copy(0.1f), RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            val newChecks = if (isChecked) parcela.completedChecks - checkId else parcela.completedChecks + checkId
+                                            onUpdateParcela(parcela.copy(completedChecks = newChecks))
+                                        }
+                                        .padding(12.dp)
                                 ) {
-                                    Column {
-                                        Text(req.description, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF62D2FF))
-                                        Spacer(Modifier.height(4.dp))
-                                        // FORMATO LISTA CON VIÑETAS (BULLETS)
-                                        req.requirement.split("\n").forEach { line ->
-                                            if (line.isNotBlank()) {
-                                                Row(modifier = Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.Top) {
-                                                    Text("•", color = Color(0xFF62D2FF), fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 6.dp))
-                                                    Text(line.trim(), fontSize = 14.sp, color = Color.LightGray, lineHeight = 18.sp)
+                                    Row(verticalAlignment = Alignment.Top) {
+                                        Icon(
+                                             imageVector = if(isChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                             contentDescription = null,
+                                             tint = if(isChecked) Color(0xFF00FF88) else Color.Gray,
+                                             modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        
+                                        Column {
+                                            Text(req.description, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if(isChecked) Color(0xFF00FF88) else Color(0xFF62D2FF))
+                                            Spacer(Modifier.height(4.dp))
+                                            
+                                            // FORMATO LISTA CON VIÑETAS (BULLETS)
+                                            req.requirement.split("\n").forEach { line ->
+                                                if (line.isNotBlank()) {
+                                                    Row(modifier = Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.Top) {
+                                                        Text("•", color = if(isChecked) Color(0xFF00FF88) else Color(0xFF62D2FF), fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 6.dp))
+                                                        Text(line.trim(), fontSize = 14.sp, color = if(isChecked) Color.LightGray else Color.Gray, lineHeight = 18.sp)
+                                                    }
                                                 }
                                             }
                                         }

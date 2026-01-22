@@ -343,6 +343,16 @@ object SigpacCodeManager {
         val desc = usoMap[code] ?: usoMap[code.uppercase()]
         return if (desc != null) "$code ($desc)" else code
     }
+    
+    /**
+     * Devuelve la lista de usos comunes ordenados.
+     */
+    fun getCommonUsos(): List<Pair<String, String>> {
+        val priority = listOf("TA", "TH", "FY", "OV", "VI", "FS", "CF", "CS", "PS", "PR", "PA", "IV", "ZC", "ZU", "EP", "FO")
+        return priority.map { code ->
+            code to (getUsoDescription(code) ?: code)
+        }
+    }
 
     /**
      * Devuelve "Código - Descripción" del producto.
