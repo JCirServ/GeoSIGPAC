@@ -574,12 +574,12 @@ fun NativeMap(
             TextField(
                 value = searchQuery,
                 onValueChange = { },
-                placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 12.sp) },
+                placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 16.sp) },
                 singleLine = true,
                 maxLines = 1,
                 readOnly = true,
                 interactionSource = interactionSource,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite, fontSize = 16.sp),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
                     unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
@@ -606,24 +606,24 @@ fun NativeMap(
             SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu; showProjectsMenu = false }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.Settings, "Capas") }
 
             AnimatedVisibility(visible = showLayerMenu) {
-                Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Mapa Base", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                Card(modifier = Modifier.width(220.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text("Mapa Base", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(4.dp))
                         BaseMap.values().forEach { base ->
-                            Row(modifier = Modifier.fillMaxWidth().clickable { currentBaseMap = base }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = (currentBaseMap == base), onClick = { currentBaseMap = base }, modifier = Modifier.size(20.dp), colors = RadioButtonDefaults.colors(selectedColor = FieldGreen))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(base.title, fontSize = 13.sp)
+                            Row(modifier = Modifier.fillMaxWidth().clickable { currentBaseMap = base }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = (currentBaseMap == base), onClick = { currentBaseMap = base }, modifier = Modifier.size(24.dp), colors = RadioButtonDefaults.colors(selectedColor = FieldGreen))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(base.title, fontSize = 16.sp)
                             }
                         }
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-                        Text("Capas SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Divider(modifier = Modifier.padding(vertical = 10.dp))
+                        Text("Capas SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 14.sp)
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showRecinto = !showRecinto }) {
-                            Checkbox(checked = showRecinto, onCheckedChange = { showRecinto = it }, modifier = Modifier.size(30.dp).padding(4.dp), colors = CheckboxDefaults.colors(checkedColor = FieldGreen)); Text("Recintos", fontSize = 13.sp)
+                            Checkbox(checked = showRecinto, onCheckedChange = { showRecinto = it }, modifier = Modifier.size(36.dp).padding(4.dp), colors = CheckboxDefaults.colors(checkedColor = FieldGreen)); Text("Recintos", fontSize = 16.sp)
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showCultivo = !showCultivo }) {
-                            Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it }, modifier = Modifier.size(30.dp).padding(4.dp), colors = CheckboxDefaults.colors(checkedColor = FieldGreen)); Text("Cultivos", fontSize = 13.sp)
+                            Checkbox(checked = showCultivo, onCheckedChange = { showCultivo = it }, modifier = Modifier.size(36.dp).padding(4.dp), colors = CheckboxDefaults.colors(checkedColor = FieldGreen)); Text("Cultivos", fontSize = 16.sp)
                         }
                     }
                 }
@@ -633,12 +633,12 @@ fun NativeMap(
             SmallFloatingActionButton(onClick = { showProjectsMenu = !showProjectsMenu; showLayerMenu = false }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.Folder, "Proyectos") }
 
             AnimatedVisibility(visible = showProjectsMenu) {
-                Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Proyectos (KML)", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                Card(modifier = Modifier.width(220.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text("Proyectos (KML)", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(4.dp))
                         if (expedientes.isEmpty()) {
-                            Text("No hay proyectos cargados", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(4.dp))
+                            Text("No hay proyectos cargados", fontSize = 15.sp, color = Color.Gray, modifier = Modifier.padding(4.dp))
                         } else {
                             // Lista Scroleable si hay muchos
                             Column(modifier = Modifier.heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
@@ -653,10 +653,10 @@ fun NativeMap(
                                         Checkbox(
                                             checked = isVisible, 
                                             onCheckedChange = { chk -> visibleProjectIds = if (chk) visibleProjectIds + exp.id else visibleProjectIds - exp.id },
-                                            modifier = Modifier.size(30.dp).padding(4.dp),
+                                            modifier = Modifier.size(36.dp).padding(4.dp),
                                             colors = CheckboxDefaults.colors(checkedColor = FieldGreen)
                                         )
-                                        Text(exp.titular, fontSize = 12.sp, maxLines = 1)
+                                        Text(exp.titular, fontSize = 15.sp, maxLines = 1)
                                     }
                                 }
                             }
@@ -697,12 +697,13 @@ fun NativeMap(
                         }
                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                             Column {
-                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
+                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 13.sp)
                                 Text(
                                     text = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}...",
                                     style = MaterialTheme.typography.titleMedium, 
-                                    fontWeight = FontWeight.Bold, 
-                                    color = FieldGreen
+                                    fontWeight = FontWeight.Black, 
+                                    color = FieldGreen,
+                                    fontSize = 20.sp
                                 )
                             }
                             IconButton(onClick = { instantSigpacRef = ""; recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
@@ -713,11 +714,11 @@ fun NativeMap(
 
                             val hasCultivo = cultivoData != null
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).background(FieldSurface).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray)
+                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 0) FieldGreen else Color.Transparent).clickable { selectedTab = 0; isPanelExpanded = true }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                                    Text("Recinto", fontWeight = FontWeight.Bold, color = if(selectedTab == 0) Color.White else FieldGray, fontSize = 15.sp)
                                 }
-                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f))
+                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (selectedTab == 1) FieldGreen else Color.Transparent).clickable(enabled = hasCultivo) { if (hasCultivo) { selectedTab = 1; isPanelExpanded = true } }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                                    Text("Cultivo", fontWeight = FontWeight.Bold, color = if (selectedTab == 1) Color.White else if (hasCultivo) FieldGray else Color.White.copy(alpha = 0.2f), fontSize = 15.sp)
                                 }
                             }
                             
@@ -727,11 +728,11 @@ fun NativeMap(
                                     if (selectedTab == 0) {
                                         if (recintoData != null) {
                                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Uso SIGPAC", recintoData!!["uso_sigpac"], Modifier.weight(1f)); AttributeItem("Superficie", "${recintoData!!["superficie"]} ha", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
+                                            Spacer(Modifier.height(14.dp))
                                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Pendiente Media", "${recintoData!!["pendiente_media"]}%", Modifier.weight(1f)); AttributeItem("Altitud", "${recintoData!!["altitud"]} m", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
+                                            Spacer(Modifier.height(14.dp))
                                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { AttributeItem("Región", recintoData!!["region"], Modifier.weight(1f)); AttributeItem("Coef. Regadío", "${recintoData!!["coef_regadio"]}%", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(12.dp))
+                                            Spacer(Modifier.height(14.dp))
                                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { 
                                                 AttributeItem("Subvencionabilidad", "${recintoData!!["subvencionabilidad"]}%", Modifier.weight(1f))
                                                 // Manejo de Incidencias Listado
@@ -748,19 +749,19 @@ fun NativeMap(
                                     } else {
                                         if (cultivoData != null) {
                                             val c = cultivoData!!
-                                            Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Text("Datos de Expediente", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=6.dp), fontSize = 14.sp)
                                             Row(Modifier.fillMaxWidth()) { AttributeItem("Núm. Exp", c["exp_num"], Modifier.weight(1f)); AttributeItem("Año", c["exp_ano"], Modifier.weight(1f)) }
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
-                                            Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Divider(Modifier.padding(vertical=8.dp), color = FieldDivider)
+                                            Text("Datos Agrícolas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=6.dp), fontSize = 14.sp)
                                             Row(Modifier.fillMaxWidth()) { AttributeItem("Producto", c["parc_producto"], Modifier.weight(1f)); val supCultRaw = c["parc_supcult"]?.toDoubleOrNull() ?: 0.0; val supCultHa = supCultRaw / 10000.0; AttributeItem("Superficie", "${String.format(Locale.US, "%.4f", supCultHa)} ha", Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(8.dp))
+                                            Spacer(Modifier.height(12.dp))
                                             Row(Modifier.fillMaxWidth()) { val sist = c["parc_sistexp"]; val sistLabel = when(sist) { "S" -> "Secano"; "R" -> "Regadío"; else -> sist }; AttributeItem("Sist. Expl.", sistLabel, Modifier.weight(1f)); AttributeItem("Ind. Cultivo", c["parc_indcultapro"], Modifier.weight(1f)) }
-                                            Spacer(Modifier.height(8.dp))
+                                            Spacer(Modifier.height(12.dp))
                                             AttributeItem("Tipo Aprovechamiento", c["tipo_aprovecha"], Modifier.fillMaxWidth())
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            Divider(Modifier.padding(vertical=8.dp), color = FieldDivider)
                                             
                                             // AYUDAS SOLICITADAS
-                                            Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Text("Ayudas Solicitadas", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=6.dp), fontSize = 14.sp)
                                             
                                             if (!c["parc_ayudasol"].isNullOrEmpty()) {
                                                 IncidenciaMapItem(c["parc_ayudasol"]!!, type = "AYUDA") 
@@ -769,18 +770,18 @@ fun NativeMap(
                                             }
                                             
                                             // AYUDAS PDR
-                                            Spacer(Modifier.height(4.dp))
+                                            Spacer(Modifier.height(6.dp))
                                             if (!c["pdr_rec"].isNullOrEmpty()) {
-                                                Text("Ayudas PDR", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
+                                                Text("Ayudas PDR", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 14.sp)
                                                 IncidenciaMapItem(c["pdr_rec"]!!, type = "PDR")
                                             } else {
                                                 AttributeItem("Ayudas PDR", c["pdr_rec"], Modifier.fillMaxWidth())
                                             }
                                             
-                                            Divider(Modifier.padding(vertical=6.dp), color = FieldDivider)
+                                            Divider(Modifier.padding(vertical=8.dp), color = FieldDivider)
                                             
                                             // CULTIVO SECUNDARIO
-                                            Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=4.dp))
+                                            Text("Cultivo Secundario", style = MaterialTheme.typography.labelMedium, color = FieldGreen, modifier = Modifier.padding(vertical=6.dp), fontSize = 14.sp)
                                             Row(Modifier.fillMaxWidth()) { 
                                                 AttributeItem("Producto Sec.", c["cultsecun_producto"], Modifier.weight(1f)); 
                                                 
@@ -826,14 +827,14 @@ fun IncidenciaMapItem(rawIncidencias: String, type: String = "INCIDENCIA") {
     
     Column {
         val label = if (type == "INCIDENCIA") "Incidencias" else "Detalles"
-        Text(label, style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 14.sp)
         
         itemsList.forEach { item ->
             Text(
                 text = "• $item", 
                 style = MaterialTheme.typography.bodySmall, 
                 color = Color.White, 
-                fontSize = 10.sp,
+                fontSize = 15.sp,
                 modifier = Modifier.padding(top = 2.dp)
             )
         }

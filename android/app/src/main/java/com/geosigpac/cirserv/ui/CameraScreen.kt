@@ -283,18 +283,18 @@ fun CameraScreen(
     // Cajetín de Información
     val InfoBox = @Composable {
         Box(
-            modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp)
+            modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Column(horizontalAlignment = Alignment.End) {
-                Text(locationText, color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                Text(locationText, color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
                 Spacer(Modifier.height(6.dp))
                 if (sigpacRef != null) {
-                    Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
-                    Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
+                    Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
                 } else if (showNoDataMessage) {
-                    Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
                 } else {
-                    Text("Analizando zona...", color = Color.LightGray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    Text("Analizando zona...", color = Color.LightGray, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
                 }
             }
         }

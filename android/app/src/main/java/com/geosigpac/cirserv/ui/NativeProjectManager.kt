@@ -142,7 +142,7 @@ fun NativeProjectManager(
     } else {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             CenterAlignedTopAppBar(
-                title = { Text("ESTACIÓN DE TRABAJO", fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = 2.sp) },
+                title = { Text("ESTACIÓN DE TRABAJO", fontWeight = FontWeight.Black, fontSize = 18.sp, letterSpacing = 2.sp) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
 
@@ -156,11 +156,11 @@ fun NativeProjectManager(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.CloudUpload, null, tint = Color(0xFF00FF88))
                     Spacer(Modifier.width(12.dp))
-                    Text("IMPORTAR CARTOGRAFÍA KML", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                    Text("IMPORTAR CARTOGRAFÍA KML", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                 }
             }
 
-            Text("PROYECTOS ACTIVOS", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Gray)
+            Text("PROYECTOS ACTIVOS", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray)
 
             LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(expedientes, key = { it.id }) { exp ->
@@ -183,15 +183,15 @@ fun NativeProjectManager(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("REGISTRO DE RED", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        IconButton(onClick = { debugLogs.clear() }, modifier = Modifier.size(20.dp)) {
-                            Icon(Icons.Default.DeleteSweep, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                        Text("REGISTRO DE RED", color = Color(0xFF00FF88), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { debugLogs.clear() }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.DeleteSweep, null, tint = Color.Gray, modifier = Modifier.size(18.dp))
                         }
                     }
                     Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical = 4.dp))
                     LazyColumn(state = logListState, modifier = Modifier.fillMaxSize()) {
                         items(debugLogs.reversed()) { log ->
-                            Text(text = log, color = if(log.contains("[ERROR]")) Color.Red else Color.LightGray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                            Text(text = log, color = if(log.contains("[ERROR]")) Color.Red else Color.LightGray, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }
@@ -227,28 +227,28 @@ fun ProjectListItem(
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Indicador de Estado / Activación
-                IconButton(onClick = onActivate, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = onActivate, modifier = Modifier.size(32.dp)) {
                     if (isActive) {
-                         Icon(Icons.Default.RadioButtonChecked, null, tint = Color(0xFF00FF88))
+                         Icon(Icons.Default.RadioButtonChecked, null, tint = Color(0xFF00FF88), modifier = Modifier.size(24.dp))
                     } else {
-                         Icon(Icons.Default.RadioButtonUnchecked, null, tint = Color.Gray)
+                         Icon(Icons.Default.RadioButtonUnchecked, null, tint = Color.Gray, modifier = Modifier.size(24.dp))
                     }
                 }
                 
                 Spacer(Modifier.width(12.dp))
                 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if(isActive) Color.White else Color.LightGray)
-                    Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 10.sp)
+                    Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = if(isActive) Color.White else Color.LightGray)
+                    Text("${exp.parcelas.size} recintos • ${exp.fechaImportacion}", color = Color.Gray, fontSize = 14.sp)
                     if (isActive) {
-                        Text("PROYECTO ACTIVO", color = Color(0xFF00FF88), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        Text("PROYECTO ACTIVO", color = Color(0xFF00FF88), fontSize = 13.sp, fontWeight = FontWeight.Black)
                     }
                 }
                 
-                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.Gray.copy(0.3f), modifier = Modifier.size(18.dp)) }
+                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.Gray.copy(0.3f), modifier = Modifier.size(24.dp)) }
             }
             Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(3.dp).clip(CircleShape), color = Color(0xFF00FF88), trackColor = Color.White.copy(0.05f))
+            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape), color = Color(0xFF00FF88), trackColor = Color.White.copy(0.05f))
         }
     }
 }
@@ -260,8 +260,8 @@ fun ProjectDetailsScreen(exp: NativeExpediente, onBack: () -> Unit, onLocate: (S
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(exp.titular, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                title = { Text(exp.titular, fontSize = 20.sp, fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, modifier = Modifier.size(28.dp)) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
@@ -306,16 +306,16 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if(parcela.isHydrated) Color(0xFF00FF88) else Color.Yellow))
+                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if(parcela.isHydrated) Color(0xFF00FF88) else Color.Yellow))
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(parcela.referencia, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                    if (isLoading) Text("Cargando atributos...", color = Color.Gray, fontSize = 10.sp)
+                    Text(parcela.referencia, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, fontFamily = FontFamily.Monospace)
+                    if (isLoading) Text("Cargando atributos...", color = Color.Gray, fontSize = 14.sp)
                 }
                 if (!isLoading) {
-                    IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.PhotoCamera, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) }
+                    IconButton(onClick = { onCamera(parcela.id) }) { Icon(Icons.Default.PhotoCamera, null, tint = Color.Gray, modifier = Modifier.size(24.dp)) }
                 } else {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.Yellow)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.Yellow)
                 }
             }
 
@@ -323,11 +323,11 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     
                     // IA REPORT (Compacto)
-                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(0.03f)).padding(10.dp)) {
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(0.03f)).padding(12.dp)) {
                          Row(verticalAlignment = Alignment.Top) {
-                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF62D2FF), modifier = Modifier.size(14.dp).padding(top=2.dp))
+                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF62D2FF), modifier = Modifier.size(18.dp).padding(top=2.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(parcela.informeIA ?: "Sin análisis disponible", fontSize = 10.sp, lineHeight = 12.sp, color = Color.Gray)
+                            Text(parcela.informeIA ?: "Sin análisis disponible", fontSize = 14.sp, lineHeight = 18.sp, color = Color.Gray)
                         }
                     }
 
@@ -344,50 +344,50 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(colorCompat.copy(0.1f))
                                 .border(1.dp, colorCompat.copy(0.3f), RoundedCornerShape(12.dp))
-                                .padding(10.dp)
+                                .padding(12.dp)
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(if(agroAnalysis.isCompatible) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = colorCompat, modifier = Modifier.size(16.dp))
+                                    Icon(if(agroAnalysis.isCompatible) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = colorCompat, modifier = Modifier.size(20.dp))
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         if(agroAnalysis.isCompatible) "USO COMPATIBLE" else "USO INCOMPATIBLE", 
                                         fontWeight = FontWeight.Black, 
-                                        fontSize = 11.sp,
+                                        fontSize = 15.sp,
                                         color = colorCompat
                                     )
                                 }
                                 Spacer(Modifier.height(4.dp))
-                                Text(agroAnalysis.explanation, fontSize = 10.sp, color = Color.White)
+                                Text(agroAnalysis.explanation, fontSize = 14.sp, color = Color.White)
                             }
                         }
 
                         // Requisitos de Campo (Checklist)
                         if (agroAnalysis.requirements.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text("REQUISITOS DE CAMPO (GUÍA)", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp))
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(12.dp))
+                            Text("REQUISITOS DE CAMPO (GUÍA)", fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp))
+                            Spacer(Modifier.height(6.dp))
                             agroAnalysis.requirements.forEach { req ->
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(bottom = 6.dp)
+                                        .padding(bottom = 8.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Color.Black.copy(0.3f))
                                         .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(8.dp))
-                                        .padding(8.dp)
+                                        .padding(10.dp)
                                 ) {
                                     Column {
-                                        Text(req.description, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color(0xFF62D2FF))
+                                        Text(req.description, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF62D2FF))
                                         Spacer(Modifier.height(4.dp))
-                                        Text(req.requirement, fontSize = 10.sp, color = Color.LightGray, lineHeight = 12.sp)
+                                        Text(req.requirement, fontSize = 14.sp, color = Color.LightGray, lineHeight = 18.sp)
                                     }
                                 }
                             }
                         }
                     }
 
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(20.dp))
 
                     // PESTAÑAS (Recinto / Cultivo)
                     Row(
@@ -405,13 +405,13 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                                 .clip(RoundedCornerShape(50))
                                 .background(if (selectedTab == 0) Color(0xFF00FF88) else Color.Transparent)
                                 .clickable { selectedTab = 0 }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 "Recinto", 
                                 fontWeight = FontWeight.Bold, 
-                                fontSize = 12.sp,
+                                fontSize = 15.sp,
                                 color = if(selectedTab == 0) Color.White else Color.Gray
                             )
                         }
@@ -423,13 +423,13 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                                 .clip(RoundedCornerShape(50))
                                 .background(if (selectedTab == 1) Color(0xFF62D2FF) else Color.Transparent)
                                 .clickable { selectedTab = 1 }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 "Cultivo", 
                                 fontWeight = FontWeight.Bold, 
-                                fontSize = 12.sp,
+                                fontSize = 15.sp,
                                 color = if(selectedTab == 1) Color.Black else Color.Gray
                             )
                         }
@@ -505,7 +505,7 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                         }
                     }
                     
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(20.dp))
                     Button(
                         onClick = { 
                             val parts = parcela.referencia.split("[:\\-]".toRegex()).filter { it.isNotEmpty() }
@@ -516,11 +516,11 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                             }
                             onLocate(searchStr)
                         },
-                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(0.1f)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("LOCALIZAR EN MAPA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("LOCALIZAR EN MAPA", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -540,22 +540,22 @@ fun IncidenciasStaticList(rawIncidencias: String?) {
                 .fillMaxWidth()
                 .background(Color.White.copy(0.05f), RoundedCornerShape(8.dp))
                 .border(1.dp, Color(0xFFFF5252).copy(0.3f), RoundedCornerShape(8.dp))
-                .padding(8.dp)
+                .padding(10.dp)
         ) {
             Text(
                 text = "INCIDENCIAS (${incidenciasList.size})",
                 color = Color(0xFFFF5252),
-                fontSize = 10.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Black
             )
-            Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=4.dp))
+            Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=6.dp))
             incidenciasList.forEach { incidencia ->
                 Text(
                     text = "• $incidencia",
                     color = Color.White,
-                    fontSize = 11.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(vertical = 2.dp)
+                    modifier = Modifier.padding(vertical = 3.dp)
                 )
             }
         }
@@ -570,16 +570,16 @@ fun AyudasStaticList(label: String, rawAyudas: String?, isPdr: Boolean = false) 
     }
 
     if (ayudasList.isNotEmpty()) {
-         Column(modifier = Modifier.padding(vertical = 4.dp)) {
-             Text(label, color = Color.Gray, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-             Column(modifier = Modifier.padding(top = 2.dp)) {
+         Column(modifier = Modifier.padding(vertical = 6.dp)) {
+             Text(label, color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+             Column(modifier = Modifier.padding(top = 4.dp)) {
                  ayudasList.forEach { ayuda ->
                      Text(
                         text = "• $ayuda",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
-                        modifier = Modifier.padding(vertical = 1.dp)
+                        fontSize = 15.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.padding(vertical = 2.dp)
                     )
                  }
              }
@@ -591,8 +591,8 @@ fun AyudasStaticList(label: String, rawAyudas: String?, isPdr: Boolean = false) 
 
 @Composable
 fun DataField(label: String, value: String) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(label, color = Color.Gray, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        Text(label, color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
     }
 }

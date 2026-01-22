@@ -145,21 +145,21 @@ fun GeoSigpacApp() {
                             selected = false,
                             onClick = { isCameraOpen = true },
                             icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
-                            label = { Text("Cámara", fontSize = 10.sp) },
+                            label = { Text("Cámara", fontSize = 12.sp) },
                             colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
                         )
                         NavigationBarItem(
                             selected = true,
                             onClick = { selectedTab = 1 },
                             icon = { Icon(Icons.Default.Folder, "Proyectos") },
-                            label = { Text("Proyectos", fontSize = 10.sp) },
+                            label = { Text("Proyectos", fontSize = 12.sp) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                         NavigationBarItem(
                             selected = false,
                             onClick = { selectedTab = 2 },
                             icon = { Icon(Icons.Default.Map, "Mapa") },
-                            label = { Text("Mapa", fontSize = 10.sp) },
+                            label = { Text("Mapa", fontSize = 12.sp) },
                             colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
                         )
                     }

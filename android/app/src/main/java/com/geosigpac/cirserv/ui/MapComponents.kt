@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import androidx.compose.foundation.background
@@ -38,7 +39,7 @@ fun CustomSigpacKeyboard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("TECLADO SIGPAC", color = FieldGray, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 8.dp))
+            Text("TECLADO SIGPAC", color = FieldGray, style = MaterialTheme.typography.labelSmall, fontSize = 14.sp, modifier = Modifier.padding(start = 8.dp))
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, "Cerrar", tint = FieldGray)
             }
@@ -61,7 +62,7 @@ fun CustomSigpacKeyboard(
                     Box(
                         modifier = Modifier
                             .weight(weight)
-                            .height(55.dp) // Botones grandes para dedos
+                            .height(60.dp) // Botones más grandes
                             .padding(vertical = 4.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(FieldBackground)
@@ -77,7 +78,8 @@ fun CustomSigpacKeyboard(
                                 text = key, 
                                 style = MaterialTheme.typography.headlineMedium, 
                                 fontWeight = FontWeight.Bold, 
-                                color = HighContrastWhite
+                                color = HighContrastWhite,
+                                fontSize = 24.sp
                             )
                         }
                     }
@@ -90,13 +92,13 @@ fun CustomSigpacKeyboard(
         // Botón Buscar Gigante
         Button(
             onClick = onSearch,
-            modifier = Modifier.fillMaxWidth().height(50.dp),
+            modifier = Modifier.fillMaxWidth().height(55.dp),
             colors = ButtonDefaults.buttonColors(containerColor = FieldGreen),
             shape = RoundedCornerShape(8.dp)
         ) {
             Icon(Icons.Default.Search, null, tint = Color.White)
             Spacer(Modifier.width(8.dp))
-            Text("BUSCAR PARCELA", fontWeight = FontWeight.Bold, color = Color.White)
+            Text("BUSCAR PARCELA", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
         }
     }
 }
@@ -104,12 +106,13 @@ fun CustomSigpacKeyboard(
 @Composable
 fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 10.sp)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 13.sp)
         Text(
             text = if (value.isNullOrEmpty() || value == "null" || value == "0") "-" else value, 
             style = MaterialTheme.typography.bodyMedium, 
             fontWeight = FontWeight.Bold, 
-            color = HighContrastWhite
+            color = HighContrastWhite,
+            fontSize = 16.sp
         )
     }
 }
