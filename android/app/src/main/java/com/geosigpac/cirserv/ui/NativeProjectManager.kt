@@ -250,7 +250,7 @@ fun ProjectListItem(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ProjectDetailsScreen(
     exp: NativeExpediente, 
@@ -259,27 +259,153 @@ fun ProjectDetailsScreen(
     onCamera: (String) -> Unit,
     onUpdateExpediente: (NativeExpediente) -> Unit
 ) {
+    // Estado para controlar la agrupación
+    var isGroupedByExpediente by remember { mutableStateOf(false) }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(exp.titular, fontSize = 20.sp, fontWeight = FontWeight.Bold) },
+                title = { 
+                    Column {
+                        Text(exp.titular, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isGroupedByExpediente) "Agrupado por Nº Expediente" else "Listado Completo", 
+                            fontSize = 12.sp, 
+                            color = Color.Gray
+                        )
+                    }
+                },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, modifier = Modifier.size(28.dp)) } },
+                actions = {
+                    // Botón para alternar agrupación
+                    IconButton(onClick = { isGroupedByExpediente = !isGroupedByExpediente }) {
+                        Icon(
+                            imageVector = if (isGroupedByExpediente) Icons.Default.AccountTree else Icons.Default.FormatListBulleted,
+                            contentDescription = "Agrupar",
+                            tint = if (isGroupedByExpediente) Color(0xFF00FF88) else Color.White
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
-            items(exp.parcelas, key = { it.id }) { parcela ->
-                NativeRecintoCard(
-                    parcela = parcela, 
-                    onLocate = onLocate, 
-                    onCamera = onCamera,
-                    onUpdateParcela = { updatedParcela ->
-                        onUpdateExpediente(exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it }))
+        
+        // Lógica de agrupación
+        val groupedParcelas = remember(exp.parcelas, isGroupedByExpediente) {
+            if (isGroupedByExpediente) {
+                // Agrupamos por expNum, usando una clave especial para los vacíos
+                exp.parcelas.groupBy { it.cultivoInfo?.expNum?.trim()?.ifEmpty { null } ?: "SIN_EXPEDIENTE" }
+                    .toSortedMap { a, b ->
+                        // Ordenar: "SIN_EXPEDIENTE" al final, el resto alfabéticamente
+                        when {
+                            a == "SIN_EXPEDIENTE" -> 1
+                            b == "SIN_EXPEDIENTE" -> -1
+                            else -> a.compareTo(b)
+                        }
                     }
+            } else {
+                null
+            }
+        }
+
+        LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+            
+            if (isGroupedByExpediente && groupedParcelas != null) {
+                groupedParcelas.forEach { (expNum, parcelasGroup) ->
+                    stickyHeader {
+                        ExpedienteHeader(
+                            expNum = if (expNum == "SIN_EXPEDIENTE") null else expNum, 
+                            count = parcelasGroup.size
+                        )
+                    }
+                    
+                    items(parcelasGroup, key = { it.id }) { parcela ->
+                        NativeRecintoCard(
+                            parcela = parcela, 
+                            onLocate = onLocate, 
+                            onCamera = onCamera,
+                            onUpdateParcela = { updatedParcela ->
+                                onUpdateExpediente(exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it }))
+                            }
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+            } else {
+                // Vista normal sin agrupar
+                items(exp.parcelas, key = { it.id }) { parcela ->
+                    NativeRecintoCard(
+                        parcela = parcela, 
+                        onLocate = onLocate, 
+                        onCamera = onCamera,
+                        onUpdateParcela = { updatedParcela ->
+                            onUpdateExpediente(exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it }))
+                        }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExpedienteHeader(expNum: String?, count: Int) {
+    val isUnassigned = expNum == null
+    
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        color = MaterialTheme.colorScheme.background, // Color sólido para ocultar lo que pasa por debajo
+        tonalElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (isUnassigned) Color(0xFF424242) else Color(0xFF2E7D32)) // Gris oscuro vs Verde oscuro
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isUnassigned) Icons.Default.Warning else Icons.Default.FolderOpen,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = if (isUnassigned) "SIN Nº EXPEDIENTE" else "EXP. $expNum",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    if (isUnassigned) {
+                        Text(
+                            text = "Recintos no asociados a declaración",
+                            color = Color.LightGray,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+            
+            Box(
+                modifier = Modifier
+                    .background(Color.Black.copy(0.3f), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "$count parcelas",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
