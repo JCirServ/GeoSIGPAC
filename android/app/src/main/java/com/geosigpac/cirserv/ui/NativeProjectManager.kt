@@ -341,16 +341,23 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                             DataField("SIST. EXP", parcela.cultivoInfo?.parcSistexp ?: "-")
                             DataField("SUP. CULT", "${parcela.cultivoInfo?.parcSupcult ?: "-"} m²")
                             
-                            // Reemplazamos campos simples por Dropdowns si hay contenido, o texto simple si no.
+                            // Ayudas Solicitadas
                             if (!parcela.cultivoInfo?.parcAyudasol.isNullOrEmpty()) {
                                 AyudasDropdown("AYUDA SOL", parcela.cultivoInfo?.parcAyudasol)
                             } else {
                                 DataField("AYUDA SOL", "-")
                             }
 
-                            DataField("PDR REC", parcela.cultivoInfo?.pdrRec ?: "-")
+                            // Ayudas PDR (NUEVO)
+                            if (!parcela.cultivoInfo?.pdrRec.isNullOrEmpty()) {
+                                AyudasDropdown("AYUDAS PDR", parcela.cultivoInfo?.pdrRec, isPdr = true)
+                            } else {
+                                DataField("AYUDAS PDR", "-")
+                            }
+
                             DataField("PROD. SEC", parcela.cultivoInfo?.cultsecunProducto?.toString() ?: "-")
                             
+                            // Ayudas Cultivo Secundario
                             if (!parcela.cultivoInfo?.cultsecunAyudasol.isNullOrEmpty()) {
                                 AyudasDropdown("AYUDA SEC", parcela.cultivoInfo?.cultsecunAyudasol)
                             } else {
@@ -446,10 +453,11 @@ fun IncidenciasDropdown(rawIncidencias: String?) {
 }
 
 @Composable
-fun AyudasDropdown(label: String, rawAyudas: String?) {
+fun AyudasDropdown(label: String, rawAyudas: String?, isPdr: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
-    val ayudasList = remember(rawAyudas) {
-        SigpacCodeManager.getFormattedAyudas(rawAyudas)
+    val ayudasList = remember(rawAyudas, isPdr) {
+        if (isPdr) SigpacCodeManager.getFormattedAyudasPdr(rawAyudas)
+        else SigpacCodeManager.getFormattedAyudas(rawAyudas)
     }
 
     if (ayudasList.isNotEmpty()) {

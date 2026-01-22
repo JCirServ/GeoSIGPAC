@@ -33,12 +33,17 @@ object SigpacCodeManager {
     private const val FILE_LINEASAD = "cod_lineasad.json"
     private const val URL_LINEASAD = "https://sigpac-hubcloud.es/codigossigpac/cod_lineasad.json"
 
+    // LINEAS DE AYUDA PDR
+    private const val FILE_LINEASAD_PDR = "cod_lineasad_pdr.json"
+    private const val URL_LINEASAD_PDR = "https://sigpac-hubcloud.es/codigossigpac/cod_lineasad_pdr.json"
+
     // Mapas en memoria: Código -> Descripción
     private var usoMap: MutableMap<String, String> = mutableMapOf()
     private var regionMap: MutableMap<String, String> = mutableMapOf()
     private var incidenciaMap: MutableMap<String, String> = mutableMapOf()
     private var aprovechamientoMap: MutableMap<String, String> = mutableMapOf()
     private var lineasadMap: MutableMap<String, String> = mutableMapOf()
+    private var lineasadPdrMap: MutableMap<String, String> = mutableMapOf()
     
     private var isInitialized = false
 
@@ -107,6 +112,19 @@ object SigpacCodeManager {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing lineas ayuda JSON: ${e.message}")
                     fileLineas.delete()
+                }
+            }
+
+            // --- LINEAS DE AYUDA PDR ---
+            val fileLineasPdr = File(context.filesDir, FILE_LINEASAD_PDR)
+            if (!fileLineasPdr.exists()) downloadFile(URL_LINEASAD_PDR, fileLineasPdr)
+            if (fileLineasPdr.exists()) {
+                try {
+                    parseLineasAdPdrJson(fileLineasPdr.readText())
+                    Log.d(TAG, "Códigos de líneas ayuda PDR cargados: ${lineasadPdrMap.size}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing lineas ayuda PDR JSON: ${e.message}")
+                    fileLineasPdr.delete()
                 }
             }
 
@@ -207,6 +225,20 @@ object SigpacCodeManager {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
+    private fun parseLineasAdPdrJson(jsonString: String) {
+        try {
+            val root = JSONObject(jsonString)
+            val codigos = root.optJSONArray("codigos") ?: return
+            
+            for (i in 0 until codigos.length()) {
+                val item = codigos.getJSONObject(i)
+                val codigo = item.optString("codigo") 
+                val descripcion = item.optString("descripcion")
+                if (codigo.isNotEmpty()) lineasadPdrMap[codigo] = descripcion
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
     /**
      * Devuelve el código formateado: "CA (VIALES)"
      */
@@ -266,6 +298,25 @@ object SigpacCodeManager {
         
         return parts.map { code ->
             val desc = lineasadMap[code] ?: lineasadMap[code.toIntOrNull()?.toString()]
+            if (desc != null) {
+                "$code - $desc"
+            } else {
+                code
+            }
+        }
+    }
+
+    /**
+     * Toma un string raw de Ayudas PDR (ej: "1, 2") y devuelve una lista formateada.
+     */
+    fun getFormattedAyudasPdr(raw: String?): List<String> {
+        if (raw.isNullOrEmpty()) return emptyList()
+        
+        val cleaned = raw.replace("[", "").replace("]", "").replace("\"", "")
+        val parts = cleaned.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        
+        return parts.map { code ->
+            val desc = lineasadPdrMap[code] ?: lineasadPdrMap[code.toIntOrNull()?.toString()]
             if (desc != null) {
                 "$code - $desc"
             } else {
