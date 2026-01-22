@@ -171,6 +171,7 @@ fun GeoSigpacApp() {
                         onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }
                     )
                     2 -> NativeMap(
+                        expedientes = expedientes, // NEW
                         targetLat = mapTarget?.first,
                         targetLng = mapTarget?.second,
                         onNavigateToProjects = { selectedTab = 1 },

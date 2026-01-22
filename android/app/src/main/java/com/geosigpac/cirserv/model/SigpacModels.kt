@@ -33,6 +33,7 @@ data class NativeParcela(
     val lng: Double,
     val area: Double,
     val metadata: Map<String, String>,
+    val geometryRaw: String? = null, // Raw KML coordinates string
     val sigpacInfo: SigpacData? = null,
     val cultivoInfo: CultivoData? = null,
     val informeIA: String? = null,

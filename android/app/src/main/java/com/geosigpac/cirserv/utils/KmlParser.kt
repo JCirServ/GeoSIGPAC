@@ -86,9 +86,12 @@ object KmlParser {
                 // 2. Extraer Coordenadas
                 var lat = 0.0
                 var lng = 0.0
+                var coordsRaw: String? = null
+
                 val coordsNodes = element.getElementsByTagName("coordinates")
                 if (coordsNodes.length > 0) {
                     val coordsText = coordsNodes.item(0).textContent.trim()
+                    coordsRaw = coordsText // Guardamos la cadena cruda para el polígono
                     val rawCoords = coordsText.split("\\s+".toRegex())
                     if (rawCoords.isNotEmpty()) {
                         val firstPoint = rawCoords[0].split(",")
@@ -109,7 +112,8 @@ object KmlParser {
                         lat = lat,
                         lng = lng,
                         area = metadata["DN_SURFACE"]?.toDoubleOrNull() ?: metadata["Superficie"]?.toDoubleOrNull() ?: 0.0,
-                        metadata = metadata
+                        metadata = metadata,
+                        geometryRaw = coordsRaw
                     )
                 )
             }

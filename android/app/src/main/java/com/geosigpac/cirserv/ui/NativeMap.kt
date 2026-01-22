@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Search
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -46,9 +48,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.geosigpac.cirserv.model.NativeExpediente
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -56,16 +61,27 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.OnMapReadyCallback
+import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Polygon
+import org.maplibre.geojson.Point
 import java.util.Locale
 
 private const val TAG = "GeoSIGPAC_LOG_Map"
+private const val SOURCE_PROJECTS = "projects-source"
+private const val LAYER_PROJECTS_FILL = "projects-fill"
+private const val LAYER_PROJECTS_LINE = "projects-line"
 
 @SuppressLint("MissingPermission")
 @Composable
 fun NativeMap(
+    expedientes: List<NativeExpediente>,
     targetLat: Double?,
     targetLng: Double?,
     onNavigateToProjects: () -> Unit,
@@ -82,6 +98,10 @@ fun NativeMap(
     var showRecinto by remember { mutableStateOf(true) }
     var showCultivo by remember { mutableStateOf(true) }
     var showLayerMenu by remember { mutableStateOf(false) }
+    var showProjectsMenu by remember { mutableStateOf(false) }
+
+    // Proyectos visibles (Ids)
+    var visibleProjectIds by remember { mutableStateOf<Set<String>>(expedientes.map { it.id }.toSet()) }
 
     var initialLocationSet by remember { mutableStateOf(false) }
 
@@ -94,22 +114,13 @@ fun NativeMap(
     var showCustomKeyboard by remember { mutableStateOf(false) }
 
     // --- ESTADO DATOS ---
-    // instantSigpacRef: Se actualiza en tiempo real al mover el mapa (desde vectores)
     var instantSigpacRef by remember { mutableStateOf("") }
-    
-    // recintoData / cultivoData: Se actualizan al parar (desde API/Query completa)
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
     var cultivoData by remember { mutableStateOf<Map<String, String>?>(null) }
-    
-    // Control para evitar actualizaciones de API innecesarias
     var lastDataId by remember { mutableStateOf<String?>(null) }
-    
-    // Estado de expansión del panel
     var isPanelExpanded by remember { mutableStateOf(false) }
-    
     var isLoadingData by remember { mutableStateOf(false) }
     var apiJob by remember { mutableStateOf<Job?>(null) }
-
     var selectedTab by remember { mutableIntStateOf(0) }
 
     // Inicializar MapLibre (Singleton)
@@ -150,6 +161,51 @@ fun NativeMap(
             } catch (e: Exception) {
                 Log.e(TAG, "Error cleaning up MapView: ${e.message}")
             }
+        }
+    }
+
+    // --- HELPER PARA GEOJSON DE PROYECTOS ---
+    suspend fun updateProjectsLayer(map: MapLibreMap, currentExpedientes: List<NativeExpediente>, visibleIds: Set<String>) = withContext(Dispatchers.Default) {
+        val features = mutableListOf<Feature>()
+        
+        currentExpedientes.filter { visibleIds.contains(it.id) }.forEach { exp ->
+            exp.parcelas.forEach { p ->
+                if (p.geometryRaw != null) {
+                    try {
+                        // Formato raw: "lng,lat,z lng,lat,z ..." separados por espacios
+                        val points = mutableListOf<Point>()
+                        val coordPairs = p.geometryRaw.trim().split("\\s+".toRegex())
+                        
+                        coordPairs.forEach { pair ->
+                            val coords = pair.split(",")
+                            if (coords.size >= 2) {
+                                val lng = coords[0].toDoubleOrNull()
+                                val lat = coords[1].toDoubleOrNull()
+                                if (lng != null && lat != null) {
+                                    points.add(Point.fromLngLat(lng, lat))
+                                }
+                            }
+                        }
+                        
+                        if (points.isNotEmpty()) {
+                            // MapLibre Polygon necesita una lista de listas de puntos (anillos)
+                            val polygon = Polygon.fromLngLats(listOf(points))
+                            val feature = Feature.fromGeometry(polygon)
+                            feature.addStringProperty("ref", p.referencia)
+                            feature.addStringProperty("exp", exp.titular)
+                            features.add(feature)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        }
+
+        val collection = FeatureCollection.fromFeatures(features)
+        
+        withContext(Dispatchers.Main) {
+            map.style?.getSourceAs<GeoJsonSource>(SOURCE_PROJECTS)?.setGeoJson(collection)
         }
     }
 
@@ -214,7 +270,6 @@ fun NativeMap(
     fun updateRealtimeInfo(map: MapLibreMap) {
         if (searchActive) return
         
-        // Si el zoom es muy lejano, limpiamos y salimos
         if (map.cameraPosition.zoom < 13) {
             val emptyFilter = Expression.literal(false)
             map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
@@ -231,8 +286,6 @@ fun NativeMap(
             val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
             if (features.isNotEmpty()) {
                 val feature = features[0]
-                
-                // 1. Extracción RÁPIDA de datos para la UI (Tiempo Real)
                 val prov = feature.getStringProperty("provincia")
                 val mun = feature.getStringProperty("municipio")
                 val agg = feature.getStringProperty("agregado") ?: "0"
@@ -245,7 +298,6 @@ fun NativeMap(
                     instantSigpacRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
                 }
 
-                // 2. Actualización del Resaltado (Highlight Visual)
                 val props = feature.properties()
                 if (props != null) {
                     val filterConditions = mutableListOf<Expression>()
@@ -271,7 +323,6 @@ fun NativeMap(
                     map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
                 }
             } else {
-                // Si no hay features bajo la cruz
                 val emptyFilter = Expression.literal(false)
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
@@ -280,7 +331,6 @@ fun NativeMap(
         } catch (e: Exception) { Log.e(TAG, "Error realtime update: ${e.message}") }
     }
 
-    // --- LÓGICA DE CARGA DE DATOS EXTENDIDOS (AL PARAR) ---
     fun updateExtendedData(map: MapLibreMap) {
         if (searchActive) return
         if (map.cameraPosition.zoom < 13) {
@@ -303,10 +353,8 @@ fun NativeMap(
                 
                 val uniqueId = "$prov-$mun-$pol-$parc-$rec"
                 
-                // Solo cargamos datos de la API si hemos cambiado de recinto y paramos la cámara
                 if (uniqueId != lastDataId) {
                     lastDataId = uniqueId
-                    // Rellenamos datos preliminares de las teselas mientras carga la API
                     recintoData = mapOf(
                         "provincia" to prov, "municipio" to mun, "poligono" to pol, "parcela" to parc, "recinto" to rec,
                         "agregado" to (props?.get("agregado")?.asString ?: "0"),
@@ -319,11 +367,10 @@ fun NativeMap(
                     isPanelExpanded = false
                     apiJob?.cancel()
                     apiJob = scope.launch {
-                        delay(200) // Debounce
+                        delay(200)
                         val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
                         if (fullData != null) {
                              recintoData = fullData
-                             // Sincronizamos la referencia instantánea por si hubo lag
                              instantSigpacRef = "${fullData["provincia"]}:${fullData["municipio"]}:${fullData["agregado"]}:${fullData["zona"]}:${fullData["poligono"]}:${fullData["parcela"]}:${fullData["recinto"]}"
                         }
                         isLoadingData = false
@@ -331,7 +378,6 @@ fun NativeMap(
                 }
             } else {
                 lastDataId = null
-                // No limpiamos recintoData inmediatamente para evitar parpadeos si se pasa por un hueco pequeño
             }
             
             val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
@@ -360,16 +406,51 @@ fun NativeMap(
                 map.cameraPosition = CameraPosition.Builder().target(LatLng(VALENCIA_LAT, VALENCIA_LNG)).zoom(DEFAULT_ZOOM).build()
             }
 
-            // Al mover la cámara: Actualizamos resaltado y TEXTO de referencia (Rápido)
             map.addOnCameraMoveListener { updateRealtimeInfo(map) }
-            
-            // Al parar la cámara: Cargamos datos extendidos (Lento/API)
             map.addOnCameraIdleListener { updateExtendedData(map) }
 
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
                 initialLocationSet = true
             }
+
+            // ADD PROJECTS LAYERS ONCE STYLE LOADED
+            map.getStyle { style ->
+                // Source
+                val geoJsonSource = GeoJsonSource(SOURCE_PROJECTS)
+                style.addSource(geoJsonSource)
+
+                // Fill Layer (Blue semi-transparent)
+                val projectFill = FillLayer(LAYER_PROJECTS_FILL, SOURCE_PROJECTS)
+                projectFill.setProperties(
+                    PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), // Blue 500
+                    PropertyFactory.fillOpacity(0.4f)
+                )
+                // Insertar debajo de las etiquetas si es posible, o simplemente arriba de la base
+                style.addLayer(projectFill)
+
+                // Line Layer (Darker Blue)
+                val projectLine = LineLayer(LAYER_PROJECTS_LINE, SOURCE_PROJECTS)
+                projectLine.setProperties(
+                    PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()), // Blue 900
+                    PropertyFactory.lineWidth(2f)
+                )
+                style.addLayer(projectLine)
+
+                // Initial Load
+                scope.launch {
+                    updateProjectsLayer(map, expedientes, visibleProjectIds)
+                }
+            }
         })
+    }
+
+    // Effect for updating project geometry when list or visibility changes
+    LaunchedEffect(expedientes, visibleProjectIds) {
+        mapInstance?.let { map ->
+            if (map.style != null && map.style!!.isFullyLoaded) {
+                 updateProjectsLayer(map, expedientes, visibleProjectIds)
+            }
+        }
     }
 
     LaunchedEffect(targetLat, targetLng) {
@@ -381,6 +462,23 @@ fun NativeMap(
     LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
         mapInstance?.let { map ->
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) { }
+            // Re-add project layers after style reload
+            map.getStyle { style ->
+                 if (style.getSource(SOURCE_PROJECTS) == null) {
+                    val geoJsonSource = GeoJsonSource(SOURCE_PROJECTS)
+                    style.addSource(geoJsonSource)
+
+                    val projectFill = FillLayer(LAYER_PROJECTS_FILL, SOURCE_PROJECTS)
+                    projectFill.setProperties(PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), PropertyFactory.fillOpacity(0.4f))
+                    style.addLayer(projectFill)
+
+                    val projectLine = LineLayer(LAYER_PROJECTS_LINE, SOURCE_PROJECTS)
+                    projectLine.setProperties(PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()), PropertyFactory.lineWidth(2f))
+                    style.addLayer(projectLine)
+                    
+                    scope.launch { updateProjectsLayer(map, expedientes, visibleProjectIds) }
+                 }
+            }
         }
     }
 
@@ -440,7 +538,9 @@ fun NativeMap(
 
         // --- BOTONES (TOP END) ---
         Column(modifier = Modifier.align(Alignment.TopEnd).padding(top = 90.dp, end = 16.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.Settings, "Capas") }
+            
+            // Botón Capas
+            SmallFloatingActionButton(onClick = { showLayerMenu = !showLayerMenu; showProjectsMenu = false }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.Settings, "Capas") }
 
             AnimatedVisibility(visible = showLayerMenu) {
                 Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
@@ -465,6 +565,43 @@ fun NativeMap(
                     }
                 }
             }
+
+            // Botón Proyectos (Visibilidad KML)
+            SmallFloatingActionButton(onClick = { showProjectsMenu = !showProjectsMenu; showLayerMenu = false }, containerColor = MaterialTheme.colorScheme.surface, contentColor = Color(0xFF2196F3), shape = CircleShape) { Icon(Icons.Default.Folder, "Proyectos") }
+
+            AnimatedVisibility(visible = showProjectsMenu) {
+                Card(modifier = Modifier.width(200.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Proyectos (KML)", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        if (expedientes.isEmpty()) {
+                            Text("No hay proyectos cargados", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(4.dp))
+                        } else {
+                            // Lista Scroleable si hay muchos
+                            Column(modifier = Modifier.heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
+                                expedientes.forEach { exp ->
+                                    val isVisible = visibleProjectIds.contains(exp.id)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically, 
+                                        modifier = Modifier.fillMaxWidth().clickable {
+                                            visibleProjectIds = if (isVisible) visibleProjectIds - exp.id else visibleProjectIds + exp.id
+                                        }
+                                    ) {
+                                        Checkbox(
+                                            checked = isVisible, 
+                                            onCheckedChange = { chk -> visibleProjectIds = if (chk) visibleProjectIds + exp.id else visibleProjectIds - exp.id },
+                                            modifier = Modifier.size(30.dp).padding(4.dp),
+                                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2196F3))
+                                        )
+                                        Text(exp.titular, fontSize = 12.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
             SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, shouldCenter = true) }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.MyLocation, "Ubicación") }
@@ -479,12 +616,10 @@ fun NativeMap(
 
         // BOTTOM SHEET (Info)
         if (!showCustomKeyboard) {
-            // MOSTRAR SI: Hay referencia instantánea detectada (movimiento) O hay datos cargados (reposo)
             val showSheet = instantSigpacRef.isNotEmpty() || recintoData != null || (cultivoData != null && showCultivo)
             
             AnimatedVisibility(visible = showSheet, enter = slideInVertically(initialOffsetY = { it }), exit = slideOutVertically(targetOffsetY = { it }), modifier = Modifier.align(Alignment.BottomCenter)) {
-                // Usamos recintoData para el cuerpo, pero instantSigpacRef para la cabecera
-                val displayData = recintoData ?: mapOf("provincia" to "", "municipio" to "") // Fallback seguro
+                val displayData = recintoData ?: mapOf("provincia" to "", "municipio" to "") 
                 
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(0.dp).animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
@@ -500,7 +635,6 @@ fun NativeMap(
                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                             Column {
                                 Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray)
-                                // AQUÍ ESTÁ EL CAMBIO CLAVE: Mostramos la referencia instantánea si existe
                                 Text(
                                     text = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}...",
                                     style = MaterialTheme.typography.titleMedium, 
@@ -511,7 +645,6 @@ fun NativeMap(
                             IconButton(onClick = { instantSigpacRef = ""; recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
                         }
                         
-                        // Solo mostramos pestañas y detalle si tenemos datos cargados (es decir, en reposo)
                         if (recintoData != null) {
                             Divider(color = FieldDivider)
 
