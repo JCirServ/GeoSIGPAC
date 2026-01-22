@@ -444,7 +444,15 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                                     Column {
                                         Text(req.description, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF62D2FF))
                                         Spacer(Modifier.height(4.dp))
-                                        Text(req.requirement, fontSize = 14.sp, color = Color.LightGray, lineHeight = 18.sp)
+                                        // FORMATO LISTA CON VIÑETAS (BULLETS)
+                                        req.requirement.split("\n").forEach { line ->
+                                            if (line.isNotBlank()) {
+                                                Row(modifier = Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.Top) {
+                                                    Text("•", color = Color(0xFF62D2FF), fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 6.dp))
+                                                    Text(line.trim(), fontSize = 14.sp, color = Color.LightGray, lineHeight = 18.sp)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
