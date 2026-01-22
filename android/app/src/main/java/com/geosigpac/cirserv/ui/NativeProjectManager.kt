@@ -447,12 +447,15 @@ fun NativeRecintoCard(
                                 .padding(12.dp)
                         ) {
                              Column {
-                                 // Mostrar Discrepancia Explicita o Aviso
+                                 // Variables de condición para el selector de uso
                                  val isWarning = agroAnalysis.explanation.contains("AVISO", ignoreCase = true) || agroAnalysis.explanation.contains("Nota", ignoreCase = true)
+                                 val hasError = !agroAnalysis.isCompatible
+                                 val hasManualOverride = parcela.verifiedUso != null
                                  
-                                 if (!agroAnalysis.isCompatible || isWarning) {
-                                     val title = if (!agroAnalysis.isCompatible) "DISCREPANCIA DETECTADA" else "AVISO DE COHERENCIA"
-                                     val color = if (!agroAnalysis.isCompatible) Color(0xFFFF5252) else Color(0xFFFF9800)
+                                 // Mostrar Discrepancia Explicita o Aviso
+                                 if (hasError || isWarning) {
+                                     val title = if (hasError) "DISCREPANCIA DETECTADA" else "AVISO DE COHERENCIA"
+                                     val color = if (hasError) Color(0xFFFF5252) else Color(0xFFFF9800)
 
                                      Text(title, color = color, fontSize = 12.sp, fontWeight = FontWeight.Black)
                                      Spacer(Modifier.height(4.dp))
@@ -464,54 +467,57 @@ fun NativeRecintoCard(
                                  }
 
                                  // Checkbox implícito: Seleccionar uso
-                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                     val isUsoChecked = parcela.verifiedUso != null
-                                     Icon(
-                                         imageVector = if(isUsoChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                                         contentDescription = null,
-                                         tint = if(isUsoChecked) Color(0xFF00FF88) else Color.Gray,
-                                         modifier = Modifier.size(24.dp).clickable {
-                                             if (isUsoChecked) {
-                                                 onUpdateParcela(parcela.copy(verifiedUso = null))
-                                             } else {
-                                                 showUsoDropdown = true
-                                             }
-                                         }
-                                     )
-                                     Spacer(Modifier.width(12.dp))
-                                     
-                                     // Desplegable de Uso
-                                     Box(modifier = Modifier.weight(1f)) {
-                                         OutlinedButton(
-                                             onClick = { showUsoDropdown = true },
-                                             modifier = Modifier.fillMaxWidth(),
-                                             colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = Color.White),
-                                             border = BorderStroke(1.dp, if(isUsoChecked) Color(0xFF00FF88) else Color.Gray)
-                                         ) {
-                                             Text(text = if(parcela.verifiedUso != null) "USO OBSERVADO: ${parcela.verifiedUso}" else "SELECCIONAR USO REAL...", fontSize = 13.sp)
-                                         }
-                                         
-                                         DropdownMenu(
-                                             expanded = showUsoDropdown,
-                                             onDismissRequest = { showUsoDropdown = false },
-                                             modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                                         ) {
-                                             // Opción para deseleccionar
-                                             DropdownMenuItem(
-                                                 text = { Text("Ninguno (Borrar)", fontSize = 14.sp, color = Color(0xFFFF5252)) },
-                                                 onClick = { 
+                                 // SOLO SE MUESTRA SI: Hay Error, Hay Aviso, o el usuario YA lo ha tocado.
+                                 if (hasError || isWarning || hasManualOverride) {
+                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                         val isUsoChecked = parcela.verifiedUso != null
+                                         Icon(
+                                             imageVector = if(isUsoChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                             contentDescription = null,
+                                             tint = if(isUsoChecked) Color(0xFF00FF88) else Color.Gray,
+                                             modifier = Modifier.size(24.dp).clickable {
+                                                 if (isUsoChecked) {
                                                      onUpdateParcela(parcela.copy(verifiedUso = null))
-                                                     showUsoDropdown = false 
+                                                 } else {
+                                                     showUsoDropdown = true
                                                  }
-                                             )
-                                             commonUsos.forEach { (code, desc) ->
+                                             }
+                                         )
+                                         Spacer(Modifier.width(12.dp))
+                                         
+                                         // Desplegable de Uso
+                                         Box(modifier = Modifier.weight(1f)) {
+                                             OutlinedButton(
+                                                 onClick = { showUsoDropdown = true },
+                                                 modifier = Modifier.fillMaxWidth(),
+                                                 colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                                                 border = BorderStroke(1.dp, if(isUsoChecked) Color(0xFF00FF88) else Color.Gray)
+                                             ) {
+                                                 Text(text = if(parcela.verifiedUso != null) "USO OBSERVADO: ${parcela.verifiedUso}" else "SELECCIONAR USO REAL...", fontSize = 13.sp)
+                                             }
+                                             
+                                             DropdownMenu(
+                                                 expanded = showUsoDropdown,
+                                                 onDismissRequest = { showUsoDropdown = false },
+                                                 modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                                             ) {
+                                                 // Opción para deseleccionar
                                                  DropdownMenuItem(
-                                                     text = { Text("$code - $desc", fontSize = 14.sp) },
+                                                     text = { Text("Ninguno (Borrar)", fontSize = 14.sp, color = Color(0xFFFF5252)) },
                                                      onClick = { 
-                                                         onUpdateParcela(parcela.copy(verifiedUso = code))
+                                                         onUpdateParcela(parcela.copy(verifiedUso = null))
                                                          showUsoDropdown = false 
                                                      }
                                                  )
+                                                 commonUsos.forEach { (code, desc) ->
+                                                     DropdownMenuItem(
+                                                         text = { Text("$code - $desc", fontSize = 14.sp) },
+                                                         onClick = { 
+                                                             onUpdateParcela(parcela.copy(verifiedUso = code))
+                                                             showUsoDropdown = false 
+                                                         }
+                                                     )
+                                                 }
                                              }
                                          }
                                      }
