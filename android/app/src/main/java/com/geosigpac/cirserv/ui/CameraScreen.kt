@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -350,32 +351,25 @@ fun CameraScreen(
 
     // Cajetín de Información
     val InfoBox = @Composable {
-        Row(verticalAlignment = Alignment.Top) {
-            // Si hay match, mostramos el icono a la izquierda de la caja de info
-            if (matchedParcelInfo != null) {
-                MatchInfoBtn()
-                Spacer(Modifier.width(12.dp))
-            }
-            
-            Box(
-                modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(locationText, color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
-                    Spacer(Modifier.height(6.dp))
-                    if (sigpacRef != null) {
-                        Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
-                        Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
-                        
-                        // Subtexto indicador
-                        if (matchedParcelInfo != null) {
-                            Text("EN PROYECTO", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
-                        }
-                    } else if (showNoDataMessage) {
-                        Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
-                    } else {
-                        Text("Analizando zona...", color = Color.LightGray, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+        // Se ha movido el botón de alerta fuera de este componente
+        Box(
+            modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.End) {
+                Text(locationText, color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                Spacer(Modifier.height(6.dp))
+                if (sigpacRef != null) {
+                    Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
+                    Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
+                    
+                    // Subtexto indicador
+                    if (matchedParcelInfo != null) {
+                        Text("EN PROYECTO", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     }
+                } else if (showNoDataMessage) {
+                    Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+                } else {
+                    Text("Analizando zona...", color = Color.LightGray, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
                 }
             }
         }
@@ -537,11 +531,12 @@ fun CameraScreen(
         if (isLandscape) {
             // ================= LANDSCAPE LAYOUT =================
             
-            // Arriba Izquierda: Botones en FILA (Configuración izq, Proyectos der)
+            // Arriba Izquierda: Botones en FILA (Configuración izq, Proyectos der, Info match der)
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     SettingsBtn()
                     ProjectsBtn()
+                    MatchInfoBtn()
                 }
             }
 
@@ -575,11 +570,12 @@ fun CameraScreen(
         } else {
             // ================= PORTRAIT LAYOUT =================
             
-            // Arriba Izquierda: Botones en COLUMNA (Configuración arriba, Proyectos abajo)
+            // Arriba Izquierda: Botones en COLUMNA (Configuración arriba, Proyectos abajo, Info match abajo)
             Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     SettingsBtn()
                     ProjectsBtn()
+                    MatchInfoBtn()
                 }
             }
 
