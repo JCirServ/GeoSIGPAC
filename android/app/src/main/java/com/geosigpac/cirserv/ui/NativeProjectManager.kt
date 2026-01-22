@@ -313,7 +313,8 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
                 ayudasRaw = parcela.cultivoInfo?.parcAyudasol,
                 pdrRaw = parcela.cultivoInfo?.pdrRec,
                 sistExp = parcela.cultivoInfo?.parcSistexp,
-                coefRegadio = parcela.sigpacInfo?.coefRegadio
+                coefRegadio = parcela.sigpacInfo?.coefRegadio,
+                pendienteMedia = parcela.sigpacInfo?.pendienteMedia
             )
         } else null
     }

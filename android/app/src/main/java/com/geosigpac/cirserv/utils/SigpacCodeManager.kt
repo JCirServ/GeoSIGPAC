@@ -418,7 +418,8 @@ object SigpacCodeManager {
         ayudasRaw: String?,
         pdrRaw: String?,
         sistExp: String?,
-        coefRegadio: Double?
+        coefRegadio: Double?,
+        pendienteMedia: Double?
     ): AgroAnalysisResult {
         // 1. Compatibilidad Cultivo vs Uso SIGPAC
         val compatibility = checkCompatibility(productoCode, productoDesc, sigpacUso)
@@ -428,6 +429,11 @@ object SigpacCodeManager {
 
         // 3. Requisitos
         val requirements = getFieldRequirements(ayudasRaw, pdrRaw)
+        
+        // 4. Pendiente (Nuevo)
+        val slopeCheck = if (pendienteMedia != null && pendienteMedia > 10.0) {
+            "AVISO PENDIENTE: Valor elevado (${pendienteMedia}%). Verificar laboreo a favor de pendiente."
+        } else null
 
         val finalIsCompatible = compatibility.first && irrigationCheck.first
         
@@ -435,6 +441,9 @@ object SigpacCodeManager {
         sb.append(compatibility.second)
         if (irrigationCheck.second != null) {
             sb.append("\n").append(irrigationCheck.second)
+        }
+        if (slopeCheck != null) {
+            sb.append("\n").append(slopeCheck)
         }
 
         return AgroAnalysisResult(
