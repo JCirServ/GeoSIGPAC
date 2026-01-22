@@ -327,7 +327,9 @@ fun NativeRecintoCard(
     LaunchedEffect(agroAnalysis) {
         if (agroAnalysis != null && parcela.verifiedUso == null) {
              val sigpacUsoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull() // "TA (TIERRAS..)" -> "TA"
-             if (agroAnalysis.isCompatible && !agroAnalysis.explanation.contains("AVISO") && sigpacUsoRaw != null) {
+             // AUTO-COMPLETAR si es compatible (INCLUSO CON AVISO NARANJA)
+             // Esto satisface: "Deja marcado el hidratado si no hay discrepancia entre cultivo y uso"
+             if (agroAnalysis.isCompatible && sigpacUsoRaw != null) {
                  onUpdateParcela(parcela.copy(verifiedUso = sigpacUsoRaw))
              }
         }
@@ -436,7 +438,7 @@ fun NativeRecintoCard(
                                      Divider(color = Color.White.copy(0.1f), modifier = Modifier.padding(vertical=8.dp))
                                  }
 
-                                 // Lógica de ERROR DE RIEGO
+                                 // Lógica de ERROR DE RIEGO (Rojo Documental)
                                  if (isIrrigationError) {
                                      Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
                                          Icon(Icons.Default.Warning, null, tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
@@ -446,9 +448,9 @@ fun NativeRecintoCard(
                                  }
 
                                  // Checkbox implícito: Seleccionar uso
-                                 // SOLO SE MUESTRA SI: Error de Uso Incompatible o Manual Override.
-                                 // Se oculta si es solo Error de Riego o solo Aviso Naranja.
-                                 if (isUseIncompatible || hasManualOverride) {
+                                 // SE MUESTRA SI: Error de Uso, Aviso Naranja (isWarning) o si ya está marcado (Override)
+                                 // Esto cumple: "En los recintos con aviso naranja deja el checklist de uso observado"
+                                 if (isUseIncompatible || isWarning || hasManualOverride) {
                                      Row(verticalAlignment = Alignment.CenterVertically) {
                                          val isUsoChecked = parcela.verifiedUso != null
                                          Icon(
