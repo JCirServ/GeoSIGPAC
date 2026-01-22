@@ -305,9 +305,9 @@ fun CameraScreen(
         Box(
             modifier = Modifier
                 .size(80.dp)
-                .border(4.dp, Color.White, CircleShape)
+                .border(4.dp, NeonGreen, CircleShape)
                 .padding(6.dp)
-                .background(Color.White, CircleShape)
+                .background(NeonGreen, CircleShape)
                 .clickable {
                     takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
                         onImageCaptured = { uri -> onImageCaptured(uri) }, onError)
@@ -323,14 +323,14 @@ fun CameraScreen(
                     .size(80.dp)
                     .clip(RoundedCornerShape(24.dp)) 
                     .background(Color.Black.copy(0.5f))
-                    .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
+                    .border(2.dp, NeonGreen, RoundedCornerShape(24.dp))
                     .clickable { onClose() }, 
                 contentAlignment = Alignment.Center
             ) { 
                 if (capturedBitmap != null) {
                     Image(bitmap = capturedBitmap!!, contentDescription = "Preview", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 } else {
-                    Icon(imageVector = Icons.Default.Image, contentDescription = "Sin Foto", tint = Color.White, modifier = Modifier.size(36.dp))
+                    Icon(imageVector = Icons.Default.Image, contentDescription = "Sin Foto", tint = NeonGreen, modifier = Modifier.size(36.dp))
                 }
             }
             if (photoCount > 0) {
@@ -351,7 +351,7 @@ fun CameraScreen(
                 .size(80.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color.Black.copy(0.5f))
-                .border(2.dp, Color.White.copy(0.7f), RoundedCornerShape(24.dp))
+                .border(2.dp, NeonGreen, RoundedCornerShape(24.dp))
                 .clickable { onGoToMap() },
             contentAlignment = Alignment.Center
         ) { Icon(MapIcon, "Mapa", tint = NeonGreen, modifier = Modifier.size(36.dp)) }
