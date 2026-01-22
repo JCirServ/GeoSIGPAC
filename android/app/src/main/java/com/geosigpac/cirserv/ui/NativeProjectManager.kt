@@ -7,6 +7,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -213,12 +215,14 @@ fun ProjectListItem(
     val hydratedCount = exp.parcelas.count { it.isHydrated }
     val progress = if (exp.parcelas.isEmpty()) 0f else hydratedCount.toFloat() / exp.parcelas.size
     val animatedProgress by animateFloatAsState(targetValue = progress)
+    val isComplete = progress >= 1.0f
 
     Card(
         modifier = Modifier
             .padding(horizontal = 20.dp, vertical = 8.dp)
             .fillMaxWidth()
-            .clickable { onSelect() },
+            .clickable { onSelect() }
+            .animateContentSize(), // Permite que el cambio de tamaño sea suave
         colors = CardDefaults.cardColors(containerColor = if(isActive) MaterialTheme.colorScheme.surface.copy(alpha = 0.9f) else MaterialTheme.colorScheme.surface.copy(alpha=0.6f)),
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(
@@ -249,8 +253,23 @@ fun ProjectListItem(
                 
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.Gray.copy(0.3f), modifier = Modifier.size(24.dp)) }
             }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape), color = Color(0xFF00FF88), trackColor = Color.White.copy(0.05f))
+            
+            // Barra de progreso visible solo si no está completa
+            AnimatedVisibility(
+                visible = !isComplete,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { animatedProgress }, 
+                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape), 
+                        color = Color(0xFF00FF88), 
+                        trackColor = Color.White.copy(0.05f)
+                    )
+                }
+            }
         }
     }
 }
