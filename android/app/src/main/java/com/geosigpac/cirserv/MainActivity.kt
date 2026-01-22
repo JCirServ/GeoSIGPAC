@@ -114,6 +114,7 @@ fun GeoSigpacApp() {
     if (isCameraOpen) {
         BackHandler { isCameraOpen = false }
         CameraScreen(
+            expedientes = expedientes, // Pasamos la lista completa para el chequeo de ubicación
             projectId = currentParcelaId,
             lastCapturedUri = null,
             photoCount = 0,

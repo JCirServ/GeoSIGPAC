@@ -26,6 +26,11 @@ import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -38,6 +43,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -64,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.geosigpac.cirserv.model.NativeExpediente
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -82,6 +89,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 
 @Composable
 fun CameraScreen(
+    expedientes: List<NativeExpediente>,
     projectId: String?,
     lastCapturedUri: Uri?,
     photoCount: Int,
@@ -102,6 +110,7 @@ fun CameraScreen(
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) }
     var showGrid by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(false) }
 
     // --- OBJETOS CAMERAX ---
     var camera by remember { mutableStateOf<Camera?>(null) }
@@ -145,6 +154,41 @@ fun CameraScreen(
     var currentLocation by remember { mutableStateOf<Location?>(null) }
     var lastApiLocation by remember { mutableStateOf<Location?>(null) }
     var lastApiTimestamp by remember { mutableStateOf(0L) }
+
+    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO ---
+    // Busca si la referencia actual coincide con alguna parcela de los proyectos cargados
+    val matchedParcelInfo = remember(sigpacRef, expedientes) {
+        if (sigpacRef == null) return@remember null
+        
+        // Formato normalizado simple para comparar (a veces vienen con ceros, aquí asumimos string exacto por ahora)
+        // Podríamos mejorar esto normalizando strings, pero KmlParser ya formatea bastante bien.
+        
+        var foundExp: NativeExpediente? = null
+        val foundParcel = expedientes.flatMap { exp ->
+            exp.parcelas.map { p -> 
+                if (p.referencia == sigpacRef) {
+                    foundExp = exp
+                    p 
+                } else null
+            }
+        }.filterNotNull().firstOrNull()
+
+        if (foundParcel != null && foundExp != null) {
+            Pair(foundExp!!, foundParcel)
+        } else null
+    }
+
+    // Animación de Parpadeo
+    val infiniteTransition = rememberInfiniteTransition()
+    val blinkAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "Blink"
+    )
     
     // --- ICONO MAPA MANUAL ---
     val MapIcon = remember {
@@ -265,6 +309,7 @@ fun CameraScreen(
 
     // --- COMPONENTES UI REUTILIZABLES ---
     val NeonGreen = Color(0xFF00FF88)
+    val NeonYellow = Color(0xFFFFFF00)
 
     // Definición individual de botones para reorganización flexible
     val ProjectsBtn = @Composable {
@@ -281,21 +326,56 @@ fun CameraScreen(
         ) { Icon(Icons.Default.Settings, "Configuración", tint = NeonGreen) }
     }
 
+    // --- NUEVO: BOTÓN INFO PARPADEANTE ---
+    val MatchInfoBtn = @Composable {
+        if (matchedParcelInfo != null) {
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(0.7f))
+                    .border(2.dp, NeonYellow.copy(alpha = blinkAlpha), CircleShape) // Borde parpadeante
+                    .clickable { showInfoDialog = true },
+                contentAlignment = Alignment.Center
+            ) { 
+                Icon(
+                    Icons.Default.Info, 
+                    contentDescription = "Info Parcela", 
+                    tint = NeonYellow.copy(alpha = blinkAlpha), // Icono parpadeante
+                    modifier = Modifier.size(32.dp)
+                ) 
+            }
+        }
+    }
+
     // Cajetín de Información
     val InfoBox = @Composable {
-        Box(
-            modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.End) {
-                Text(locationText, color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
-                Spacer(Modifier.height(6.dp))
-                if (sigpacRef != null) {
-                    Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
-                    Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
-                } else if (showNoDataMessage) {
-                    Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
-                } else {
-                    Text("Analizando zona...", color = Color.LightGray, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+        Row(verticalAlignment = Alignment.Top) {
+            // Si hay match, mostramos el icono a la izquierda de la caja de info
+            if (matchedParcelInfo != null) {
+                MatchInfoBtn()
+                Spacer(Modifier.width(12.dp))
+            }
+            
+            Box(
+                modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(locationText, color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                    Spacer(Modifier.height(6.dp))
+                    if (sigpacRef != null) {
+                        Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
+                        Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
+                        
+                        // Subtexto indicador
+                        if (matchedParcelInfo != null) {
+                            Text("EN PROYECTO", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                        }
+                    } else if (showNoDataMessage) {
+                        Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+                    } else {
+                        Text("Analizando zona...", color = Color.LightGray, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+                    }
                 }
             }
         }
@@ -558,6 +638,34 @@ fun CameraScreen(
                     }
                 },
                 confirmButton = { TextButton(onClick = { showSettingsDialog = false }) { Text("Cerrar") } }
+            )
+        }
+        
+        // --- DIÁLOGO INFO PARCELA ---
+        if (showInfoDialog && matchedParcelInfo != null) {
+            val (exp, parc) = matchedParcelInfo
+            AlertDialog(
+                onDismissRequest = { showInfoDialog = false },
+                icon = { Icon(Icons.Default.Info, null, tint = NeonGreen) },
+                title = { Text("Estás en un recinto cargado", fontWeight = FontWeight.Bold, color = NeonGreen) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Proyecto", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text(exp.titular, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Divider()
+                        Text("Parcela / Referencia", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text(parc.referencia, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        Divider()
+                        Text("Uso KML", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text(parc.uso, fontWeight = FontWeight.Bold)
+                    }
+                },
+                confirmButton = { 
+                    TextButton(onClick = { showInfoDialog = false }) { Text("Entendido", color = NeonGreen) } 
+                },
+                containerColor = Color(0xFF252525),
+                titleContentColor = NeonGreen,
+                textContentColor = Color.White
             )
         }
     }
