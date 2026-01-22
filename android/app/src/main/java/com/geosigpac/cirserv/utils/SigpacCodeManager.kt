@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv.utils
 
 import android.content.Context
@@ -440,9 +439,15 @@ object SigpacCodeManager {
         // 3. Requisitos
         val requirements = getFieldRequirements(ayudasRaw, pdrRaw)
         
-        // 4. Pendiente (Nuevo)
+        // 4. Pendiente
+        val normalizedSigpac = sigpacUso?.trim()?.split(" ")?.get(0)?.uppercase()
+        val isPastos = listOf("PS", "PR", "PA").contains(normalizedSigpac)
+        val isCompatible = compatibility.first
+        
         val slopeCheck = if (pendienteMedia != null && pendienteMedia > 10.0) {
-            "AVISO PENDIENTE: Valor elevado (${pendienteMedia}%). Verificar laboreo a favor de pendiente."
+            // Si es pastos y es compatible, no aplica pendiente (no se labra)
+            if (isPastos && isCompatible) null 
+            else "AVISO PENDIENTE: Valor elevado (${pendienteMedia}%). Verificar laboreo a favor de pendiente."
         } else null
 
         val finalIsCompatible = compatibility.first && irrigationCheck.first
