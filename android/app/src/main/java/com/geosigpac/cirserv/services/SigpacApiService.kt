@@ -42,9 +42,13 @@ object SigpacApiService {
                 if (array.length() > 0) {
                     val props = array.getJSONObject(0)
                     
-                    // Traducir código de uso si está disponible
+                    // Traducir código de uso
                     val rawUso = props.optString("uso_sigpac")
                     val translatedUso = SigpacCodeManager.getUsoDescription(rawUso)
+
+                    // Traducir código de región
+                    val rawRegion = props.optString("region")
+                    val translatedRegion = SigpacCodeManager.getRegionDescription(rawRegion)
 
                     SigpacData(
                         superficie = if (props.isNull("superficie")) null else props.optDouble("superficie"),
@@ -53,7 +57,7 @@ object SigpacApiService {
                         admisibilidad = if (props.isNull("admisibilidad")) null else props.optDouble("admisibilidad"),
                         incidencias = props.optString("incidencias")?.replace("[", "")?.replace("]", "")?.replace("\"", ""),
                         usoSigpac = translatedUso,
-                        region = props.optString("region"),
+                        region = translatedRegion,
                         altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                     )
                 } else null

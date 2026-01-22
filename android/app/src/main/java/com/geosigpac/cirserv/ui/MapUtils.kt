@@ -222,13 +222,17 @@ suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? 
                 val rawUso = getProp("uso_sigpac")
                 val translatedUso = SigpacCodeManager.getUsoDescription(rawUso) ?: rawUso
 
+                // Traducir Región
+                val rawRegion = getProp("region")
+                val translatedRegion = SigpacCodeManager.getRegionDescription(rawRegion) ?: rawRegion
+
                 return@withContext mapOf(
                     "provincia" to prov, "municipio" to mun, "agregado" to getProp("agregado"),
                     "zona" to getProp("zona"), "poligono" to pol, "parcela" to getProp("parcela"), "recinto" to getProp("recinto"),
                     "superficie" to superficieRaw, "pendiente_media" to getProp("pendiente_media"), "altitud" to altitudVal,
                     "uso_sigpac" to translatedUso, "subvencionabilidad" to getProp("coef_admisibilidad_pastos"),
                     "coef_regadio" to getProp("coef_regadio"), "incidencias" to getProp("incidencias").replace("[", "").replace("]", "").replace("\"", ""),
-                    "region" to getProp("region")
+                    "region" to translatedRegion
                 )
             }
         }

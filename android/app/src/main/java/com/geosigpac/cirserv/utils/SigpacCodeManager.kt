@@ -12,36 +12,51 @@ import java.net.URL
 
 object SigpacCodeManager {
     private const val TAG = "SigpacCodeManager"
+    
+    // USOS
     private const val FILE_USOS = "cod_uso_sigpac.json"
     private const val URL_USOS = "https://sigpac-hubcloud.es/codigossigpac/cod_uso_sigpac.json"
+    
+    // REGIONES
+    private const val FILE_REGIONES = "cod_region_2023.json"
+    private const val URL_REGIONES = "https://sigpac-hubcloud.es/codigossigpac/cod_region_2023.json"
 
-    // Mapa en memoria: Código -> Descripción
+    // Mapas en memoria: Código -> Descripción
     private var usoMap: MutableMap<String, String> = mutableMapOf()
+    private var regionMap: MutableMap<String, String> = mutableMapOf()
+    
     private var isInitialized = false
 
     suspend fun initialize(context: Context) {
         if (isInitialized) return
         withContext(Dispatchers.IO) {
-            val file = File(context.filesDir, FILE_USOS)
-            
-            // 1. Si no existe, descargar
-            if (!file.exists()) {
-                downloadFile(URL_USOS, file)
-            }
-
-            // 2. Cargar en memoria
-            if (file.exists()) {
+            // --- USOS ---
+            val fileUsos = File(context.filesDir, FILE_USOS)
+            if (!fileUsos.exists()) downloadFile(URL_USOS, fileUsos)
+            if (fileUsos.exists()) {
                 try {
-                    val jsonString = file.readText()
-                    parseUsosJson(jsonString)
-                    isInitialized = true
+                    parseUsosJson(fileUsos.readText())
                     Log.d(TAG, "Códigos de uso cargados: ${usoMap.size}")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing local JSON: ${e.message}")
-                    // Si falla el parseo local, intentar descargar de nuevo para la próxima
-                    file.delete()
+                    Log.e(TAG, "Error parsing usos JSON: ${e.message}")
+                    fileUsos.delete()
                 }
             }
+
+            // --- REGIONES ---
+            val fileRegiones = File(context.filesDir, FILE_REGIONES)
+            if (!fileRegiones.exists()) downloadFile(URL_REGIONES, fileRegiones)
+            if (fileRegiones.exists()) {
+                try {
+                    parseRegionesJson(fileRegiones.readText())
+                    Log.d(TAG, "Códigos de región cargados: ${regionMap.size}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing regiones JSON: ${e.message}")
+                    fileRegiones.delete()
+                }
+            }
+
+            isInitialized = true
         }
     }
 
@@ -87,6 +102,26 @@ object SigpacCodeManager {
         }
     }
 
+    private fun parseRegionesJson(jsonString: String) {
+        try {
+            val root = JSONObject(jsonString)
+            val codigos = root.optJSONArray("codigos") ?: return
+            
+            for (i in 0 until codigos.length()) {
+                val item = codigos.getJSONObject(i)
+                // En el JSON de regiones, codigo es un entero (1, 2, ...), lo convertimos a String para mapear
+                val codigo = item.optString("codigo") 
+                val descripcion = item.optString("descripcion")
+                
+                if (codigo.isNotEmpty()) {
+                    regionMap[codigo] = descripcion
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     /**
      * Devuelve el código formateado: "CA (VIALES)"
      * Si no encuentra descripción, devuelve solo el código: "CA"
@@ -102,5 +137,15 @@ object SigpacCodeManager {
         } else {
             code
         }
+    }
+
+    /**
+     * Devuelve la descripción de la región.
+     * Ejemplo: Si code="1", devuelve "1-TCS"
+     */
+    fun getRegionDescription(code: String?): String? {
+        if (code.isNullOrEmpty()) return null
+        // Si existe en el mapa devolvemos la descripción (ej: "1-TCS"), si no, el código original
+        return regionMap[code] ?: code
     }
 }
