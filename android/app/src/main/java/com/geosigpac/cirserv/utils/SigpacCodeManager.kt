@@ -448,12 +448,15 @@ object SigpacCodeManager {
         val finalIsCompatible = compatibility.first && irrigationCheck.first
         
         val sb = StringBuilder()
-        sb.append(compatibility.second)
+        if (compatibility.second.isNotEmpty()) sb.append(compatibility.second)
+        
         if (irrigationCheck.second != null) {
-            sb.append("\n").append(irrigationCheck.second)
+            if (sb.isNotEmpty()) sb.append("\n")
+            sb.append(irrigationCheck.second)
         }
         if (slopeCheck != null) {
-            sb.append("\n").append(slopeCheck)
+            if (sb.isNotEmpty()) sb.append("\n")
+            sb.append(slopeCheck)
         }
 
         return AgroAnalysisResult(
@@ -495,29 +498,29 @@ object SigpacCodeManager {
         val prodDisplay = productoDesc ?: "Desconocido"
         
         // Mapeo Heurístico Rápido de Producto -> Uso SIGPAC Esperado
-        val expectedUso = inferUsoFromProduct(productoCode, productoDesc) ?: return Pair(true, "Producto sin regla definida, asumiendo compatible.")
+        val expectedUso = inferUsoFromProduct(productoCode, productoDesc) ?: return Pair(true, "") // Producto sin regla definida, asumimos compatible silencioso
 
         if (expectedUso == normalizedSigpac) {
-            return Pair(true, "Cultivo compatible con uso $normalizedSigpac.")
+            return Pair(true, "") // Compatible silencioso
         }
 
         // Reglas de compatibilidad cruzada
         val groupTaThIv = listOf("TA", "TH", "IV")
         if (groupTaThIv.contains(expectedUso) && groupTaThIv.contains(normalizedSigpac)) {
-             return Pair(true, "Uso $expectedUso es compatible con $normalizedSigpac (Grupo intercambiable).")
+             return Pair(true, "") // Grupo intercambiable compatible silencioso
         }
 
         // Pastos
         if ((expectedUso == "PS" && normalizedSigpac == "PR") || (expectedUso == "PR" && normalizedSigpac == "PS")) {
-             return Pair(true, "Pastos (PS) y Pasto Arbustivo (PR) son compatibles.")
+             return Pair(true, "") // Pastos compatibles silencioso
         }
 
         // Leñosos compatibles
-        if ((expectedUso == "FY" || expectedUso == "CI") && normalizedSigpac == "CF") return Pair(true, "Compatible con Cítricos-Frutales (CF).")
-        if (expectedUso == "OV" && (normalizedSigpac == "FL" || normalizedSigpac == "OF")) return Pair(true, "Olivar compatible con $normalizedSigpac.")
-        if (expectedUso == "FS" && (normalizedSigpac == "FL" || normalizedSigpac == "FV")) return Pair(true, "Frutos Secos compatible con $normalizedSigpac.")
-        if (expectedUso == "VI" && normalizedSigpac == "FV") return Pair(true, "Viñedo compatible con Frutales-Viñedo (FV).")
-        if (expectedUso == "FY" && normalizedSigpac == "OF") return Pair(true, "Frutales compatible con Olivar-Frutal (OF).")
+        if ((expectedUso == "FY" || expectedUso == "CI") && normalizedSigpac == "CF") return Pair(true, "")
+        if (expectedUso == "OV" && (normalizedSigpac == "FL" || normalizedSigpac == "OF")) return Pair(true, "")
+        if (expectedUso == "FS" && (normalizedSigpac == "FL" || normalizedSigpac == "FV")) return Pair(true, "")
+        if (expectedUso == "VI" && normalizedSigpac == "FV") return Pair(true, "")
+        if (expectedUso == "FY" && normalizedSigpac == "OF") return Pair(true, "")
 
         return Pair(false, "Uso $normalizedSigpac no compatible con cultivo $prodDisplay")
     }
