@@ -281,6 +281,20 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
     var selectedTab by remember { mutableIntStateOf(0) }
     val isLoading = !parcela.isHydrated
 
+    // Cálculo de Análisis Agronómico
+    val agroAnalysis = remember(parcela) {
+        if (parcela.isHydrated) {
+            val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString())
+            SigpacCodeManager.performAgroAnalysis(
+                productoCode = parcela.cultivoInfo?.parcProducto,
+                productoDesc = prodDesc,
+                sigpacUso = parcela.sigpacInfo?.usoSigpac,
+                ayudasRaw = parcela.cultivoInfo?.parcAyudasol,
+                pdrRaw = parcela.cultivoInfo?.pdrRec
+            )
+        } else null
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
@@ -307,18 +321,75 @@ fun NativeRecintoCard(parcela: NativeParcela, onLocate: (String) -> Unit, onCame
 
             if (expanded && parcela.isHydrated) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    // IA REPORT
-                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF00FF88).copy(0.08f)).border(1.dp, Color(0xFF00FF88).copy(0.2f), RoundedCornerShape(12.dp)).padding(10.dp)) {
-                        Row {
-                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF00FF88), modifier = Modifier.size(14.dp))
+                    
+                    // IA REPORT (Compacto)
+                    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(0.03f)).padding(10.dp)) {
+                         Row(verticalAlignment = Alignment.Top) {
+                            Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF62D2FF), modifier = Modifier.size(14.dp).padding(top=2.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(parcela.informeIA ?: "Sin análisis disponible", fontSize = 11.sp, lineHeight = 14.sp)
+                            Text(parcela.informeIA ?: "Sin análisis disponible", fontSize = 10.sp, lineHeight = 12.sp, color = Color.Gray)
                         }
                     }
-                    
+
+                    Spacer(Modifier.height(8.dp))
+
+                    // --- ANÁLISIS TÉCNICO (NUEVO) ---
+                    if (agroAnalysis != null) {
+                        val colorCompat = if (agroAnalysis.isCompatible) Color(0xFF00FF88) else Color(0xFFFF5252)
+                        
+                        // Banner Compatibilidad
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colorCompat.copy(0.1f))
+                                .border(1.dp, colorCompat.copy(0.3f), RoundedCornerShape(12.dp))
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(if(agroAnalysis.isCompatible) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = colorCompat, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        if(agroAnalysis.isCompatible) "USO COMPATIBLE" else "USO INCOMPATIBLE", 
+                                        fontWeight = FontWeight.Black, 
+                                        fontSize = 11.sp,
+                                        color = colorCompat
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(agroAnalysis.explanation, fontSize = 10.sp, color = Color.White)
+                            }
+                        }
+
+                        // Requisitos de Campo (Checklist)
+                        if (agroAnalysis.requirements.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("REQUISITOS DE CAMPO (GUÍA)", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color.Gray, modifier = Modifier.padding(start = 4.dp))
+                            Spacer(Modifier.height(4.dp))
+                            agroAnalysis.requirements.forEach { req ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 6.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color.Black.copy(0.3f))
+                                        .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(8.dp))
+                                        .padding(8.dp)
+                                ) {
+                                    Column {
+                                        Text(req.description, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color(0xFF62D2FF))
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(req.requirement, fontSize = 10.sp, color = Color.LightGray, lineHeight = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(16.dp))
 
-                    // PESTAÑAS
+                    // PESTAÑAS (Recinto / Cultivo)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

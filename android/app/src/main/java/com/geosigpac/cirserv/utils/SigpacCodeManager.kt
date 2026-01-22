@@ -9,6 +9,21 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
+
+data class AgroAnalysisResult(
+    val isCompatible: Boolean,
+    val explanation: String,
+    val requirements: List<FieldGuideEntry>
+)
+
+data class FieldGuideEntry(
+    val code: String? = null,
+    val keywords: List<String>? = null,
+    val excludeCodes: List<String>? = null,
+    val description: String,
+    val requirement: String
+)
 
 object SigpacCodeManager {
     private const val TAG = "SigpacCodeManager"
@@ -51,6 +66,31 @@ object SigpacCodeManager {
     private var productoMap: MutableMap<String, String> = mutableMapOf()
     
     private var isInitialized = false
+
+    // --- REGLAS AGRONÓMICAS (FIELD GUIDE) ---
+    private val FIELD_GUIDE = listOf(
+        FieldGuideEntry(code = "18", description = "[18] Ayuda Básica a la Renta (ABR) / Condicionalidad", requirement = "Actividad Agraria: Comprobar que no hay abandono.\nCondicionalidad: No residuos, Regadío/Secano OK.\nNo labrar a favor de pendiente (si Pendiente>10% sin terraza).\nNo arar en cultivos de invierno (cereales) antes del 1 de septiembre."),
+        FieldGuideEntry(code = "5011", description = "[5011] Ecorregimen Pastos Húmedos", requirement = "Pastoreo Extensivo (505): Animales de la explotación (crotal) (>1), evidencias de pastoreo.\nSiega Sostenible (506): No siega en Julio y Agosto. Máx. 3 cortes (≤300m) o 2 cortes (>300m)."),
+        FieldGuideEntry(code = "5012", description = "[5012] Ecorregimen Pastos Mediterráneos", requirement = "Pastoreo Extensivo (505): Animales de la explotación (crotal) (>1), evidencias de pastoreo.\nSiega Sostenible (506): No siega en Julio y Agosto. Máx. 3 cortes (≤300m) o 2 cortes (>300m)."),
+        FieldGuideEntry(code = "5021", description = "[5021] Ecorregimen T. Cultivo Secano (Rotación/Siembra Directa)", requirement = "Siembra Directa (508): Mantener rastrojo, suelo nunca desnudo.\nRotación (509): Cultivo en campo = Declarado.\nBiodiversidad (512): 7% superficie no productiva."),
+        FieldGuideEntry(code = "5022", description = "[5022] Ecorregimen T. Cultivo Secano Húmedo (Rotación/Siembra Directa)", requirement = "Siembra Directa (508): Mantener rastrojo, suelo nunca desnudo.\nRotación (509): Cultivo en campo = Declarado.\nBiodiversidad (512): 7% superficie no productiva."),
+        FieldGuideEntry(code = "5023", description = "[5023] Ecorregimen T. Cultivo Regadío (Rotación/Siembra Directa)", requirement = "Siembra Directa (508): Mantener rastrojo, suelo nunca desnudo.\nRotación (509): Cultivo en campo = Declarado.\nBiodiversidad (512): 4% superficie no productiva."),
+        FieldGuideEntry(code = "5031", description = "[5031] Ecorregimen Leñosos (Cubiertas Vegetales/Inertes)", requirement = "Cubierta Viva (510): Cubrir 40% ancho libre de copa (mín. 0.5m). No herbicidas/laboreos profundos.\nCubierta Inerte (511): Triturado de poda cubriendo 40% ancho libre de copa."),
+        FieldGuideEntry(code = "5032", description = "[5032] Ecorregimen Leñosos (Cubiertas Vegetales/Inertes)", requirement = "Cubierta Viva (510): Cubrir 40% ancho libre de copa (mín. 0.5m). No herbicidas/laboreos profundos.\nCubierta Inerte (511): Triturado de poda cubriendo 40% ancho libre de copa."),
+        FieldGuideEntry(code = "5033", description = "[5033] Ecorregimen Leñosos (Cubiertas Vegetales/Inertes)", requirement = "Cubierta Viva (510): Cubrir 40% ancho libre de copa (mín. 0.5m). No herbicidas/laboreos profundos.\nCubierta Inerte (511): Triturado de poda cubriendo 40% ancho libre de copa."),
+        FieldGuideEntry(code = "5041", description = "[5041] Ecorregimen Agroecología: Espacios de Biodiversidad", requirement = "Cultivos Permanentes (Leñosos): Elementos paisaje 4% sup. presentada.\nTierras Cultivo (Secano): 7%.\nTierras Cultivo (Regadío): 4%."),
+        FieldGuideEntry(code = "513", description = "[513] Ecorregimen Arroz", requirement = "Verificar la práctica declarada:\nNivelación anual.\nSiembra en seco.\nSecas intermitentes o Caballones >80cm."),
+        FieldGuideEntry(code = "514", description = "[514] Ecorregimen Arroz", requirement = "Verificar la práctica declarada:\nNivelación anual.\nSiembra en seco.\nSecas intermitentes o Caballones >80cm."),
+        FieldGuideEntry(code = "515", description = "[515] Ecorregimen Arroz", requirement = "Verificar la práctica declarada:\nNivelación anual.\nSiembra en seco.\nSecas intermitentes o Caballones >80cm."),
+        FieldGuideEntry(code = "516", description = "[516] Ecorregimen Arroz", requirement = "Verificar la práctica declarada:\nNivelación anual.\nSiembra en seco.\nSecas intermitentes o Caballones >80cm."),
+        FieldGuideEntry(code = "213", description = "[213] Ayuda Frutos Secos Desertificación", requirement = "Densidad Mínima (Almendro: 80/ha, Algarrobo: 30/ha, Avellano: 150/ha).\nSolo Secano.\nPendiente >10% si está fuera de comarcas áridas.\nRecinto > 0,1 ha, y total solicitada > 0,5 ha."),
+        FieldGuideEntry(code = "215", description = "[215] Ayuda Olivar en Desventaja", requirement = "Densidad: 30-100 árboles/ha. (ni más ni menos)\nEdad >10 años.\nPendiente ≥25%.\nSolo Secano.\nRecinto > 0,1 ha, y total solicitada > 0,5 ha."),
+        FieldGuideEntry(code = "210", description = "[210] Ayuda a la producción sostenible de Arroz", requirement = "Empleo de semilla certificada.\nSiembra antes del 30 Junio."),
+        FieldGuideEntry(code = "11", description = "[11] PDR - Agricultura Ecológica", requirement = "Cultivo productivo (no plantones/mantenimiento).\nVerificar no arranques."),
+        FieldGuideEntry(keywords = listOf("Esteparias"), description = "[PDR] Esteparias", requirement = "Recinto en áreas subvencionables.\nRastrojo hasta final de Septiembre.\nNo cortar setos/linderos.\nMantener >4% tierra no productiva."),
+        FieldGuideEntry(keywords = listOf("Arroz"), excludeCodes = listOf("210", "513", "514", "515", "516"), description = "[PDR] Arroz", requirement = "Mínimo 100 kg/ha semilla certificada.\nAbonos con inhibidores de N.\nControl mecánico de vegetación.\nMantener 85% sup. productiva por 5 años."),
+        FieldGuideEntry(keywords = listOf("Guirra"), description = "[PDR] Oveja Guirra", requirement = "Mínimo 30 animales raza Guirra.\nMantener 85% censo inicial (5 años).\nREGA y registro oficial OK.")
+    )
 
     suspend fun initialize(context: Context) {
         if (isInitialized) return
@@ -367,5 +407,118 @@ object SigpacCodeManager {
             val desc = lineasadPdrMap[code] ?: lineasadPdrMap[code.toIntOrNull()?.toString()]
             if (desc != null) "$code - $desc" else code
         }
+    }
+
+    // --- AGRO ANALYSIS LOGIC ---
+
+    fun performAgroAnalysis(
+        productoCode: Int?,
+        productoDesc: String?,
+        sigpacUso: String?,
+        ayudasRaw: String?,
+        pdrRaw: String?
+    ): AgroAnalysisResult {
+        // 1. Compatibilidad Cultivo vs Uso SIGPAC
+        val compatibility = checkCompatibility(productoCode, productoDesc, sigpacUso)
+        
+        // 2. Requisitos de Ayudas (Guía de Campo)
+        val requirements = getFieldRequirements(ayudasRaw, pdrRaw)
+
+        return AgroAnalysisResult(
+            isCompatible = compatibility.first,
+            explanation = compatibility.second,
+            requirements = requirements
+        )
+    }
+
+    private fun checkCompatibility(productoCode: Int?, productoDesc: String?, sigpacUso: String?): Pair<Boolean, String> {
+        if (sigpacUso.isNullOrEmpty()) return Pair(false, "Falta uso SIGPAC")
+        
+        val normalizedSigpac = sigpacUso.trim().split(" ")[0].uppercase() // "TA (TIERRAS...)" -> "TA"
+        
+        // Mapeo Heurístico Rápido de Producto -> Uso SIGPAC Esperado
+        val expectedUso = inferUsoFromProduct(productoCode, productoDesc) ?: return Pair(true, "Producto sin regla definida, asumiendo compatible.")
+
+        if (expectedUso == normalizedSigpac) {
+            return Pair(true, "Cultivo compatible con uso $normalizedSigpac.")
+        }
+
+        // Reglas de compatibilidad cruzada
+        val groupTaThIv = listOf("TA", "TH", "IV")
+        if (groupTaThIv.contains(expectedUso) && groupTaThIv.contains(normalizedSigpac)) {
+             return Pair(true, "Uso $expectedUso es compatible con $normalizedSigpac (Grupo intercambiable).")
+        }
+
+        // Pastos
+        if ((expectedUso == "PS" && normalizedSigpac == "PR") || (expectedUso == "PR" && normalizedSigpac == "PS")) {
+             return Pair(true, "Pastos (PS) y Pasto Arbustivo (PR) son compatibles.")
+        }
+
+        // Leñosos compatibles
+        if ((expectedUso == "FY" || expectedUso == "CI") && normalizedSigpac == "CF") return Pair(true, "Compatible con Cítricos-Frutales (CF).")
+        if (expectedUso == "OV" && (normalizedSigpac == "FL" || normalizedSigpac == "OF")) return Pair(true, "Olivar compatible con $normalizedSigpac.")
+        if (expectedUso == "FS" && (normalizedSigpac == "FL" || normalizedSigpac == "FV")) return Pair(true, "Frutos Secos compatible con $normalizedSigpac.")
+        if (expectedUso == "VI" && normalizedSigpac == "FV") return Pair(true, "Viñedo compatible con Frutales-Viñedo (FV).")
+        if (expectedUso == "FY" && normalizedSigpac == "OF") return Pair(true, "Frutales compatible con Olivar-Frutal (OF).")
+
+        return Pair(false, "Incompatible. Requiere $expectedUso, recinto es $normalizedSigpac.")
+    }
+
+    private fun inferUsoFromProduct(code: Int?, desc: String?): String? {
+        if (desc == null) return null
+        val d = desc.uppercase(Locale.getDefault())
+        
+        return when {
+            d.contains("TRIGO") || d.contains("CEBADA") || d.contains("MAIZ") || d.contains("AVENA") || d.contains("GIRASOL") || d.contains("GUISANTE") || d.contains("ALFALFA") || d.contains("BARBECHO") -> "TA"
+            d.contains("NARANJ") || d.contains("MANDARIN") || d.contains("LIMON") -> "CI"
+            d.contains("OLIVAR") || d.contains("ACEITUNA") -> "OV"
+            d.contains("ALMENDRO") || d.contains("NOGAL") || d.contains("AVELLANO") || d.contains("ALGARROBO") -> "FS"
+            d.contains("VIÑEDO") || d.contains("UVA") -> "VI"
+            d.contains("MANZANO") || d.contains("PERAL") || d.contains("MELOCOTON") || d.contains("CEREZO") || d.contains("CIRUELO") -> "FY"
+            d.contains("PASTO") -> "PS"
+            d.contains("ARROZ") -> "TA" 
+            else -> null
+        }
+    }
+
+    private fun getFieldRequirements(ayudasRaw: String?, pdrRaw: String?): List<FieldGuideEntry> {
+        val matches = mutableListOf<FieldGuideEntry>()
+        val combinedCodes = mutableListOf<String>()
+
+        // Helper para extraer códigos de strings estilo "[1, 5011]" o "1, 5011"
+        fun extract(raw: String?) {
+            if (raw.isNullOrEmpty()) return
+            val cleaned = raw.replace("[", "").replace("]", "").replace("\"", "")
+            val parts = cleaned.split(",").map { it.trim() }
+            combinedCodes.addAll(parts)
+        }
+        
+        extract(ayudasRaw)
+        extract(pdrRaw)
+
+        // Siempre añadir regla ABR si no está implícita (Regla base PAC)
+        val abrEntry = FIELD_GUIDE.find { it.code == "18" }
+        if (abrEntry != null) matches.add(abrEntry)
+
+        combinedCodes.forEach { codeOrText ->
+            // Buscar por Código Exacto
+            val byCode = FIELD_GUIDE.find { it.code == codeOrText }
+            if (byCode != null && !matches.contains(byCode)) {
+                matches.add(byCode)
+            } else {
+                // Buscar por Keyword (especialmente para PDRs que a veces vienen como texto)
+                val desc = (lineasadMap[codeOrText] ?: lineasadPdrMap[codeOrText] ?: codeOrText).uppercase()
+                val byKeyword = FIELD_GUIDE.find { entry ->
+                    entry.keywords != null && 
+                    entry.keywords.any { k -> desc.contains(k.uppercase()) } &&
+                    (entry.excludeCodes == null || !entry.excludeCodes.contains(codeOrText))
+                }
+                if (byKeyword != null && !matches.contains(byKeyword)) {
+                    matches.add(byKeyword)
+                }
+            }
+        }
+
+        return matches
     }
 }
