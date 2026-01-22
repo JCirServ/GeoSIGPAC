@@ -261,6 +261,9 @@ fun ProjectDetailsScreen(
 ) {
     // Estado para controlar la agrupación
     var isGroupedByExpediente by remember { mutableStateOf(false) }
+    
+    // Mapa de estados de expansión: Key=ExpNum, Value=Boolean (true=expandido)
+    val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -314,23 +317,30 @@ fun ProjectDetailsScreen(
             
             if (isGroupedByExpediente && groupedParcelas != null) {
                 groupedParcelas.forEach { (expNum, parcelasGroup) ->
+                    // Recuperar estado, default true (abierto)
+                    val isExpanded = expandedGroups[expNum] ?: false
+
                     stickyHeader {
                         ExpedienteHeader(
                             expNum = if (expNum == "SIN_EXPEDIENTE") null else expNum, 
-                            count = parcelasGroup.size
+                            count = parcelasGroup.size,
+                            isExpanded = isExpanded,
+                            onToggle = { expandedGroups[expNum] = !isExpanded }
                         )
                     }
                     
-                    items(parcelasGroup, key = { it.id }) { parcela ->
-                        NativeRecintoCard(
-                            parcela = parcela, 
-                            onLocate = onLocate, 
-                            onCamera = onCamera,
-                            onUpdateParcela = { updatedParcela ->
-                                onUpdateExpediente(exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it }))
-                            }
-                        )
-                        Spacer(Modifier.height(12.dp))
+                    if (isExpanded) {
+                        items(parcelasGroup, key = { it.id }) { parcela ->
+                            NativeRecintoCard(
+                                parcela = parcela, 
+                                onLocate = onLocate, 
+                                onCamera = onCamera,
+                                onUpdateParcela = { updatedParcela ->
+                                    onUpdateExpediente(exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it }))
+                                }
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
                     }
                 }
             } else {
@@ -352,24 +362,32 @@ fun ProjectDetailsScreen(
 }
 
 @Composable
-fun ExpedienteHeader(expNum: String?, count: Int) {
+fun ExpedienteHeader(
+    expNum: String?, 
+    count: Int,
+    isExpanded: Boolean,
+    onToggle: () -> Unit
+) {
     val isUnassigned = expNum == null
     
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-        color = MaterialTheme.colorScheme.background, // Color sólido para ocultar lo que pasa por debajo
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+            .clickable { onToggle() }, // Click para colapsar
+        color = MaterialTheme.colorScheme.background, 
         tonalElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (isUnassigned) Color(0xFF424242) else Color(0xFF2E7D32)) // Gris oscuro vs Verde oscuro
+                .background(if (isUnassigned) Color(0xFF424242) else Color(0xFF2E7D32)) 
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Icon(
                     imageVector = if (isUnassigned) Icons.Default.Warning else Icons.Default.FolderOpen,
                     contentDescription = null,
@@ -395,16 +413,24 @@ fun ExpedienteHeader(expNum: String?, count: Int) {
                 }
             }
             
-            Box(
-                modifier = Modifier
-                    .background(Color.Black.copy(0.3f), CircleShape)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "$count parcelas",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .background(Color.Black.copy(0.3f), CircleShape)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "$count",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Colapsar" else "Expandir",
+                    tint = Color.White.copy(0.8f)
                 )
             }
         }
