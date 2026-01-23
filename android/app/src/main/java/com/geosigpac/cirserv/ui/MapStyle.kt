@@ -109,15 +109,13 @@ fun loadMapStyle(
                 style.addLayer(highlightLine)
 
                 // 3. Capa de Líneas Generales (Bordes)
-                // Usamos LineLayer para tener control real sobre el grosor (>1px).
-                val outlineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                // VOLVEMOS A FILL LAYER: LineLayer dibuja bordes en los recortes de teselas creando una cuadrícula molesta.
+                // FillLayer con fillOutlineColor oculta los bordes internos de las teselas automáticamente.
+                val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 outlineLayer.setProperties(
-                    PropertyFactory.lineColor(RecintoLineColor.toArgb()),
-                    PropertyFactory.lineWidth(2.5f), // Grosor aumentado para mejor visibilidad
-                    PropertyFactory.lineOpacity(0.9f),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND), // Suaviza las uniones
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND)    // Suaviza los extremos
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb())
                 )
                 style.addLayer(outlineLayer)
                 
