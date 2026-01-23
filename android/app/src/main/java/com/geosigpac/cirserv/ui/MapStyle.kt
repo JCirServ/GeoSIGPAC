@@ -109,8 +109,7 @@ fun loadMapStyle(
                 style.addLayer(highlightLine)
 
                 // 3. Capa de Líneas Generales (Bordes)
-                // VOLVEMOS A FILL LAYER: LineLayer dibuja bordes en los recortes de teselas creando una cuadrícula molesta.
-                // FillLayer con fillOutlineColor oculta los bordes internos de las teselas automáticamente.
+                // Se mantiene FillLayer para evitar artefactos de cuadrícula, pero usando RecintoLineColor (Cian)
                 val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 outlineLayer.setProperties(
