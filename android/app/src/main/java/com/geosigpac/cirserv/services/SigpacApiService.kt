@@ -145,30 +145,35 @@ object SigpacApiService {
 
     suspend fun recoverParcelaFromPoint(lat: Double, lng: Double): Triple<String?, String?, SigpacData?> = withContext(Dispatchers.IO) {
         // 1. OBTENER REFERENCIA POR COORDENADAS (API REFRECINBYCOORD)
-        // [x]/[y] -> Longitude / Latitude
-        val refUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/refrecinbycoord/4258/%.8f/%.8f.json", lng, lat)
+        // Corrected URL: SRS 4326 and .geojson extension as per requirements
+        val refUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/refrecinbycoord/4326/%.8f/%.8f.geojson", lng, lat)
         val refResponse = fetchUrl(refUrl) ?: return@withContext Triple(null, null, null)
 
         var prov = ""; var mun = ""; var pol = ""; var parc = ""; var rec = ""; var agg = "0"; var zon = "0"
         
         try {
-            // La respuesta puede ser un objeto único o un array
-            var obj: JSONObject? = null
-            if (refResponse.trim().startsWith("[")) {
-                val arr = JSONArray(refResponse)
-                if (arr.length() > 0) obj = arr.getJSONObject(0)
+            val root = JSONObject(refResponse)
+            var props: JSONObject? = null
+            
+            val features = root.optJSONArray("features")
+            if (features != null && features.length() > 0) {
+                props = features.getJSONObject(0).optJSONObject("properties")
             } else {
-                obj = JSONObject(refResponse)
+                props = root.optJSONObject("properties") ?: root
             }
 
-            if (obj != null) {
-                prov = obj.optString("provincia"); mun = obj.optString("municipio")
-                agg = obj.optString("agregado", "0"); zon = obj.optString("zona", "0")
-                pol = obj.optString("poligono"); parc = obj.optString("parcela"); rec = obj.optString("recinto")
+            if (props != null) {
+                prov = props.optString("provincia")
+                mun = props.optString("municipio")
+                agg = props.optString("agregado", "0")
+                zon = props.optString("zona", "0")
+                pol = props.optString("poligono")
+                parc = props.optString("parcela")
+                rec = props.optString("recinto")
             }
-        } catch (e: Exception) { return@withContext Triple(null, null, null) }
+        } catch (e: Exception) { e.printStackTrace(); return@withContext Triple(null, null, null) }
 
-        if (prov.isEmpty()) return@withContext Triple(null, null, null)
+        if (prov.isEmpty() || mun.isEmpty()) return@withContext Triple(null, null, null)
         val fullRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
 
         // 2. OBTENER DATOS SIGPAC (RECINFO)
@@ -176,6 +181,7 @@ object SigpacApiService {
         val sigpacData = fetchUrl(recInfoUrl)?.let { parseSigpacDataJson(it) }
 
         // 3. OBTENER GEOMETRÍA CULTIVO ESPECÍFICO (SI EL PUNTO CAE DENTRO)
+        // Se busca si el punto cae dentro de alguna geometría de cultivo declarado para devolver ESA geometría en lugar de la del recinto
         var geometryRaw: String? = null
         val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoJson = fetchUrl(ogcUrl)
@@ -203,8 +209,8 @@ object SigpacApiService {
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // 4. FALLBACK: Si no encontramos cultivo específico, NO devolvemos geometría de cultivo inventada.
-        // Pero necesitamos pintar algo. Devolvemos la geometría del RECINTO para dar contexto.
+        // 4. FALLBACK: Si no se encuentra un cultivo que contenga el punto, 
+        // devolvemos la geometría del recinto completo para tener contexto visual.
         if (geometryRaw == null) {
             val recGeomUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
             val recGeomJson = fetchUrl(recGeomUrl)
