@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.geosigpac.cirserv.utils.SigpacCodeManager
 
 @Composable
 fun CustomSigpacKeyboard(
@@ -115,4 +117,10 @@ fun AttributeItem(label: String, value: String?, modifier: Modifier = Modifier) 
             fontSize = 16.sp
         )
     }
+}
+
+@Composable
+fun IncidenciaMapItem(rawIncidencias: String, type: String = "INCIDENCIA") {
+    val itemsList = remember(rawIncidencias, type) { when(type) { "AYUDA" -> SigpacCodeManager.getFormattedAyudas(rawIncidencias); "PDR" -> SigpacCodeManager.getFormattedAyudasPdr(rawIncidencias); else -> SigpacCodeManager.getFormattedIncidencias(rawIncidencias) } }
+    Column { val label = if (type == "INCIDENCIA") "Incidencias" else "Detalles"; Text(label, style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 14.sp); itemsList.forEach { item -> Text(text = "• $item", style = MaterialTheme.typography.bodySmall, color = Color.White, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp)) } }
 }

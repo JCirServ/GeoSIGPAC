@@ -29,7 +29,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.ui.CameraScreen
-import com.geosigpac.cirserv.ui.NativeMap
+import com.geosigpac.cirserv.ui.map.NativeMapScreen
 import com.geosigpac.cirserv.ui.NativeProjectManager
 import com.geosigpac.cirserv.utils.ProjectStorage
 import com.geosigpac.cirserv.utils.SigpacCodeManager
@@ -187,7 +187,7 @@ fun GeoSigpacApp() {
                         },
                         onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }
                     )
-                    2 -> NativeMap(
+                    2 -> NativeMapScreen(
                         expedientes = expedientes, 
                         searchTarget = mapSearchTarget,
                         followUserTrigger = followUserTrigger,
