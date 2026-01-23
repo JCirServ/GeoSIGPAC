@@ -76,17 +76,30 @@ fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // 1. Capa para Detección (Invisible pero Renderizable para Query)
-                val detectionLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
-                detectionLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                detectionLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Black.toArgb()),
-                    PropertyFactory.fillOpacity(0f) 
+                // CAPA 1: RELLENO (TINT)
+                // Color semitransparente para ver el interior
+                val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
+                val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
+                tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                tintLayer.setProperties(
+                    PropertyFactory.fillColor(tintColor.toArgb()),
+                    PropertyFactory.fillOpacity(0.2f), // Opacidad suave del relleno
+                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()) // Sin borde en esta capa
                 )
-                style.addLayer(detectionLayer)
+                style.addLayer(tintLayer)
 
-                // 2. Capa de Resaltado (Highlight - Selección)
-                // Esta capa se superpone y es más opaca (0.5f) para destacar sobre el fondo.
+                // CAPA 2: BORDE (OUTLINE)
+                // Usamos FillLayer con fillColor transparente y fillOutlineColor sólido para evitar grids
+                val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
+                val borderLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderLayer.setProperties(
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(borderColor.toArgb())
+                )
+                style.addLayer(borderLayer)
+
+                // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
@@ -94,7 +107,7 @@ fun loadMapStyle(
                 highlightFill.setFilter(initialFilter)
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.5f), // Más opaco que el fondo base
+                    PropertyFactory.fillOpacity(0.5f), 
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightFill)
@@ -108,22 +121,6 @@ fun loadMapStyle(
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightLine)
-
-                // 3. Capa Base de Recintos ("Cristal Tintado")
-                val baseColor = if (baseMap == BaseMap.PNOA) RecintoColorPNOA else RecintoColorOSM
-                
-                // Ajustamos la opacidad del relleno según el mapa para legibilidad
-                val fillOpacity = if (baseMap == BaseMap.PNOA) 0.12f else 0.08f
-
-                val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                outlineLayer.setProperties(
-                    // Relleno sutil del mismo color que el borde
-                    PropertyFactory.fillColor(baseColor.copy(alpha = fillOpacity).toArgb()),
-                    // Borde sólido de 1px
-                    PropertyFactory.fillOutlineColor(baseColor.toArgb())
-                )
-                style.addLayer(outlineLayer)
                 
             } catch (e: Exception) { e.printStackTrace() }
         }

@@ -27,7 +27,7 @@ const val LAYER_BASE = "base-layer"
 // Capas SIGPAC (MVT)
 const val SOURCE_RECINTO = "recinto-source"
 const val LAYER_RECINTO_LINE = "recinto-layer-line"
-const val LAYER_RECINTO_FILL = "recinto-layer-fill" // Capa invisible para detección
+const val LAYER_RECINTO_FILL = "recinto-layer-fill" // Capa de Relleno (Tint)
 const val LAYER_RECINTO_HIGHLIGHT_FILL = "recinto-layer-highlight-fill" // Capa iluminada relleno
 const val LAYER_RECINTO_HIGHLIGHT_LINE = "recinto-layer-highlight-line" // Capa iluminada borde
 const val SOURCE_LAYER_ID_RECINTO = "recinto"
@@ -61,9 +61,15 @@ val FieldDivider = Color(0xFF424242)
 // Colores de capas de mapa
 val HighlightColor = Color(0xFFF97316) // Naranja SIGPAC para selección
 
-// COLORES DINÁMICOS SEGÚN MAPA BASE
-val RecintoColorPNOA = Color(0xFF00E5FF) // Cian Neón (Alto contraste sobre satélite oscuro)
-val RecintoColorOSM = Color(0xFF6200EA)  // Púrpura Intenso (Alto contraste sobre mapa claro)
+// --- COLORES DUAL TONE (RELLENO vs BORDE) ---
+
+// PNOA (Fondo Oscuro): Relleno Cian + Borde Blanco
+val FillColorPNOA = Color(0xFF00E5FF) 
+val BorderColorPNOA = Color(0xFFFFFFFF) 
+
+// OSM (Fondo Claro): Relleno Púrpura + Borde Magenta
+val FillColorOSM = Color(0xFF6200EA)
+val BorderColorOSM = Color(0xFFFF00FF) 
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
