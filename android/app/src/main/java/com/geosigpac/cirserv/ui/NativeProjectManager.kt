@@ -280,6 +280,11 @@ fun ProjectDetailsScreen(
     // Mapa de estados de expansión: Key=ExpNum, Value=Boolean (true=expandido)
     val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
 
+    // Lista de parcelas ordenadas alfabéticamente por referencia
+    val sortedParcelas = remember(exp.parcelas) {
+        exp.parcelas.sortedBy { it.referencia }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -310,11 +315,11 @@ fun ProjectDetailsScreen(
         }
     ) { padding ->
         
-        // Lógica de agrupación
-        val groupedParcelas = remember(exp.parcelas, isGroupedByExpediente) {
+        // Lógica de agrupación (usando la lista ya ordenada)
+        val groupedParcelas = remember(sortedParcelas, isGroupedByExpediente) {
             if (isGroupedByExpediente) {
                 // Agrupamos por expNum, usando una clave especial para los vacíos
-                exp.parcelas.groupBy { it.cultivoInfo?.expNum?.trim()?.ifEmpty { null } ?: "SIN_EXPEDIENTE" }
+                sortedParcelas.groupBy { it.cultivoInfo?.expNum?.trim()?.ifEmpty { null } ?: "SIN_EXPEDIENTE" }
                     .toSortedMap { a, b ->
                         // Ordenar: "SIN_EXPEDIENTE" al final, el resto alfabéticamente
                         when {
@@ -359,8 +364,8 @@ fun ProjectDetailsScreen(
                     }
                 }
             } else {
-                // Vista normal sin agrupar
-                items(exp.parcelas, key = { it.id }) { parcela ->
+                // Vista normal sin agrupar (ordenada alfabéticamente)
+                items(sortedParcelas, key = { it.id }) { parcela ->
                     NativeRecintoCard(
                         parcela = parcela, 
                         onLocate = onLocate, 
