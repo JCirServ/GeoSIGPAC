@@ -63,6 +63,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -93,7 +94,39 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import androidx.compose.ui.graphics.TransformOrigin
+
+// --- FUNCIÓN ALGORITMO RAY CASTING (Point In Polygon) ---
+fun isPointInPolygon(lat: Double, lng: Double, geometryRaw: String?): Boolean {
+    if (geometryRaw.isNullOrEmpty()) return false
+    try {
+        // Parsear coordenadas del KML (Formato habitual: lng,lat,alt lng,lat,alt ...)
+        // Separadas por espacios.
+        val polyPoints = geometryRaw.trim().split("\\s+".toRegex()).mapNotNull { 
+            val parts = it.split(",")
+            if (parts.size >= 2) {
+                val pLng = parts[0].toDoubleOrNull()
+                val pLat = parts[1].toDoubleOrNull()
+                if (pLng != null && pLat != null) pLat to pLng else null
+            } else null
+        }
+        
+        if (polyPoints.isEmpty()) return false
+        
+        // Algoritmo Ray Casting
+        var inside = false
+        var j = polyPoints.lastIndex
+        for (i in polyPoints.indices) {
+            val (latI, lngI) = polyPoints[i]
+            val (latJ, lngJ) = polyPoints[j]
+            if (((latI > lat) != (latJ > lat)) &&
+                (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
+                inside = !inside
+            }
+            j = i
+        }
+        return inside
+    } catch (e: Exception) { return false }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -150,13 +183,19 @@ fun CameraScreen(
     var lastApiLocation by remember { mutableStateOf<Location?>(null) }
     var lastApiTimestamp by remember { mutableStateOf(0L) }
 
-    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO ---
-    val matchedParcelInfo = remember(sigpacRef, expedientes) {
-        if (sigpacRef == null) return@remember null
+    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO (RAY CASTING) ---
+    // Se ejecuta cada vez que cambia la ubicación o la lista de expedientes.
+    val matchedParcelInfo = remember(currentLocation, expedientes) {
+        val curLat = currentLocation?.latitude
+        val curLng = currentLocation?.longitude
+        
+        if (curLat == null || curLng == null) return@remember null
+
         var foundExp: NativeExpediente? = null
         val foundParcel = expedientes.flatMap { exp ->
             exp.parcelas.map { p -> 
-                if (p.referencia == sigpacRef) {
+                // VERIFICACIÓN ESTRICTA POR GEOMETRÍA KML
+                if (!p.geometryRaw.isNullOrEmpty() && isPointInPolygon(curLat, curLng, p.geometryRaw)) {
                     foundExp = exp
                     p 
                 } else null
@@ -421,7 +460,12 @@ fun CameraScreen(
                 .padding(6.dp)
                 .background(NeonGreen, CircleShape)
                 .clickable {
-                    takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
+                    // Si estamos "EN PROYECTO" (dentro de geometría), guardamos en esa carpeta.
+                    // Si no, guardamos en la carpeta genérica con la ref SIGPAC.
+                    val folderName = matchedParcelInfo?.first?.titular
+                    val refName = matchedParcelInfo?.second?.referencia ?: sigpacRef
+                    
+                    takePhoto(context, imageCaptureUseCase, folderName, refName, 
                         onImageCaptured = { uri -> 
                             if (matchedParcelInfo != null) {
                                 val (exp, parc) = matchedParcelInfo
@@ -682,9 +726,9 @@ fun CameraScreen(
                 photos = parc.photos,
                 initialIndex = parc.photos.lastIndex, // Abrir en la última foto
                 onDismiss = { showGallery = false },
-                onDeletePhoto = { photoUri ->
+                onDeletePhoto = { photoUriToDelete ->
                     // 1. Borrar de la lista de la parcela
-                    val updatedPhotos = parc.photos.filter { it != photoUri }
+                    val updatedPhotos = parc.photos.filter { it != photoUriToDelete }
                     val updatedParcela = parc.copy(photos = updatedPhotos)
                     val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
                     onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
@@ -736,8 +780,8 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
-    projectId: String?,
-    sigpacRef: String?,
+    folderName: String?,
+    refName: String?,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit
 ) {
@@ -748,8 +792,8 @@ private fun takePhoto(
     val rotation = windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
     imageCapture.targetRotation = rotation
 
-    val projectFolder = projectId ?: "SIN PROYECTO"
-    val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
+    val projectFolder = folderName ?: "SIN PROYECTO"
+    val safeSigpacRef = refName?.replace(":", "_") ?: "SIN_REFERENCIA"
     val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
     val filename = "${safeSigpacRef}-$timestamp.jpg"
     val relativePath = "DCIM/GeoSIGPAC/$projectFolder/$safeSigpacRef"
