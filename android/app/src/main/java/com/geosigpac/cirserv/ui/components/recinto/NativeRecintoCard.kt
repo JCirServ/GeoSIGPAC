@@ -14,7 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.utils.SigpacCodeManager
 import com.geosigpac.cirserv.ui.FullScreenPhotoGallery
@@ -168,10 +170,24 @@ fun NativeRecintoCard(
                         CollapsibleHeader("DATOS TÉCNICOS & GEOMÉTRICOS", dataExpanded) { dataExpanded = !dataExpanded }
                         if (dataExpanded) {
                             RecintoTechnicalData(
-                                parcela = parcela,
-                                onLocate = onLocate
+                                parcela = parcela
                             )
                         }
+
+                        // D. Botón Localizar (Siempre Visible al desplegar)
+                        Spacer(Modifier.height(20.dp))
+                        Button(
+                            onClick = { 
+                                // Usamos el ID interno para localizar usando geometría local, evitando la API externa
+                                onLocate("LOC:${parcela.id}")
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("LOCALIZAR EN MAPA", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }

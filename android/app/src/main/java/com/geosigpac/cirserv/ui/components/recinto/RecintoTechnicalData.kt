@@ -5,8 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,8 +21,7 @@ import com.geosigpac.cirserv.utils.SigpacCodeManager
 
 @Composable
 fun RecintoTechnicalData(
-    parcela: NativeParcela,
-    onLocate: (String) -> Unit
+    parcela: NativeParcela
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -140,18 +137,5 @@ fun RecintoTechnicalData(
                 Box(Modifier.weight(1f)) { DataField("APROVECHA", parcela.cultivoInfo?.tipoAprovecha ?: "-") }
             }
         }
-    }
-    
-    Spacer(Modifier.height(20.dp))
-    Button(
-        onClick = { 
-            // Usamos el ID interno para localizar usando geometría local, evitando la API externa
-            onLocate("LOC:${parcela.id}")
-        },
-        modifier = Modifier.fillMaxWidth().height(48.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Text("LOCALIZAR EN MAPA", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
     }
 }
