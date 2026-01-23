@@ -120,13 +120,33 @@ enum class CamQuality(val label: String, val targetSize: Size?) {
     MAX("Máxima", null)
 }
 
-// Helper para normalizar referencias (elimina ceros a la izquierda: 46:01 -> 46:1)
-fun normalizeSigpacRef(ref: String?): String {
-    if (ref == null) return ""
-    return ref.split(":", "-")
-        .joinToString(":") { part -> 
-            part.trim().toIntOrNull()?.toString() ?: part.trim() 
+// Helper para Point In Polygon (Ray Casting)
+fun isPointInPolygon(lat: Double, lng: Double, geometryRaw: String?): Boolean {
+    if (geometryRaw.isNullOrEmpty()) return false
+    try {
+        val polyPoints = geometryRaw.trim().split("\\s+".toRegex()).mapNotNull { 
+            val parts = it.split(",")
+            if (parts.size >= 2) {
+                val pLng = parts[0].toDoubleOrNull()
+                val pLat = parts[1].toDoubleOrNull()
+                if (pLng != null && pLat != null) pLat to pLng else null
+            } else null
         }
+        if (polyPoints.isEmpty()) return false
+        
+        var inside = false
+        var j = polyPoints.lastIndex
+        for (i in polyPoints.indices) {
+            val (latI, lngI) = polyPoints[i]
+            val (latJ, lngJ) = polyPoints[j]
+            if (((latI > lat) != (latJ > lat)) &&
+                (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
+                inside = !inside
+            }
+            j = i
+        }
+        return inside
+    } catch (e: Exception) { return false }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -190,16 +210,19 @@ fun CameraScreen(
     // Referencia Efectiva: Prioriza la manual, sino la del GPS
     val effectiveRef = manualRef ?: sigpacRef
 
-    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO (NORMALIZADA) ---
-    val matchedParcelInfo = remember(effectiveRef, expedientes) {
-        if (effectiveRef == null) return@remember null
-        val normalizedCurrent = normalizeSigpacRef(effectiveRef)
+    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO (SOLO GEOMETRÍA) ---
+    val matchedParcelInfo = remember(expedientes, currentLocation) {
+        val curLat = currentLocation?.latitude
+        val curLng = currentLocation?.longitude
         
+        if (curLat == null || curLng == null) return@remember null
+
         var foundExp: NativeExpediente? = null
         val foundParcel = expedientes.flatMap { exp ->
             exp.parcelas.map { p -> 
-                // Comparación robusta usando normalización
-                if (normalizeSigpacRef(p.referencia) == normalizedCurrent) {
+                // Coincidencia ESTRICTA por GEOMETRÍA (Ray Casting)
+                // Funciona tanto para polígonos KML como para puntos hidratados a geometría oficial
+                if (!p.geometryRaw.isNullOrEmpty() && isPointInPolygon(curLat, curLng, p.geometryRaw)) {
                     foundExp = exp
                     p 
                 } else null
