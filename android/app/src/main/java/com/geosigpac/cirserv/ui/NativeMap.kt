@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
@@ -39,9 +40,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,6 +96,7 @@ fun NativeMap(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusManager = LocalFocusManager.current
+    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     
     // --- ESTADO ---
@@ -587,7 +591,34 @@ fun NativeMap(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) { Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f))) }
                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                            Column { Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 13.sp); Text(text = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}...", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = FieldGreen, fontSize = 20.sp) }
+                            val refText = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}..."
+                            Column { 
+                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 13.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = refText, 
+                                        style = MaterialTheme.typography.titleMedium, 
+                                        fontWeight = FontWeight.Black, 
+                                        color = FieldGreen, 
+                                        fontSize = 20.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    IconButton(
+                                        onClick = {
+                                            clipboardManager.setText(AnnotatedString(refText))
+                                            Toast.makeText(context, "Referencia copiada", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copiar Referencia",
+                                            tint = FieldGray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
                             IconButton(onClick = { instantSigpacRef = ""; recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
                         }
                         if (recintoData != null) {
