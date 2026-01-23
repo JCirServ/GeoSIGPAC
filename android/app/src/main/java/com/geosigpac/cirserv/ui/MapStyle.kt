@@ -61,7 +61,7 @@ fun loadMapStyle(
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f)
-                    // FIX: Eliminado fillOutlineColor para evitar líneas de cuadrícula en los bordes de las teselas
+                    // NOTA: No usamos fillOutlineColor aquí para evitar artefactos
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -81,7 +81,7 @@ fun loadMapStyle(
                 detectionLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 detectionLayer.setProperties(
                     PropertyFactory.fillColor(Color.Black.toArgb()),
-                    PropertyFactory.fillOpacity(0f) // FIX: Opacidad 0 absoluta para evitar artefactos visuales (grid lines)
+                    PropertyFactory.fillOpacity(0f) 
                 )
                 style.addLayer(detectionLayer)
 
@@ -109,12 +109,15 @@ fun loadMapStyle(
                 style.addLayer(highlightLine)
 
                 // 3. Capa de Líneas Generales (Bordes)
-                // Usamos LineLayer para tener control sobre el grosor (lineWidth)
-                val outlineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                // FIX: Usamos FillLayer con fillOutlineColor en lugar de LineLayer.
+                // LineLayer dibuja bordes en los recortes de las teselas (grid artifacts).
+                // FillLayer renderiza el polígono unido y su outline solo en los bordes reales.
+                val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 outlineLayer.setProperties(
-                    PropertyFactory.lineColor(RecintoLineColor.toArgb()),
-                    PropertyFactory.lineWidth(2.0f) // Grosor restaurado a 2px
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb())
+                    // Nota: lineWidth no soportado en FillLayer (es siempre 1px), pero elimina la cuadrícula.
                 )
                 style.addLayer(outlineLayer)
                 
