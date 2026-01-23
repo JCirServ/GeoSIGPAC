@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Size
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.camera.core.AspectRatio
@@ -27,6 +28,9 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
@@ -63,6 +67,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -93,7 +98,23 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import androidx.compose.ui.graphics.TransformOrigin
+import kotlin.math.abs
+
+// --- ENUMS CONFIGURACIÓN ---
+enum class CamAspectRatio(val label: String, val ratioConstant: Int, val isFull: Boolean = false) {
+    SQUARE("1:1", AspectRatio.RATIO_4_3), // Sensor nativo suele ser 4:3, recorte visual
+    RATIO_4_3("4:3", AspectRatio.RATIO_4_3),
+    RATIO_16_9("16:9", AspectRatio.RATIO_16_9),
+    FULL("Full", AspectRatio.RATIO_16_9, true) // Usar 16:9 como base para full screen
+}
+
+enum class CamQuality(val label: String, val targetSize: Size?) {
+    LOW("Baja", Size(640, 480)),      // VGA
+    MEDIUM("Media", Size(1280, 720)), // HD
+    HIGH("Alta", Size(1920, 1080)),   // FHD
+    VERY_HIGH("Muy Alta", Size(3840, 2160)), // 4K
+    MAX("Máxima", null)               // Highest Available
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,7 +137,8 @@ fun CameraScreen(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     
     // --- ESTADOS DE CONFIGURACIÓN DE CÁMARA ---
-    var aspectRatio by remember { mutableIntStateOf(AspectRatio.RATIO_4_3) }
+    var selectedRatio by remember { mutableStateOf(CamAspectRatio.RATIO_4_3) }
+    var selectedQuality by remember { mutableStateOf(CamQuality.HIGH) }
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) }
     var showGrid by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -171,7 +193,6 @@ fun CameraScreen(
     // --- ESTADO PREVISUALIZACIÓN FOTO (Carga de Bitmap) ---
     var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
-    // Efecto para cargar el bitmap: Prioriza la última foto de la parcela detectada, sino usa lastCapturedUri
     val targetPreviewUri = remember(matchedParcelInfo, lastCapturedUri) {
         if (matchedParcelInfo != null && matchedParcelInfo.second.photos.isNotEmpty()) {
             Uri.parse(matchedParcelInfo.second.photos.last())
@@ -180,7 +201,6 @@ fun CameraScreen(
         }
     }
     
-    // Contador real basado en la parcela
     val currentPhotoCount = remember(matchedParcelInfo, photoCount) {
         if (matchedParcelInfo != null) matchedParcelInfo.second.photos.size else photoCount
     }
@@ -193,7 +213,6 @@ fun CameraScreen(
                     val bitmap = BitmapFactory.decodeStream(inputStream)
                     inputStream?.close()
 
-                    // Rotar Bitmap según EXIF para que el botón de preview se vea correcto
                     var finalBitmap = bitmap
                     context.contentResolver.openInputStream(uri)?.use { exifInput ->
                         val exif = ExifInterface(exifInput)
@@ -219,7 +238,6 @@ fun CameraScreen(
         }
     }
 
-    // Animación de Parpadeo
     val infiniteTransition = rememberInfiniteTransition()
     val blinkAlpha by infiniteTransition.animateFloat(
         initialValue = 0.2f,
@@ -231,7 +249,6 @@ fun CameraScreen(
         label = "Blink"
     )
     
-    // --- ICONO MAPA MANUAL ---
     val MapIcon = remember {
         ImageVector.Builder(
             name = "Map",
@@ -267,7 +284,6 @@ fun CameraScreen(
         }.build()
     }
 
-    // --- OBSERVADOR DE ESTADO DE ZOOM ---
     LaunchedEffect(camera) {
         val cam = camera ?: return@LaunchedEffect
         cam.cameraInfo.zoomState.observe(lifecycleOwner) { state ->
@@ -276,19 +292,57 @@ fun CameraScreen(
         }
     }
 
-    // --- VINCULACIÓN DE CÁMARA ---
-    LaunchedEffect(aspectRatio, flashMode) {
+    // --- VINCULACIÓN DE CÁMARA (LÓGICA ACTUALIZADA) ---
+    LaunchedEffect(selectedRatio, selectedQuality, flashMode) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
             cameraProvider.unbindAll()
-            val preview = Preview.Builder().setTargetAspectRatio(aspectRatio).build()
+
+            // 1. Configurar Estrategia de Resolución (Calidad)
+            val resolutionStrategy = if (selectedQuality == CamQuality.MAX) {
+                ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY
+            } else {
+                ResolutionStrategy(selectedQuality.targetSize!!, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)
+            }
+
+            // 2. Configurar Estrategia de Aspect Ratio
+            val aspectRatioStrategy = if (selectedRatio == CamAspectRatio.FULL) {
+                 AspectRatioStrategy(AspectRatio.RATIO_16_9, AspectRatioStrategy.FALLBACK_RULE_AUTO)
+            } else {
+                 AspectRatioStrategy(selectedRatio.ratioConstant, AspectRatioStrategy.FALLBACK_RULE_AUTO)
+            }
+
+            val resolutionSelector = ResolutionSelector.Builder()
+                .setResolutionStrategy(resolutionStrategy)
+                .setAspectRatioStrategy(aspectRatioStrategy)
+                .build()
+
+            // 3. Configurar Preview
+            val preview = Preview.Builder()
+                .setResolutionSelector(resolutionSelector)
+                .build()
+            
             preview.setSurfaceProvider(previewView.surfaceProvider)
+            
+            // Ajustar visualización según ratio
+            if (selectedRatio == CamAspectRatio.FULL) {
+                previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
+            } else if (selectedRatio == CamAspectRatio.SQUARE) {
+                // Para 1:1 usamos FIT_CENTER del flujo 4:3, pero visualmente se podría enmascarar
+                // Por simplicidad en CameraX nativo, usamos FIT_CENTER que mostrará 4:3
+                previewView.scaleType = PreviewView.ScaleType.FIT_CENTER 
+            } else {
+                previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+            }
+
+            // 4. Configurar ImageCapture
             val imageCapture = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .setTargetAspectRatio(aspectRatio)
+                .setResolutionSelector(resolutionSelector)
                 .setFlashMode(flashMode)
                 .build()
+
             try {
                 camera = cameraProvider.bindToLifecycle(
                     lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture
@@ -350,9 +404,7 @@ fun CameraScreen(
 
     // --- COMPONENTES UI REUTILIZABLES ---
     val NeonGreen = Color(0xFF00FF88)
-    val NeonYellow = Color(0xFFFFFF00)
 
-    // Definición individual de botones para reorganización flexible
     val ProjectsBtn = @Composable {
         Box(
             modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { onGoToProjects() },
@@ -367,7 +419,6 @@ fun CameraScreen(
         ) { Icon(Icons.Default.Settings, "Configuración", tint = NeonGreen) }
     }
 
-    // --- NUEVO: BOTÓN INFO PARPADEANTE ---
     val MatchInfoBtn = @Composable {
         if (matchedParcelInfo != null) {
             Box(
@@ -381,14 +432,13 @@ fun CameraScreen(
                 Icon(
                     Icons.Default.Info, 
                     contentDescription = "Info Parcela", 
-                    tint = NeonGreen.copy(alpha = blinkAlpha), // PARPADEO APLICADO
+                    tint = NeonGreen.copy(alpha = blinkAlpha),
                     modifier = Modifier.size(32.dp)
                 ) 
             }
         }
     }
 
-    // Cajetín de Información
     val InfoBox = @Composable {
         Box(
             modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
@@ -412,7 +462,6 @@ fun CameraScreen(
         }
     }
 
-    // Botón Disparador
     val ShutterButton = @Composable {
         Box(
             modifier = Modifier
@@ -435,7 +484,6 @@ fun CameraScreen(
         )
     }
 
-    // Preview de Foto con Badge y Apertura de Galería
     val PreviewButton = @Composable {
         Box(contentAlignment = Alignment.TopEnd) {
             Box(
@@ -445,11 +493,9 @@ fun CameraScreen(
                     .background(Color.Black.copy(0.5f))
                     .border(2.dp, NeonGreen, RoundedCornerShape(24.dp))
                     .clickable { 
-                        // Abrir galería si hay fotos en la parcela actual
                         if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) {
                             showGallery = true
                         } else if (capturedBitmap != null) {
-                            // Si solo hay una foto "suelta" (sin proyecto o antes de asociar), cerrar cámara (comportamiento original) o no hacer nada
                             onClose()
                         } else {
                             onClose()
@@ -474,7 +520,6 @@ fun CameraScreen(
         }
     }
 
-    // Botón Mapa
     val MapButton = @Composable {
         Box(
             modifier = Modifier
@@ -487,7 +532,6 @@ fun CameraScreen(
         ) { Icon(MapIcon, "Mapa", tint = NeonGreen, modifier = Modifier.size(36.dp)) }
     }
 
-    // Slider Zoom
     val ZoomControl = @Composable { isLandscapeMode: Boolean ->
         val containerModifier = if (isLandscapeMode) {
              Modifier
@@ -557,10 +601,9 @@ fun CameraScreen(
             }
     ) {
         
-        // 1. Vista de Cámara (Fondo)
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); scaleType = PreviewView.ScaleType.FILL_CENTER } }
+            factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); } }
         )
         
         // 2. Anillo de Enfoque
@@ -579,7 +622,25 @@ fun CameraScreen(
             }
         }
 
-        // --- CAPA DE INTERFAZ (Layout Responsivo) ---
+        // --- MÁSCARA 1:1 VISUAL ---
+        if (selectedRatio == CamAspectRatio.SQUARE) {
+            val maskColor = Color.Black.copy(alpha = 0.5f)
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val s = size.minDimension
+                val offsetX = (size.width - s) / 2
+                val offsetY = (size.height - s) / 2
+                // Top
+                drawRect(maskColor, topLeft = Offset(0f, 0f), size = androidx.compose.ui.geometry.Size(size.width, offsetY))
+                // Bottom
+                drawRect(maskColor, topLeft = Offset(0f, offsetY + s), size = androidx.compose.ui.geometry.Size(size.width, size.height - (offsetY + s)))
+                // Left
+                drawRect(maskColor, topLeft = Offset(0f, offsetY), size = androidx.compose.ui.geometry.Size(offsetX, s))
+                // Right
+                drawRect(maskColor, topLeft = Offset(offsetX + s, offsetY), size = androidx.compose.ui.geometry.Size(size.width - (offsetX + s), s))
+            }
+        }
+
+        // --- UI OVERLAYS ---
         
         if (isLandscape) {
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
@@ -600,27 +661,58 @@ fun CameraScreen(
             }
         }
         
-        // --- DIÁLOGO CONFIGURACIÓN ---
+        // --- DIÁLOGO CONFIGURACIÓN MEJORADO ---
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
                 title = { Text("Configuración de Cámara") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text("Resolución (Aspect Ratio)", style = MaterialTheme.typography.titleSmall)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_4_3, onClick = { aspectRatio = AspectRatio.RATIO_4_3 }); Text("4:3")
-                            Spacer(Modifier.width(16.dp))
-                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_16_9, onClick = { aspectRatio = AspectRatio.RATIO_16_9 }); Text("16:9")
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Formato (Aspect Ratio)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        CamAspectRatio.values().forEach { ratio ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { selectedRatio = ratio }
+                            ) {
+                                RadioButton(selected = selectedRatio == ratio, onClick = { selectedRatio = ratio })
+                                Text(ratio.label, style = MaterialTheme.typography.bodyLarge)
+                            }
                         }
+
                         Divider()
-                        Text("Flash", style = MaterialTheme.typography.titleSmall)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_AUTO, onClick = { flashMode = ImageCapture.FLASH_MODE_AUTO }); Text("Auto")
-                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_ON, onClick = { flashMode = ImageCapture.FLASH_MODE_ON }); Text("On")
-                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_OFF, onClick = { flashMode = ImageCapture.FLASH_MODE_OFF }); Text("Off")
+
+                        Text("Calidad de Imagen", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        CamQuality.values().forEach { qual ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { selectedQuality = qual }
+                            ) {
+                                RadioButton(selected = selectedQuality == qual, onClick = { selectedQuality = qual })
+                                Column {
+                                    Text(qual.label, style = MaterialTheme.typography.bodyLarge)
+                                    if (qual.targetSize != null) {
+                                        Text("Aprox. ${qual.targetSize.height}p", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                    } else {
+                                        Text("Resolución Nativa", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                    }
+                                }
+                            }
                         }
+                        
                         Divider()
+                        
+                        Text("Opciones", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        
+                        Text("Flash", style = MaterialTheme.typography.bodyMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_AUTO, onClick = { flashMode = ImageCapture.FLASH_MODE_AUTO }); Text("Auto", fontSize = 14.sp)
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_ON, onClick = { flashMode = ImageCapture.FLASH_MODE_ON }); Text("On", fontSize = 14.sp)
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_OFF, onClick = { flashMode = ImageCapture.FLASH_MODE_OFF }); Text("Off", fontSize = 14.sp)
+                        }
+
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showGrid = !showGrid }) {
                             Checkbox(checked = showGrid, onCheckedChange = { showGrid = it }); Text("Mostrar Cuadrícula")
                         }
@@ -630,16 +722,14 @@ fun CameraScreen(
             )
         }
         
-        // --- PANEL INSPECCIÓN RECINTO (REEMPLAZO DE MODALBOTTOMSHEET) ---
-        // Scrim oscuro (clic cierra)
+        // --- PANEL INSPECCIÓN RECINTO ---
         if (showParcelSheet) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.7f)).clickable { showParcelSheet = false })
         }
 
-        // Panel Deslizante (Mantiene Immersive Mode)
         AnimatedVisibility(
             visible = showParcelSheet && matchedParcelInfo != null,
-            enter = slideInVertically { it }, // Desliza desde abajo
+            enter = slideInVertically { it },
             exit = slideOutVertically { it },
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
@@ -650,40 +740,34 @@ fun CameraScreen(
                     tonalElevation = 8.dp
                 ) {
                     Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
-                        // Header de cierre pequeño
                         Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
                              Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.Gray.copy(0.4f)))
                         }
                         
                         NativeRecintoCard(
                             parcela = parc,
-                            onLocate = { query ->
-                                onGoToMap() // Cambiar al tab mapa
-                            }, 
-                            onCamera = { showParcelSheet = false }, // Cerrar panel para tomar foto
+                            onLocate = { onGoToMap() }, 
+                            onCamera = { showParcelSheet = false },
                             onUpdateParcela = { updatedParcela ->
                                 val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
                                 onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
                             },
-                            // PARÁMETROS CLAVE: Forzar expansión y mostrar datos técnicos
                             initiallyExpanded = true,
                             initiallyTechExpanded = true
                         )
-                        Spacer(Modifier.height(32.dp)) // Padding inferior extra
+                        Spacer(Modifier.height(32.dp))
                     }
                 }
             }
         }
         
-        // --- GALERÍA A PANTALLA COMPLETA ---
         if (showGallery && matchedParcelInfo != null) {
             val (exp, parc) = matchedParcelInfo!!
             FullScreenPhotoGallery(
                 photos = parc.photos,
-                initialIndex = parc.photos.lastIndex, // Abrir en la última foto
+                initialIndex = parc.photos.lastIndex, 
                 onDismiss = { showGallery = false },
                 onDeletePhoto = { photoUri ->
-                    // 1. Borrar de la lista de la parcela
                     val updatedPhotos = parc.photos.filter { it != photoUri }
                     val updatedParcela = parc.copy(photos = updatedPhotos)
                     val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
@@ -743,7 +827,6 @@ private fun takePhoto(
 ) {
     val imageCapture = imageCapture ?: return
 
-    // FIX: Set target rotation based on current display rotation
     val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     val rotation = windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
     imageCapture.targetRotation = rotation
