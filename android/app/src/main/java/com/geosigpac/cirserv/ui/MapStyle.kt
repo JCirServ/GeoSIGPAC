@@ -77,19 +77,19 @@ fun loadMapStyle(
                 style.addSource(recintoSource)
 
                 // CAPA 1: RELLENO (TINT)
-                // Color semitransparente para ver el interior
+                // Color distinto al borde, semitransparente
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.2f), // Opacidad suave del relleno
-                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()) // Sin borde en esta capa
+                    PropertyFactory.fillOpacity(0.15f), // Opacidad suficiente para ver el color pero ver el fondo
+                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb())
                 )
                 style.addLayer(tintLayer)
 
                 // CAPA 2: BORDE (OUTLINE)
-                // Usamos FillLayer con fillColor transparente y fillOutlineColor sólido para evitar grids
+                // Borde de otro color, sólido. Usamos FillLayer para líneas nítidas sin grid.
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 val borderLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO

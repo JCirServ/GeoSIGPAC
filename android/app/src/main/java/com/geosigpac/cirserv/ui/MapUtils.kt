@@ -58,18 +58,35 @@ val HighContrastWhite = Color(0xFFFFFFFF)
 val FieldGray = Color(0xFFB0B0B0)
 val FieldDivider = Color(0xFF424242)
 
-// Colores de capas de mapa
-val HighlightColor = Color(0xFFF97316) // Naranja SIGPAC para selección
+val HighlightColor = Color(0xFFF97316) // Naranja Selección
 
-// --- COLORES DUAL TONE (RELLENO vs BORDE) ---
+// ==========================================
+// CONFIGURACIÓN DE COLORES DEL MAPA (PALETAS)
+// ==========================================
 
-// PNOA (Fondo Oscuro): Relleno Cian + Borde Blanco
-val FillColorPNOA = Color(0xFF00E5FF) 
-val BorderColorPNOA = Color(0xFFFFFFFF) 
+/* OPCIÓN A: ESTILO TÉCNICO (ACTIVO)
+   PNOA: Borde Blanco (Definición) + Relleno Azul (Datos)
+   OSM:  Borde Gris Oscuro (Cadastral) + Relleno Naranja (Visibilidad)
+*/
+val BorderColorPNOA = Color(0xFFFFFFFF) // Blanco Puro
+val FillColorPNOA   = Color(0xFF00B0FF) // Azul Eléctrico
 
-// OSM (Fondo Claro): Relleno Púrpura + Borde Magenta
-val FillColorOSM = Color(0xFF6200EA)
-val BorderColorOSM = Color(0xFFFF00FF) 
+val BorderColorOSM  = Color(0xFF263238) // Gris Pizarra Oscuro (Blue Gray 900)
+val FillColorOSM    = Color(0xFFFF6D00) // Naranja Vivo
+
+/* OPCIÓN B: ESTILO CÍTRICO (Descomentar para probar)
+val BorderColorPNOA = Color(0xFFFFFF00) // Amarillo
+val FillColorPNOA   = Color(0xFF76FF03) // Verde Lima
+val BorderColorOSM  = Color(0xFF1B5E20) // Verde Bosque
+val FillColorOSM    = Color(0xFFFFD600) // Amarillo Solar
+*/
+
+/* OPCIÓN C: ESTILO CYBER (Descomentar para probar)
+val BorderColorPNOA = Color(0xFF00E5FF) // Cian
+val FillColorPNOA   = Color(0xFFD500F9) // Magenta
+val BorderColorOSM  = Color(0xFF4A148C) // Morado Oscuro
+val FillColorOSM    = Color(0xFFFF4081) // Rosa
+*/
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
@@ -94,12 +111,11 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
         // Caso A: GeoJSON (Recinto hidratado desde API)
         if (parcela.geometryRaw.trim().startsWith("{")) {
             // Workaround: Envolvemos la geometría cruda en un objeto Feature para poder usar Feature.fromJson
-            // ya que Geometry.fromJson a veces da problemas de resolución en tiempo de compilación/linkado.
             val rawGeom = parcela.geometryRaw.trim()
             val featureJson = """{"type": "Feature", "properties": {}, "geometry": $rawGeom}"""
             val feature = Feature.fromJson(featureJson)
 
-            // Calculamos bounds simples iterando coordenadas del JSON raw (más rápido que parsear el objeto Feature completo manualmente)
+            // Calculamos bounds simples iterando coordenadas del JSON raw
             val root = JSONObject(parcela.geometryRaw)
             val coords = root.optJSONArray("coordinates")
             
@@ -186,18 +202,14 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
  */
 suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): ParcelSearchResult? = withContext(Dispatchers.IO) {
     try {
-        // Valores por defecto para agregado y zona en búsquedas rápidas
         val ag = "0"
         val zo = "0"
 
-        // URL proporcionada por el usuario para localización de parcelas/recintos
         val urlString = String.format(
             Locale.US,
             "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/%s/%s/%s/%s/%s/%s.geojson",
             prov, mun, ag, zo, pol, parc
         )
-
-        Log.d("SEARCH_SIGPAC", "Requesting: $urlString")
 
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
@@ -229,19 +241,16 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
                     val featureObj = features.getJSONObject(i)
                     val props = featureObj.optJSONObject("properties")
                     
-                    // Si se especificó un recinto, buscamos exactamente ese. Si no, tomamos el primero o unimos (aquí simplificado al primero válido)
                     if (rec != null && props != null) {
                         val currentRec = props.optString("recinto")
                         if (currentRec != rec) continue
                     }
 
-                    // Encontramos el candidato
                     foundFeature = featureObj
                     
                     val geometry = featureObj.optJSONObject("geometry") ?: continue
                     val coordinates = geometry.optJSONArray("coordinates") ?: continue
 
-                    // Calcular Bounds manualmente para asegurar encuadre perfecto
                     fun extractPoints(arr: JSONArray) {
                         if (arr.length() == 0) return
                         val first = arr.get(0)
@@ -260,25 +269,14 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
                     }
 
                     extractPoints(coordinates)
-                    // Si buscamos un recinto específico, paramos al encontrarlo
                     if (rec != null) break
                 }
 
                 if (foundFeature != null && minLat != Double.MAX_VALUE) {
-                    // Crear Feature de MapLibre desde el JSON
                     val mapLibreFeature = Feature.fromJson(foundFeature.toString())
-
-                    // Margen de seguridad del 30% para que se vea contexto
                     val latPadding = (maxLat - minLat) * 0.30
                     val lngPadding = (maxLng - minLng) * 0.30
-                    
-                    val bounds = LatLngBounds.from(
-                        maxLat + latPadding, 
-                        maxLng + lngPadding, 
-                        minLat - latPadding, 
-                        minLng - lngPadding
-                    )
-                    
+                    val bounds = LatLngBounds.from(maxLat + latPadding, maxLng + lngPadding, minLat - latPadding, minLng - lngPadding)
                     return@withContext ParcelSearchResult(bounds, mapLibreFeature)
                 }
             }
@@ -324,15 +322,10 @@ suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? 
                 }
                 val prov = getProp("provincia"); val mun = getProp("municipio"); val pol = getProp("poligono")
                 if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext null
-
                 val superficieRaw = getProp("superficie")
                 var altitudVal = getProp("altitud"); if (altitudVal.isEmpty()) { altitudVal = getProp("altitud_media") }
-
-                // Traducir Uso
                 val rawUso = getProp("uso_sigpac")
                 val translatedUso = SigpacCodeManager.getUsoDescription(rawUso) ?: rawUso
-
-                // Traducir Región
                 val rawRegion = getProp("region")
                 val translatedRegion = SigpacCodeManager.getRegionDescription(rawRegion) ?: rawRegion
 
