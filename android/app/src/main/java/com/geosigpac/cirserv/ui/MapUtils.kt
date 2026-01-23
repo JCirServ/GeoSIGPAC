@@ -3,6 +3,7 @@ package com.geosigpac.cirserv.ui
 
 import android.util.Log
 import androidx.compose.ui.graphics.Color
+import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.utils.SigpacCodeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -10,6 +11,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.geojson.Feature
+import org.maplibre.geojson.Point
+import org.maplibre.geojson.Polygon
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
@@ -69,6 +72,66 @@ data class ParcelSearchResult(
 )
 
 // --- FUNCIONES API (WFS & INFO) ---
+
+/**
+ * Calcula los límites y la geometría de una parcela basada en su data local KML
+ * sin necesidad de llamadas a API externa.
+ */
+fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
+    if (parcela.geometryRaw.isNullOrEmpty()) return null
+
+    return try {
+        val points = mutableListOf<Point>()
+        var minLat = Double.MAX_VALUE
+        var maxLat = -Double.MAX_VALUE
+        var minLng = Double.MAX_VALUE
+        var maxLng = -Double.MAX_VALUE
+
+        val coordPairs = parcela.geometryRaw.trim().split("\\s+".toRegex())
+        
+        coordPairs.forEach { pair ->
+            val coords = pair.split(",")
+            if (coords.size >= 2) {
+                val lng = coords[0].toDoubleOrNull()
+                val lat = coords[1].toDoubleOrNull()
+                if (lng != null && lat != null) {
+                    points.add(Point.fromLngLat(lng, lat))
+                    if (lat < minLat) minLat = lat
+                    if (lat > maxLat) maxLat = lat
+                    if (lng < minLng) minLng = lng
+                    if (lng > maxLng) maxLng = lng
+                }
+            }
+        }
+
+        if (points.isEmpty()) return null
+
+        // Padding del 20% para visualización
+        val latPadding = (maxLat - minLat) * 0.20
+        val lngPadding = (maxLng - minLng) * 0.20
+        
+        // Crear Bounds
+        val bounds = LatLngBounds.from(
+            maxLat + latPadding,
+            maxLng + lngPadding,
+            minLat - latPadding,
+            minLng - lngPadding
+        )
+
+        // Crear Feature (Polígono)
+        // KML coordinates usually implicitly close the loop, but MapLibre requires explicit closing
+        if (points.first() != points.last()) {
+            points.add(points.first())
+        }
+        val polygon = Polygon.fromLngLats(listOf(points))
+        val feature = Feature.fromGeometry(polygon)
+        
+        ParcelSearchResult(bounds, feature)
+    } catch (e: Exception) {
+        Log.e("MapUtils", "Error parsing local geometry: ${e.message}")
+        null
+    }
+}
 
 /**
  * Busca la ubicación de un recinto o parcela utilizando el endpoint GeoJSON de recinfoparc.

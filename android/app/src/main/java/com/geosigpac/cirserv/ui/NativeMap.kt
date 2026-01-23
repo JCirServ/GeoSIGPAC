@@ -220,18 +220,44 @@ fun NativeMap(
         focusManager.clearFocus()
         isSearching = true
         searchActive = true
-        
-        val parts = searchQuery.split(":").map { it.trim() }
-        if (parts.size < 4) {
-            Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
-            isSearching = false
-            return
-        }
-
-        val prov = parts[0]; val mun = parts[1]; val pol = parts[2]; val parc = parts[3]; val rec = parts.getOrNull(4)
 
         scope.launch {
             val map = mapInstance
+            // NUEVO: INTERCEPTAR COMANDO LOCAL PARA EVITAR API
+            if (searchQuery.startsWith("LOC:")) {
+                val localId = searchQuery.substring(4)
+                val targetParcel = expedientes.flatMap { it.parcelas }.find { it.id == localId }
+                
+                if (targetParcel != null) {
+                    // Usar cálculo local en lugar de API
+                    val localResult = computeLocalBoundsAndFeature(targetParcel)
+                    if (localResult != null) {
+                        map?.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(localResult.feature)
+                        map?.animateCamera(CameraUpdateFactory.newLatLngBounds(localResult.bounds, 100), 1000)
+                        
+                        // Setear filtros visuales para resaltar si coinciden atributos
+                        // (Opcional, pero mantiene coherencia visual)
+                        instantSigpacRef = targetParcel.referencia
+                    } else {
+                        Toast.makeText(context, "Geometría KML inválida", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(context, "Parcela no encontrada localmente", Toast.LENGTH_SHORT).show()
+                }
+                isSearching = false
+                return@launch
+            }
+            
+            // LÓGICA ANTIGUA (API SIGPAC)
+            val parts = searchQuery.split(":").map { it.trim() }
+            if (parts.size < 4) {
+                Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
+                isSearching = false
+                return@launch
+            }
+
+            val prov = parts[0]; val mun = parts[1]; val pol = parts[2]; val parc = parts[3]; val rec = parts.getOrNull(4)
+
             if (map != null && map.style != null) {
                 val filterList = mutableListOf<Expression>(
                     Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
@@ -252,7 +278,7 @@ fun NativeMap(
                 map?.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(result.feature)
                 map?.animateCamera(CameraUpdateFactory.newLatLngBounds(result.bounds, 100), 1500)
             } else {
-                Toast.makeText(context, "Ubicación no encontrada", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Ubicación no encontrada en SIGPAC", Toast.LENGTH_SHORT).show()
             }
             isSearching = false
         }

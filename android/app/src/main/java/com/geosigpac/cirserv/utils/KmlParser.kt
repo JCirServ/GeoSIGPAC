@@ -10,6 +10,8 @@ import org.w3c.dom.NodeList
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlin.math.max
+import kotlin.math.min
 
 object KmlParser {
 
@@ -70,12 +72,11 @@ object KmlParser {
                 val element = placemarks.item(i) as Element
                 val metadata = mutableMapOf<String, String>()
 
-                // 1. Extraer ExtendedData (Soporte dual: Data y SimpleData)
+                // 1. Extraer ExtendedData
                 val extendedDataList = element.getElementsByTagName("ExtendedData")
                 if (extendedDataList.length > 0) {
                     val extendedElem = extendedDataList.item(0) as Element
                     
-                    // Formato A: <Data name="..."> (Estándar Google Earth)
                     val dataNodes = extendedElem.getElementsByTagName("Data")
                     for (j in 0 until dataNodes.length) {
                         val dataElem = dataNodes.item(j) as Element
@@ -84,7 +85,6 @@ object KmlParser {
                         metadata[name.lowercase()] = value
                     }
 
-                    // Formato B: <SchemaData ...> <SimpleData name="..."> (Formato OGC/QGIS)
                     val schemaDataNodes = extendedElem.getElementsByTagName("SchemaData")
                     for (k in 0 until schemaDataNodes.length) {
                         val simpleDataNodes = (schemaDataNodes.item(k) as Element).getElementsByTagName("SimpleData")
@@ -97,70 +97,136 @@ object KmlParser {
                     }
                 }
 
-                // 2. CONSTRUCCIÓN INTELIGENTE DE REFERENCIA SIGPAC
-                // Buscamos cualquier variación común de nombres de columnas
-                val prov = findValue(metadata, listOf("provincia", "prov", "dn_prov", "cd_prov", "id_prov", "pro"))
-                val mun = findValue(metadata, listOf("municipio", "mun", "dn_mun", "dn_municipio", "cd_mun", "id_mun"))
-                val pol = findValue(metadata, listOf("poligono", "pol", "dn_pol", "cd_pol", "id_pol"))
-                val parc = findValue(metadata, listOf("parcela", "parc", "par", "dn_par", "dn_parc", "id_par"))
-                val rec = findValue(metadata, listOf("recinto", "rec", "dn_rec", "id_rec", "dn_recinto")) ?: "0"
-                val agg = findValue(metadata, listOf("agregado", "agg", "ag", "dn_agg")) ?: "0"
-                val zon = findValue(metadata, listOf("zona", "zon", "zn", "dn_zon", "dn_zona")) ?: "0"
-
+                // 2. Extraer o Construir Referencia SIGPAC
                 var rawRef = ""
-                
-                if (prov != null && mun != null && pol != null && parc != null) {
-                    // Si tenemos los componentes críticos, construimos la referencia canónica
-                    rawRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
-                } else {
-                    // Fallback: Buscar campo 'ref_sigpac' explícito o usar el Nombre/ID
-                    rawRef = findValue(metadata, listOf("ref_sigpac", "referencia", "ref", "cod_parcela", "codigo")) 
-                             ?: metadata["id"] 
-                             ?: element.getElementsByTagName("name").item(0)?.textContent 
-                             ?: "RECINTO_$i"
+                val keysProv = listOf("provincia", "prov", "dn_prov", "cpro", "cd_prov", "cod_prov")
+                val keysMun = listOf("municipio", "mun", "dn_mun", "cmun", "cd_mun", "cod_mun")
+                val keysPol = listOf("poligono", "pol", "dn_pol", "cpol", "cd_pol", "polig")
+                val keysParc = listOf("parcela", "parc", "par", "dn_par", "cpar", "cd_par")
+                val keysRec = listOf("recinto", "rec", "dn_rec", "crec", "cd_rec")
+                val keysAgg = listOf("agregado", "agg", "dn_agg", "cagg")
+                val keysZon = listOf("zona", "zon", "dn_zon", "czona")
+
+                fun findValue(keys: List<String>): String? {
+                    return keys.firstNotNullOfOrNull { key -> metadata[key]?.takeIf { it.isNotEmpty() } }
                 }
 
-                // 3. Formatear para visualización
-                val displayRef = formatToDisplayRef(rawRef)
+                val p = findValue(keysProv)
+                val m = findValue(keysMun)
+                val polVal = findValue(keysPol)
+                val parVal = findValue(keysParc)
+                val recVal = findValue(keysRec)
 
-                // 4. Extraer Uso (Buscamos variantes)
-                val uso = findValue(metadata, listOf("uso_sigpac", "uso", "dn_uso", "desc_uso")) ?: "N/D"
+                if (p != null && m != null && polVal != null && parVal != null && recVal != null) {
+                    val a = findValue(keysAgg) ?: "0"
+                    val z = findValue(keysZon) ?: "0"
+                    rawRef = "$p:$m:$a:$z:$polVal:$parVal:$recVal"
+                } else {
+                    val keysRef = listOf("ref_sigpac", "referencia", "dn_ref", "codigo", "label", "id", "name")
+                    val existingRef = findValue(keysRef)
+                    if (existingRef != null && existingRef.contains(Regex("[:\\-]"))) {
+                        rawRef = existingRef
+                    } else {
+                        rawRef = element.getElementsByTagName("name").item(0)?.textContent?.trim() ?: "RECINTO_$i"
+                    }
+                }
 
-                // 5. Extraer Superficie
-                val superficieStr = findValue(metadata, listOf("superficie", "dn_surface", "area", "superficie_ha", "ha")) ?: "0"
+                // 3. Formatear y Atributos
+                var displayRef = formatToDisplayRef(rawRef)
+                val keysUso = listOf("uso_sigpac", "uso", "dn_uso", "uso_sig", "desc_uso")
+                val uso = findValue(keysUso) ?: "N/D"
+                val keysSup = listOf("dn_surface", "superficie", "area", "sup", "dn_sup", "shape_area")
+                val superficieStr = findValue(keysSup) ?: "0"
                 val area = superficieStr.replace(",", ".").toDoubleOrNull() ?: 0.0
 
-                // 6. Extraer Coordenadas (Geometry)
-                var lat = 0.0
-                var lng = 0.0
+                // 4. Procesar Geometría (Polygon o Point)
+                var centroidLat = 0.0
+                var centroidLng = 0.0
                 var coordsRaw: String? = null
+                var isPointGeometry = false
 
-                val coordsNodes = element.getElementsByTagName("coordinates")
+                // Intentar buscar Polygon
+                var coordsNodes = element.getElementsByTagName("Polygon")
+                if (coordsNodes.length == 0) {
+                    // Si no hay Polygon, buscar Point
+                    coordsNodes = element.getElementsByTagName("Point")
+                    if (coordsNodes.length > 0) {
+                        isPointGeometry = true
+                    }
+                }
+
                 if (coordsNodes.length > 0) {
-                    val coordsText = coordsNodes.item(0).textContent.trim()
-                    coordsRaw = coordsText
-                    // Tomamos el primer punto para centrar
-                    val rawCoords = coordsText.split("\\s+".toRegex())
-                    if (rawCoords.isNotEmpty()) {
-                        val firstPoint = rawCoords[0].split(",")
-                        if (firstPoint.size >= 2) {
-                            lng = firstPoint[0].toDoubleOrNull() ?: 0.0
-                            lat = firstPoint[1].toDoubleOrNull() ?: 0.0
+                    val coordsTag = (coordsNodes.item(0) as Element).getElementsByTagName("coordinates")
+                    if (coordsTag.length > 0) {
+                        val coordsText = coordsTag.item(0).textContent.trim()
+                        
+                        if (isPointGeometry) {
+                            // Caso PUNTO: Extraer lat/lng y marcar para búsqueda remota
+                            val parts = coordsText.split(",")
+                            if (parts.size >= 2) {
+                                val lng = parts[0].toDoubleOrNull() ?: 0.0
+                                val lat = parts[1].toDoubleOrNull() ?: 0.0
+                                centroidLat = lat
+                                centroidLng = lng
+                                coordsRaw = null // Dejamos null para que el ProjectManager sepa que debe buscar la geometría real
+                                
+                                // Si no tenemos una referencia válida parseada, ponemos una temporal
+                                if (!displayRef.contains(":")) {
+                                    displayRef = "PENDIENTE_${i}"
+                                }
+                            }
+                        } else {
+                            // Caso POLÍGONO: Lógica existente
+                            coordsRaw = coordsText
+                            val polygonPoints = mutableListOf<Pair<Double, Double>>()
+                            val rawCoords = coordsText.split("\\s+".toRegex())
+                            
+                            for (pointStr in rawCoords) {
+                                val parts = pointStr.split(",")
+                                if (parts.size >= 2) {
+                                    val lng = parts[0].toDoubleOrNull()
+                                    val lat = parts[1].toDoubleOrNull()
+                                    if (lng != null && lat != null) {
+                                        polygonPoints.add(lat to lng)
+                                    }
+                                }
+                            }
+
+                            if (polygonPoints.isNotEmpty()) {
+                                var sumLat = 0.0
+                                var sumLng = 0.0
+                                polygonPoints.forEach { 
+                                    sumLat += it.first
+                                    sumLng += it.second 
+                                }
+                                val avgLat = sumLat / polygonPoints.size
+                                val avgLng = sumLng / polygonPoints.size
+
+                                if (isPointInPolygon(avgLat, avgLng, polygonPoints)) {
+                                    centroidLat = avgLat
+                                    centroidLng = avgLng
+                                } else {
+                                    val corrected = getInternalPoint(avgLat, polygonPoints)
+                                    centroidLat = corrected.first
+                                    centroidLng = corrected.second
+                                }
+                            }
                         }
                     }
                 }
 
-                // 7. Crear objeto
                 parcelas.add(
                     NativeParcela(
                         id = "p_${System.currentTimeMillis()}_$i",
-                        referencia = displayRef,
+                        referencia = displayRef, 
                         uso = uso,
-                        lat = lat,
-                        lng = lng,
+                        lat = centroidLat,
+                        lng = centroidLng,
                         area = area,
-                        metadata = metadata,
-                        geometryRaw = coordsRaw
+                        metadata = metadata, 
+                        geometryRaw = coordsRaw,
+                        centroidLat = centroidLat,
+                        centroidLng = centroidLng
                     )
                 )
             }
@@ -171,30 +237,68 @@ object KmlParser {
     }
 
     /**
-     * Busca en el mapa de metadatos el primer valor no nulo para una lista de claves posibles.
+     * Algoritmo Ray Casting: Devuelve true si el punto (testLat, testLng) está dentro del polígono.
      */
-    private fun findValue(metadata: Map<String, String>, keys: List<String>): String? {
-        for (key in keys) {
-            if (metadata.containsKey(key)) {
-                val value = metadata[key]
-                if (!value.isNullOrBlank()) return value
+    private fun isPointInPolygon(testLat: Double, testLng: Double, polygon: List<Pair<Double, Double>>): Boolean {
+        var inside = false
+        var j = polygon.lastIndex
+        
+        for (i in polygon.indices) {
+            val (latI, lngI) = polygon[i]
+            val (latJ, lngJ) = polygon[j]
+            
+            // Verifica intersección del rayo horizontal proyectado hacia la derecha
+            if (((latI > testLat) != (latJ > testLat)) &&
+                (testLng < (lngJ - lngI) * (testLat - latI) / (latJ - latI) + lngI)) {
+                inside = !inside
             }
+            j = i
         }
-        return null
+        return inside
     }
 
     /**
-     * Convierte cualquier referencia al formato visual estándar: Prov:Mun:Pol:Parc:Rec
+     * Encuentra un punto garantizado dentro del polígono.
+     * Traza una línea horizontal en refLat y encuentra el punto medio del primer segmento de intersección.
      */
+    private fun getInternalPoint(refLat: Double, polygon: List<Pair<Double, Double>>): Pair<Double, Double> {
+        val intersections = mutableListOf<Double>()
+        var j = polygon.lastIndex
+        
+        // 1. Encontrar todas las intersecciones de longitud en la latitud de referencia
+        for (i in polygon.indices) {
+            val (latI, lngI) = polygon[i]
+            val (latJ, lngJ) = polygon[j]
+            
+            // Si el segmento cruza la latitud de referencia
+            if ((latI > refLat) != (latJ > refLat)) {
+                // Calcular longitud de intersección (Interpolación lineal)
+                val intersectLng = (lngJ - lngI) * (refLat - latI) / (latJ - latI) + lngI
+                intersections.add(intersectLng)
+            }
+            j = i
+        }
+        
+        // 2. Ordenar intersecciones de oeste a este
+        intersections.sort()
+        
+        // 3. Tomar el punto medio del primer par de intersecciones (Define un segmento "dentro" del polígono)
+        if (intersections.size >= 2) {
+            val newLng = (intersections[0] + intersections[1]) / 2.0
+            return refLat to newLng
+        }
+        
+        // Fallback extremo: Si falla la geometría (polígono inválido), devuelve el primer vértice.
+        return polygon.firstOrNull() ?: (0.0 to 0.0)
+    }
+
     private fun formatToDisplayRef(raw: String): String {
-        // Limpiar separadores (guiones por dos puntos) y espacios
-        val clean = raw.replace("-", ":").replace("/", ":").trim()
+        val clean = raw.replace("-", ":").replace(" ", ":")
         val parts = clean.split(":").filter { it.isNotBlank() }
 
         return when {
-            // Caso completo: Prov:Mun:Agg:Zon:Pol:Parc:Rec (7 partes) -> Cogemos 0,1,4,5,6
             parts.size >= 7 -> "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
-            // Caso sin Recinto (6 partes) o parcial: Devolvemos tal cual
+            parts.size == 5 -> "${parts[0]}:${parts[1]}:${parts[2]}:${parts[3]}:${parts[4]}"
             else -> parts.joinToString(":")
         }
     }
