@@ -18,7 +18,7 @@ import kotlin.math.roundToInt
 
 object SigpacApiService {
 
-    private const val TAG = "SigpacApiService"
+    private const val TAG = "SigpacDebug" // Etiqueta para filtrar en Logcat
 
     /**
      * @param targetAreaHa Superficie CALCULADA del polígono KML en Hectáreas.
@@ -145,9 +145,17 @@ object SigpacApiService {
 
     suspend fun recoverParcelaFromPoint(lat: Double, lng: Double): Triple<String?, String?, SigpacData?> = withContext(Dispatchers.IO) {
         // 1. OBTENER REFERENCIA POR COORDENADAS (API REFRECINBYCOORD)
-        // Corrected URL: SRS 4326 and .geojson extension as per requirements
         val refUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/refrecinbycoord/4326/%.8f/%.8f.geojson", lng, lat)
-        val refResponse = fetchUrl(refUrl) ?: return@withContext Triple(null, null, null)
+        
+        Log.d(TAG, "STEP 1: Requesting Ref by Point: $refUrl")
+        val refResponse = fetchUrl(refUrl)
+        
+        if (refResponse == null) {
+            Log.e(TAG, "STEP 1 FAILED: Response was null")
+            return@withContext Triple(null, null, null)
+        }
+        
+        Log.d(TAG, "STEP 1 SUCCESS: Response length ${refResponse.length}")
 
         var prov = ""; var mun = ""; var pol = ""; var parc = ""; var rec = ""; var agg = "0"; var zon = "0"
         
@@ -170,20 +178,33 @@ object SigpacApiService {
                 pol = props.optString("poligono")
                 parc = props.optString("parcela")
                 rec = props.optString("recinto")
+                Log.d(TAG, "Parsed Location: P:$prov M:$mun Pol:$pol Parc:$parc Rec:$rec")
+            } else {
+                Log.e(TAG, "Parsed Location: Properties not found in JSON")
             }
-        } catch (e: Exception) { e.printStackTrace(); return@withContext Triple(null, null, null) }
+        } catch (e: Exception) { 
+            Log.e(TAG, "Exception parsing RefByPoint: ${e.message}")
+            e.printStackTrace()
+            return@withContext Triple(null, null, null) 
+        }
 
-        if (prov.isEmpty() || mun.isEmpty()) return@withContext Triple(null, null, null)
+        if (prov.isEmpty() || mun.isEmpty()) {
+            Log.e(TAG, "Invalid location data parsed")
+            return@withContext Triple(null, null, null)
+        }
+        
         val fullRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
+        Log.d(TAG, "Full Reference Constructed: $fullRef")
 
         // 2. OBTENER DATOS SIGPAC (RECINFO)
         val recInfoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$agg/$zon/$pol/$parc/$rec.json"
+        Log.d(TAG, "STEP 2: Requesting RecInfo: $recInfoUrl")
         val sigpacData = fetchUrl(recInfoUrl)?.let { parseSigpacDataJson(it) }
 
         // 3. OBTENER GEOMETRÍA CULTIVO ESPECÍFICO (SI EL PUNTO CAE DENTRO)
-        // Se busca si el punto cae dentro de alguna geometría de cultivo declarado para devolver ESA geometría en lugar de la del recinto
         var geometryRaw: String? = null
         val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
+        Log.d(TAG, "STEP 3: Requesting Cultivo Geom: $ogcUrl")
         val cultivoJson = fetchUrl(ogcUrl)
         
         if (cultivoJson != null) {
@@ -202,20 +223,24 @@ object SigpacApiService {
                         val geom = feat.optJSONObject("geometry")
                         if (geom != null && isPointInGeoJsonGeometry(lat, lng, geom)) {
                             geometryRaw = extractGeometryFromGeoJsonObj(geom)
+                            Log.d(TAG, "Found Geometry in Cultivo (Year $maxYear)")
                             break
                         }
                     }
                 }
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) { 
+                 Log.e(TAG, "Error parsing cultivo geom: ${e.message}")
+            }
         }
 
-        // 4. FALLBACK: Si no se encuentra un cultivo que contenga el punto, 
-        // devolvemos la geometría del recinto completo para tener contexto visual.
+        // 4. FALLBACK: GEOMETRÍA DEL RECINTO
         if (geometryRaw == null) {
             val recGeomUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
+            Log.d(TAG, "STEP 4: Fallback to Recinto Geom: $recGeomUrl")
             val recGeomJson = fetchUrl(recGeomUrl)
             if (recGeomJson != null) {
                  geometryRaw = extractGeometryFromGeoJson(recGeomJson)
+                 if (geometryRaw != null) Log.d(TAG, "Recinto Geom Found")
             }
         }
 
@@ -242,7 +267,7 @@ object SigpacApiService {
                     altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                 )
             }
-        } catch (e: Exception) { }
+        } catch (e: Exception) { Log.e(TAG, "Error parsing SigpacData JSON: ${e.message}") }
         return null
     }
 
@@ -338,15 +363,29 @@ object SigpacApiService {
     }
 
     private fun fetchUrl(urlString: String): String? {
+        Log.d(TAG, "HTTP GET REQ: $urlString")
         return try {
             val url = URL(urlString)
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 8000
             conn.readTimeout = 8000
             conn.setRequestProperty("User-Agent", "GeoSIGPAC-Mobile/1.0")
-            if (conn.responseCode == 200) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else null
-        } catch (e: Exception) { null }
+            
+            val code = conn.responseCode
+            Log.d(TAG, "HTTP RESP Code: $code")
+            
+            if (code == 200) {
+                val response = conn.inputStream.bufferedReader().use { it.readText() }
+                Log.d(TAG, "HTTP RESP Body: $response")
+                response
+            } else {
+                Log.e(TAG, "HTTP Error Code: $code")
+                null
+            }
+        } catch (e: Exception) { 
+            Log.e(TAG, "HTTP Exception: ${e.message}")
+            e.printStackTrace()
+            null 
+        }
     }
 }

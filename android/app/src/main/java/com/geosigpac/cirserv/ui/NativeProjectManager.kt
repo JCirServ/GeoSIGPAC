@@ -80,6 +80,7 @@ fun NativeProjectManager(
 
                     // CASO ESPECIAL: Parcela importada como PUNTO (sin geometría, ref pendiente)
                     if (parcelaToHydrate.geometryRaw == null && parcelaToHydrate.centroidLat != null) {
+                        Log.d("SigpacDebug", "Hydrating Point Marker: ${parcelaToHydrate.centroidLat}, ${parcelaToHydrate.centroidLng}")
                         val (realRef, realGeom, realSigpac) = SigpacApiService.recoverParcelaFromPoint(
                             parcelaToHydrate.centroidLat, 
                             parcelaToHydrate.centroidLng!!
