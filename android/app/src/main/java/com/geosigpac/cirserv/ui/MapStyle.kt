@@ -85,7 +85,8 @@ fun loadMapStyle(
                 )
                 style.addLayer(detectionLayer)
 
-                // 2. Capa de Resaltado (Highlight) - SIEMPRE VISIBLE, PERO FILTRADA
+                // 2. Capa de Resaltado (Highlight - Selección)
+                // Esta capa se superpone y es más opaca (0.5f) para destacar sobre el fondo.
                 val initialFilter = Expression.literal(false)
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
@@ -93,7 +94,7 @@ fun loadMapStyle(
                 highlightFill.setFilter(initialFilter)
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.4f),
+                    PropertyFactory.fillOpacity(0.5f), // Más opaco que el fondo base
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightFill)
@@ -108,15 +109,19 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightLine)
 
-                // 3. Capa de Líneas Generales (Bordes)
-                // Usamos FillLayer para evitar rejilla, pero cambiamos color según la base.
-                val outlineColor = if (baseMap == BaseMap.PNOA) RecintoColorPNOA else RecintoColorOSM
+                // 3. Capa Base de Recintos ("Cristal Tintado")
+                val baseColor = if (baseMap == BaseMap.PNOA) RecintoColorPNOA else RecintoColorOSM
+                
+                // Ajustamos la opacidad del relleno según el mapa para legibilidad
+                val fillOpacity = if (baseMap == BaseMap.PNOA) 0.12f else 0.08f
 
                 val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 outlineLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(outlineColor.toArgb())
+                    // Relleno sutil del mismo color que el borde
+                    PropertyFactory.fillColor(baseColor.copy(alpha = fillOpacity).toArgb()),
+                    // Borde sólido de 1px
+                    PropertyFactory.fillOutlineColor(baseColor.toArgb())
                 )
                 style.addLayer(outlineLayer)
                 
