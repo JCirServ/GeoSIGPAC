@@ -60,8 +60,8 @@ fun loadMapStyle(
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
-                    PropertyFactory.fillOpacity(0.35f),
-                    PropertyFactory.fillOutlineColor(Color.Yellow.toArgb())
+                    PropertyFactory.fillOpacity(0.35f)
+                    // FIX: Eliminado fillOutlineColor para evitar líneas de cuadrícula en los bordes de las teselas
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -76,12 +76,12 @@ fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // 1. Capa para Detección (Invisible pero Renderizable)
+                // 1. Capa para Detección (Invisible pero Renderizable para Query)
                 val detectionLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 detectionLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 detectionLayer.setProperties(
                     PropertyFactory.fillColor(Color.Black.toArgb()),
-                    PropertyFactory.fillOpacity(0.01f) 
+                    PropertyFactory.fillOpacity(0f) // FIX: Opacidad 0 absoluta para evitar artefactos visuales (grid lines)
                 )
                 style.addLayer(detectionLayer)
 
