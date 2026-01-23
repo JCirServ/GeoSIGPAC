@@ -422,3 +422,208 @@ fun ExpedienteHeader(
         }
     }
 }
+
+// --- NATIVE RECINTO CARD ---
+@Composable
+fun NativeRecintoCard(
+    parcela: NativeParcela,
+    onLocate: (String) -> Unit,
+    onCamera: (String) -> Unit,
+    onUpdateParcela: (NativeParcela) -> Unit,
+    initiallyExpanded: Boolean = false,
+    initiallyTechExpanded: Boolean = false
+) {
+    var isExpanded by remember { mutableStateOf(initiallyExpanded) }
+    var isTechExpanded by remember { mutableStateOf(initiallyTechExpanded) }
+    
+    val NeonGreen = Color(0xFF00FF88)
+    val DarkSurface = Color(0xFF1E2124)
+    val hasPhotos = parcela.photos.isNotEmpty()
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { isExpanded = !isExpanded }
+            .animateContentSize(),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        border = BorderStroke(1.dp, if (isExpanded) NeonGreen.copy(0.5f) else Color.White.copy(0.05f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // CABECERA
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = Color.Gray
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = parcela.referencia,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        if (parcela.uso != "N/D") {
+                            Text(
+                                text = "Uso: ${parcela.uso} • ${parcela.area} ha",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+                
+                IconButton(
+                    onClick = { onCamera(parcela.id) },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(if (hasPhotos) NeonGreen.copy(0.1f) else Color.White.copy(0.05f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = "Cámara",
+                        tint = if (hasPhotos) NeonGreen else Color.Gray
+                    )
+                }
+            }
+
+            // CONTENIDO EXPANDIDO
+            if (isExpanded) {
+                Spacer(Modifier.height(16.dp))
+                
+                // 1. ANÁLISIS IA (Si existe)
+                if (!parcela.informeIA.isNullOrEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF2A2A35), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color.Yellow.copy(0.2f), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.SmartToy, null, tint = Color.Yellow, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("ANÁLISIS TÉCNICO IA", color = Color.Yellow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(parcela.informeIA, color = Color.White, fontSize = 13.sp, lineHeight = 18.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                // 2. FOTOS (Si existen)
+                if (hasPhotos) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.height(100.dp)
+                    ) {
+                        items(parcela.photos) { photoUri ->
+                            AsyncImage(
+                                model = Uri.parse(photoUri),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .width(100.dp)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color.White.copy(0.2f), RoundedCornerShape(8.dp))
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                // 3. DATOS TÉCNICOS EXPANDIBLES
+                if (parcela.isHydrated) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isTechExpanded = !isTechExpanded }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if(isTechExpanded) "Ocultar Datos Técnicos" else "Ver Datos SIGPAC y Declaración",
+                            color = NeonGreen,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Icon(
+                            imageVector = if(isTechExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = NeonGreen,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    if (isTechExpanded) {
+                        Column(modifier = Modifier.background(Color.Black.copy(0.2f), RoundedCornerShape(8.dp)).padding(12.dp)) {
+                            // COLUMNA IZQ: SIGPAC
+                            Text("SIGPAC", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                            Spacer(Modifier.height(4.dp))
+                            TechRow("Uso", parcela.sigpacInfo?.usoSigpac ?: "---")
+                            TechRow("Pendiente", "${parcela.sigpacInfo?.pendienteMedia ?: 0}%")
+                            TechRow("Regadío", "${parcela.sigpacInfo?.coefRegadio ?: 0}%")
+                            
+                            Spacer(Modifier.height(12.dp))
+                            
+                            // COLUMNA DER: DECLARACIÓN
+                            Text("DECLARACIÓN PAC", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                            Spacer(Modifier.height(4.dp))
+                            if (parcela.cultivoInfo != null) {
+                                TechRow("Producto", "${parcela.cultivoInfo.parcProducto} - ${parcela.cultivoInfo.parcProducto}") // Simplificado
+                                TechRow("Régimen", parcela.cultivoInfo.parcSistexp ?: "---")
+                                if (!parcela.cultivoInfo.parcAyudasol.isNullOrEmpty()) {
+                                    TechRow("Ayuda", "SÍ")
+                                }
+                            } else {
+                                Text("Sin declaración asociada", color = Color(0xFFEF5350), fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = NeonGreen)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Descargando datos oficiales...", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                // 4. ACCIONES
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onLocate(parcela.referencia) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(0.1f)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Map, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Localizar")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TechRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = Color.Gray, fontSize = 12.sp)
+        Text(value, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
