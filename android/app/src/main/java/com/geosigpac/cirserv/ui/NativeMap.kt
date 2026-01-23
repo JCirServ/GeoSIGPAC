@@ -86,7 +86,7 @@ private const val LAYER_PROJECTS_CENTROID = "projects-centroid"
 fun NativeMap(
     expedientes: List<NativeExpediente>,
     searchTarget: String?,
-    followUserTrigger: Long = 0L, // Nuevo parámetro Trigger
+    followUserTrigger: Long = 0L, 
     onNavigateToProjects: () -> Unit,
     onOpenCamera: () -> Unit
 ) {
@@ -173,7 +173,7 @@ fun NativeMap(
         
         currentExpedientes.filter { visibleIds.contains(it.id) }.forEach { exp ->
             exp.parcelas.forEach { p ->
-                // 1. Polígono del KML original
+                // 1. Polígono del KML original (o recuperado por hidratación)
                 if (p.geometryRaw != null) {
                     try {
                         val points = mutableListOf<Point>()
@@ -187,6 +187,12 @@ fun NativeMap(
                             }
                         }
                         if (points.isNotEmpty()) {
+                            // CRÍTICO: Cerrar el polígono si el último punto no es igual al primero
+                            // Esto asegura que la capa de relleno (FillLayer) funcione, pintándolo de azul
+                            if (points.first() != points.last()) {
+                                points.add(points.first())
+                            }
+
                             val polygon = Polygon.fromLngLats(listOf(points))
                             val feat = Feature.fromGeometry(polygon)
                             feat.addStringProperty("type", "parcela")
@@ -196,7 +202,7 @@ fun NativeMap(
                     } catch (e: Exception) {}
                 }
 
-                // 2. Punto del Centroide oficial (Si se ha hidratado)
+                // 2. Punto del Centroide oficial
                 if (p.centroidLat != null && p.centroidLng != null) {
                     val centerPoint = Point.fromLngLat(p.centroidLng, p.centroidLat)
                     val feat = Feature.fromGeometry(centerPoint)
@@ -236,7 +242,6 @@ fun NativeMap(
                         map?.animateCamera(CameraUpdateFactory.newLatLngBounds(localResult.bounds, 100), 1000)
                         
                         // Setear filtros visuales para resaltar si coinciden atributos
-                        // (Opcional, pero mantiene coherencia visual)
                         instantSigpacRef = targetParcel.referencia
                     } else {
                         Toast.makeText(context, "Geometría KML inválida", Toast.LENGTH_SHORT).show()
