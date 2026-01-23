@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.utils.SigpacCodeManager
+import com.geosigpac.cirserv.ui.FullScreenPhotoGallery
 
 @Composable
 fun NativeRecintoCard(
