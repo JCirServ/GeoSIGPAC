@@ -16,6 +16,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.sources.RasterSource
@@ -61,7 +62,6 @@ fun loadMapStyle(
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f)
-                    // NOTA: No usamos fillOutlineColor aquí para evitar artefactos
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -94,7 +94,7 @@ fun loadMapStyle(
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
                     PropertyFactory.fillOpacity(0.4f),
-                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE)
+                    PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightFill)
 
@@ -104,20 +104,20 @@ fun loadMapStyle(
                 highlightLine.setProperties(
                     PropertyFactory.lineColor(HighlightColor.toArgb()),
                     PropertyFactory.lineWidth(3f), 
-                    PropertyFactory.visibility(org.maplibre.android.style.layers.Property.VISIBLE)
+                    PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightLine)
 
                 // 3. Capa de Líneas Generales (Bordes)
-                // FIX: Usamos FillLayer con fillOutlineColor en lugar de LineLayer.
-                // LineLayer dibuja bordes en los recortes de las teselas (grid artifacts).
-                // FillLayer renderiza el polígono unido y su outline solo en los bordes reales.
-                val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                // Usamos LineLayer para tener control real sobre el grosor (>1px).
+                val outlineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 outlineLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb())
-                    // Nota: lineWidth no soportado en FillLayer (es siempre 1px), pero elimina la cuadrícula.
+                    PropertyFactory.lineColor(RecintoLineColor.toArgb()),
+                    PropertyFactory.lineWidth(2.5f), // Grosor aumentado para mejor visibilidad
+                    PropertyFactory.lineOpacity(0.9f),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND), // Suaviza las uniones
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND)    // Suaviza los extremos
                 )
                 style.addLayer(outlineLayer)
                 
