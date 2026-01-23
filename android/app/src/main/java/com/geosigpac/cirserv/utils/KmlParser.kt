@@ -10,6 +10,8 @@ import org.w3c.dom.NodeList
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlin.math.max
+import kotlin.math.min
 
 object KmlParser {
 
@@ -137,7 +139,7 @@ object KmlParser {
                 val superficieStr = findValue(keysSup) ?: "0"
                 val area = superficieStr.replace(",", ".").toDoubleOrNull() ?: 0.0
 
-                // 4. Procesar Geometría y Centroide
+                // 4. Procesar Geometría y Calcular Centroide Local
                 var centroidLat = 0.0
                 var centroidLng = 0.0
                 var coordsRaw: String? = null
@@ -147,8 +149,8 @@ object KmlParser {
                     val coordsText = coordsNodes.item(0).textContent.trim()
                     coordsRaw = coordsText
                     
-                    // Parsear puntos
-                    val polygonPoints = mutableListOf<Pair<Double, Double>>() // Lat, Lng
+                    // Parsear puntos del polígono (Lat, Lng)
+                    val polygonPoints = mutableListOf<Pair<Double, Double>>()
                     val rawCoords = coordsText.split("\\s+".toRegex())
                     
                     for (pointStr in rawCoords) {
@@ -163,16 +165,24 @@ object KmlParser {
                     }
 
                     if (polygonPoints.isNotEmpty()) {
-                        // A. Calcular Centroide Geométrico (Promedio)
-                        val avgLat = polygonPoints.map { it.first }.average()
-                        val avgLng = polygonPoints.map { it.second }.average()
+                        // A. Calcular Centroide Matemático (Promedio simple)
+                        var sumLat = 0.0
+                        var sumLng = 0.0
+                        polygonPoints.forEach { 
+                            sumLat += it.first
+                            sumLng += it.second 
+                        }
+                        val avgLat = sumLat / polygonPoints.size
+                        val avgLng = sumLng / polygonPoints.size
 
-                        // B. Verificar con Ray Casting si está dentro
+                        // B. Verificar con Ray Casting si está dentro del polígono
                         if (isPointInPolygon(avgLat, avgLng, polygonPoints)) {
+                            // El promedio cae dentro, es válido
                             centroidLat = avgLat
                             centroidLng = avgLng
                         } else {
-                            // C. Si está fuera, calcular punto interior (Scanline en la Latitud Promedio)
+                            // C. El promedio cae fuera (ej. forma de "L" o "U").
+                            // Buscamos un punto interior válido usando Scanline en la latitud promedio.
                             val corrected = getInternalPoint(avgLat, polygonPoints)
                             centroidLat = corrected.first
                             centroidLng = corrected.second
@@ -180,7 +190,7 @@ object KmlParser {
                     }
                 }
 
-                // 5. Crear objeto
+                // 5. Crear objeto (Usando centroide calculado localmente, NUNCA de API)
                 parcelas.add(
                     NativeParcela(
                         id = "p_${System.currentTimeMillis()}_$i",
@@ -203,18 +213,19 @@ object KmlParser {
     }
 
     /**
-     * Algoritmo Ray Casting: Verifica si un punto (lat, lng) está dentro del polígono.
+     * Algoritmo Ray Casting: Devuelve true si el punto (testLat, testLng) está dentro del polígono.
      */
-    private fun isPointInPolygon(lat: Double, lng: Double, polygon: List<Pair<Double, Double>>): Boolean {
+    private fun isPointInPolygon(testLat: Double, testLng: Double, polygon: List<Pair<Double, Double>>): Boolean {
         var inside = false
         var j = polygon.lastIndex
+        
         for (i in polygon.indices) {
             val (latI, lngI) = polygon[i]
             val (latJ, lngJ) = polygon[j]
             
-            // Verifica intersección del rayo horizontal hacia la derecha
-            if (((latI > lat) != (latJ > lat)) &&
-                (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
+            // Verifica intersección del rayo horizontal proyectado hacia la derecha
+            if (((latI > testLat) != (latJ > testLat)) &&
+                (testLng < (lngJ - lngI) * (testLat - latI) / (latJ - latI) + lngI)) {
                 inside = !inside
             }
             j = i
@@ -223,34 +234,37 @@ object KmlParser {
     }
 
     /**
-     * Encuentra un punto dentro del polígono trazando una línea horizontal en refLat
-     * y buscando el punto medio del primer segmento de intersección.
+     * Encuentra un punto garantizado dentro del polígono.
+     * Traza una línea horizontal en refLat y encuentra el punto medio del primer segmento de intersección.
      */
     private fun getInternalPoint(refLat: Double, polygon: List<Pair<Double, Double>>): Pair<Double, Double> {
         val intersections = mutableListOf<Double>()
         var j = polygon.lastIndex
         
-        // Buscar todas las intersecciones de longitud en la latitud de referencia
+        // 1. Encontrar todas las intersecciones de longitud en la latitud de referencia
         for (i in polygon.indices) {
             val (latI, lngI) = polygon[i]
             val (latJ, lngJ) = polygon[j]
             
+            // Si el segmento cruza la latitud de referencia
             if ((latI > refLat) != (latJ > refLat)) {
+                // Calcular longitud de intersección (Interpolación lineal)
                 val intersectLng = (lngJ - lngI) * (refLat - latI) / (latJ - latI) + lngI
                 intersections.add(intersectLng)
             }
             j = i
         }
         
+        // 2. Ordenar intersecciones de oeste a este
         intersections.sort()
         
-        // Si hay intersecciones, tomamos el punto medio del primer par (que es interior)
+        // 3. Tomar el punto medio del primer par de intersecciones (Define un segmento "dentro" del polígono)
         if (intersections.size >= 2) {
             val newLng = (intersections[0] + intersections[1]) / 2.0
             return refLat to newLng
         }
         
-        // Fallback: Devolver el primer vértice si falla el cálculo geométrico
+        // Fallback extremo: Si falla la geometría (polígono inválido), devuelve el primer vértice.
         return polygon.firstOrNull() ?: (0.0 to 0.0)
     }
 

@@ -76,7 +76,8 @@ fun NativeProjectManager(
                     
                     if (parcelaToHydrate == null) break
                     
-                    val (sigpac, cultivo, centroid) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
+                    // La API devuelve Triple(Sigpac, Cultivo, CentroidAPI). Ignoramos CentroidAPI.
+                    val (sigpac, cultivo, _) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                     val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                     
                     val updatedList = currentExpedientesState.value.map { e ->
@@ -87,8 +88,8 @@ fun NativeProjectManager(
                                         p.copy(
                                             sigpacInfo = sigpac,
                                             cultivoInfo = cultivo,
-                                            centroidLat = centroid?.first,
-                                            centroidLng = centroid?.second,
+                                            // IMPORTANTE: Mantenemos el centroide calculado localmente por el KML
+                                            // No sobrescribimos con p.centroidLat / p.centroidLng
                                             informeIA = reportIA,
                                             isHydrated = true
                                         )

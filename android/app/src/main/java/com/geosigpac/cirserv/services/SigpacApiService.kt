@@ -36,8 +36,10 @@ object SigpacApiService {
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
-        // 3. CONSULTA CENTROIDE (GeoJSON)
-        val centroidUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recincentroid/$prov/$mun/$ag/$zo/$pol/$parc/$rec.geojson"
+        // 3. CENTROIDE: DESACTIVADO
+        // Usamos exclusivamente el centroide calculado localmente desde la geometría del KML.
+        // Esto evita discrepancias si el SIGPAC devuelve el centroide de toda la parcela en lugar del recinto KML.
+        val centroid: Pair<Double, Double>? = null
 
         val sigpac = fetchUrl(recintoUrl)?.let { jsonStr ->
             try {
@@ -84,19 +86,6 @@ object SigpacApiService {
                         parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
                         tipoAprovecha = translatedAprovecha
                     )
-                } else null
-            } catch (e: Exception) { null }
-        }
-
-        val centroid = fetchUrl(centroidUrl)?.let { jsonStr ->
-            try {
-                val root = JSONNative(jsonStr)
-                val features = root.getJSONArray("features")
-                if (features.length() > 0) {
-                    val geometry = features.getJSONObject(0).getJSONObject("geometry")
-                    val coords = geometry.getJSONArray("coordinates")
-                    // coordinates[0] = lng, coordinates[1] = lat
-                    Pair(coords.getDouble(1), coords.getDouble(0))
                 } else null
             } catch (e: Exception) { null }
         }
