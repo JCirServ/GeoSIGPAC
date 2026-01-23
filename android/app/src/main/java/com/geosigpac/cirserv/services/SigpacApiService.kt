@@ -21,10 +21,14 @@ object SigpacApiService {
     private const val TAG = "SigpacApiService"
 
     /**
-     * @param targetAreaHa Superficie CALCULADA del polígono KML en Hectáreas. 
-     * Este valor es geométricamente exacto y se usará para encontrar la línea de declaración correspondiente.
+     * @param targetAreaHa Superficie CALCULADA del polígono KML en Hectáreas.
+     * @param pointCheck Coordenadas (lat, lng) para verificar si el punto cae dentro del cultivo (prioridad sobre área).
      */
-    suspend fun fetchHydration(referencia: String, targetAreaHa: Double? = null): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
+    suspend fun fetchHydration(
+        referencia: String, 
+        targetAreaHa: Double? = null,
+        pointCheck: Pair<Double, Double>? = null
+    ): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
         val prov = parts.getOrNull(0) ?: ""
@@ -47,29 +51,7 @@ object SigpacApiService {
         // 3. CENTROIDE: DESACTIVADO (Usamos KML)
         val centroid: Pair<Double, Double>? = null
 
-        val sigpac = fetchUrl(recintoUrl)?.let { jsonStr ->
-            try {
-                val array = JSONArray(jsonStr)
-                if (array.length() > 0) {
-                    val props = array.getJSONObject(0)
-                    val rawUso = props.optString("uso_sigpac")
-                    val translatedUso = SigpacCodeManager.getUsoDescription(rawUso)
-                    val rawRegion = props.optString("region")
-                    val translatedRegion = SigpacCodeManager.getRegionDescription(rawRegion)
-
-                    SigpacData(
-                        superficie = if (props.isNull("superficie")) null else props.optDouble("superficie"),
-                        pendienteMedia = if (props.isNull("pendiente_media")) null else props.optDouble("pendiente_media"),
-                        coefRegadio = if (props.isNull("coef_regadio")) null else props.optDouble("coef_regadio"),
-                        admisibilidad = if (props.isNull("admisibilidad")) null else props.optDouble("admisibilidad"),
-                        incidencias = props.optString("incidencias")?.replace("[", "")?.replace("]", "")?.replace("\"", ""),
-                        usoSigpac = translatedUso,
-                        region = translatedRegion,
-                        altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
-                    )
-                } else null
-            } catch (e: Exception) { null }
-        }
+        val sigpac = fetchUrl(recintoUrl)?.let { parseSigpacDataJson(it) }
 
         val cultivo = fetchUrl(cultivoUrl)?.let { jsonStr ->
             try {
@@ -77,83 +59,82 @@ object SigpacApiService {
                 val features = root.optJSONArray("features")
                 
                 if (features != null && features.length() > 0) {
-                    // A. Extraer todas las declaraciones a una lista
                     val allDeclarations = mutableListOf<JSONObject>()
                     for (i in 0 until features.length()) {
-                        allDeclarations.add(features.getJSONObject(i).getJSONObject("properties"))
+                        allDeclarations.add(features.getJSONObject(i)) // Guardamos la Feature completa para acceso a geometry
                     }
 
-                    // B. Filtrar por el AÑO MÁS RECIENTE disponible
-                    val maxYear = allDeclarations.maxOfOrNull { it.optInt("exp_ano", 0) } ?: 0
-                    val currentYearDeclarations = allDeclarations.filter { it.optInt("exp_ano", 0) == maxYear }
+                    // Filtrar por el AÑO MÁS RECIENTE
+                    val maxYear = allDeclarations.maxOfOrNull { it.optJSONObject("properties")?.optInt("exp_ano", 0) ?: 0 } ?: 0
+                    val currentYearFeatures = allDeclarations.filter { it.optJSONObject("properties")?.optInt("exp_ano", 0) == maxYear }
 
-                    // C. Lógica de Matching por Superficie (Iterativa por tolerancia)
-                    var bestMatch: JSONObject? = null
+                    var bestFeature: JSONObject? = null
                     
-                    if (targetAreaHa != null && targetAreaHa > 0) {
-                        
-                        // NOTA: targetAreaHa ya viene calculada en Hectáreas desde KMLParser.
-                        // La API devuelve metros cuadrados. Convertimos API a Ha para comparar.
+                    // A. Prioridad: Coincidencia por PUNTO (Para marcadores KML)
+                    if (pointCheck != null) {
+                        for (feat in currentYearFeatures) {
+                            val geom = feat.optJSONObject("geometry")
+                            if (geom != null && isPointInGeoJsonGeometry(pointCheck.first, pointCheck.second, geom)) {
+                                bestFeature = feat
+                                break
+                            }
+                        }
+                    }
 
-                        // Secuencia de tolerancias: Muy estricta -> Estricta -> Laxa
-                        // 0.001 Ha = 10 m2 (Error GPS fino)
-                        // 0.01 Ha = 100 m2
+                    // B. Prioridad: Coincidencia por ÁREA (Para polígonos KML)
+                    if (bestFeature == null && targetAreaHa != null && targetAreaHa > 0) {
                         val toleranceSteps = listOf(0.001, 0.005, 0.01, 0.02, 0.05, 0.10)
                         
                         for (tol in toleranceSteps) {
                             val candidates = mutableListOf<Pair<JSONObject, Double>>()
                             
-                            for (decl in currentYearDeclarations) {
-                                val supM2 = decl.optDouble("parc_supcult", 0.0)
-                                val supHa = supM2 / 10000.0 // Convertir API m2 -> Ha
+                            for (feat in currentYearFeatures) {
+                                val props = feat.optJSONObject("properties") ?: continue
+                                val supM2 = props.optDouble("parc_supcult", 0.0)
+                                val supHa = supM2 / 10000.0
                                 
                                 val diffRaw = abs(supHa - targetAreaHa)
-                                
-                                // Check administrativo (redondeo a 2 decimales para coincidencia visual de documentos)
                                 val targetRounded = (targetAreaHa * 100.0).roundToInt() / 100.0
                                 val supRounded = (supHa * 100.0).roundToInt() / 100.0
                                 val diffRounded = abs(supRounded - targetRounded)
-                                
-                                // Si coincide administrativamente (ej: 0.2075 vs 0.21 -> diffRounded=0), es un match perfecto
                                 val effectiveMetric = if (diffRounded < 0.001) 0.0 else diffRaw
                                 
                                 if (effectiveMetric <= tol) {
-                                    candidates.add(decl to diffRaw)
+                                    candidates.add(feat to diffRaw)
                                 }
                             }
                             
                             if (candidates.isNotEmpty()) {
-                                // Encontramos coincidencias en este nivel de tolerancia.
-                                // Elegimos la que tenga la menor diferencia bruta real.
-                                bestMatch = candidates.minByOrNull { it.second }?.first
+                                bestFeature = candidates.minByOrNull { it.second }?.first
                                 break 
                             }
                         }
                     }
 
-                    // D. Fallback: Si no hubo match geométrico, usar el cultivo PRINCIPAL (mayor superficie)
-                    // Esto solo ocurre si la geometría del KML difiere bestialmente de la realidad administrativa
-                    if (bestMatch == null && currentYearDeclarations.isNotEmpty()) {
-                        bestMatch = currentYearDeclarations.maxByOrNull { it.optDouble("parc_supcult", 0.0) }
+                    // C. Fallback: Cultivo Principal (Mayor superficie) si no hay criterios o fallaron
+                    if (bestFeature == null && currentYearFeatures.isNotEmpty() && pointCheck == null) {
+                        bestFeature = currentYearFeatures.maxByOrNull { it.optJSONObject("properties")?.optDouble("parc_supcult", 0.0) ?: 0.0 }
                     }
 
-                    if (bestMatch != null) {
-                        val props = bestMatch
-                        val rawAprovecha = props.optString("tipo_aprovecha")
-                        val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
+                    if (bestFeature != null) {
+                        val props = bestFeature.optJSONObject("properties")
+                        if (props != null) {
+                            val rawAprovecha = props.optString("tipo_aprovecha")
+                            val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
 
-                        CultivoData(
-                            expNum = props.optString("exp_num"),
-                            parcProducto = if (props.isNull("parc_producto")) null else props.optInt("parc_producto"),
-                            parcSistexp = props.optString("parc_sistexp"),
-                            parcSupcult = if (props.isNull("parc_supcult")) null else props.optDouble("parc_supcult"),
-                            parcAyudasol = props.optString("parc_ayudasol"),
-                            pdrRec = props.optString("pdr_rec"),
-                            cultsecunProducto = if (props.isNull("cultsecun_producto")) null else props.optInt("cultsecun_producto"),
-                            cultsecunAyudasol = props.optString("cultsecun_ayudasol"),
-                            parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
-                            tipoAprovecha = translatedAprovecha
-                        )
+                            CultivoData(
+                                expNum = props.optString("exp_num"),
+                                parcProducto = if (props.isNull("parc_producto")) null else props.optInt("parc_producto"),
+                                parcSistexp = props.optString("parc_sistexp"),
+                                parcSupcult = if (props.isNull("parc_supcult")) null else props.optDouble("parc_supcult"),
+                                parcAyudasol = props.optString("parc_ayudasol"),
+                                pdrRec = props.optString("pdr_rec"),
+                                cultsecunProducto = if (props.isNull("cultsecun_producto")) null else props.optInt("cultsecun_producto"),
+                                cultsecunAyudasol = props.optString("cultsecun_ayudasol"),
+                                parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
+                                tipoAprovecha = translatedAprovecha
+                            )
+                        } else null
                     } else null
                 } else null
             } catch (e: Exception) { null }
@@ -163,56 +144,110 @@ object SigpacApiService {
     }
 
     suspend fun recoverParcelaFromPoint(lat: Double, lng: Double): Triple<String?, String?, SigpacData?> = withContext(Dispatchers.IO) {
-        val identifyUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
-        val idResponse = fetchUrl(identifyUrl) ?: return@withContext Triple(null, null, null)
+        // 1. OBTENER REFERENCIA POR COORDENADAS (API REFRECINBYCOORD)
+        // [x]/[y] -> Longitude / Latitude
+        val refUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/refrecinbycoord/4258/%.8f/%.8f.json", lng, lat)
+        val refResponse = fetchUrl(refUrl) ?: return@withContext Triple(null, null, null)
 
         var prov = ""; var mun = ""; var pol = ""; var parc = ""; var rec = ""; var agg = "0"; var zon = "0"
-        var sigpacData: SigpacData? = null
-
+        
         try {
-            val jsonArray = JSONArray(idResponse)
-            if (jsonArray.length() > 0) {
-                val obj = jsonArray.getJSONObject(0)
+            // La respuesta puede ser un objeto único o un array
+            var obj: JSONObject? = null
+            if (refResponse.trim().startsWith("[")) {
+                val arr = JSONArray(refResponse)
+                if (arr.length() > 0) obj = arr.getJSONObject(0)
+            } else {
+                obj = JSONObject(refResponse)
+            }
+
+            if (obj != null) {
                 prov = obj.optString("provincia"); mun = obj.optString("municipio")
                 agg = obj.optString("agregado", "0"); zon = obj.optString("zona", "0")
                 pol = obj.optString("poligono"); parc = obj.optString("parcela"); rec = obj.optString("recinto")
-
-                val translatedUso = SigpacCodeManager.getUsoDescription(obj.optString("uso_sigpac"))
-                val translatedRegion = SigpacCodeManager.getRegionDescription(obj.optString("region"))
-                
-                sigpacData = SigpacData(
-                    superficie = obj.optDouble("superficie"),
-                    pendienteMedia = obj.optDouble("pendiente_media"),
-                    coefRegadio = obj.optDouble("coef_regadio"),
-                    admisibilidad = obj.optDouble("coef_admisibilidad_pastos"),
-                    usoSigpac = translatedUso,
-                    region = translatedRegion,
-                    altitud = obj.optInt("altitud")
-                )
             }
         } catch (e: Exception) { return@withContext Triple(null, null, null) }
 
         if (prov.isEmpty()) return@withContext Triple(null, null, null)
-
         val fullRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
-        var geometryRaw: String? = null
 
+        // 2. OBTENER DATOS SIGPAC (RECINFO)
+        val recInfoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$agg/$zon/$pol/$parc/$rec.json"
+        val sigpacData = fetchUrl(recInfoUrl)?.let { parseSigpacDataJson(it) }
+
+        // 3. OBTENER GEOMETRÍA CULTIVO ESPECÍFICO (SI EL PUNTO CAE DENTRO)
+        var geometryRaw: String? = null
         val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoJson = fetchUrl(ogcUrl)
         
         if (cultivoJson != null) {
-            geometryRaw = extractGeometryFromGeoJson(cultivoJson)
+            try {
+                val root = JSONNative(cultivoJson)
+                val features = root.optJSONArray("features")
+                if (features != null && features.length() > 0) {
+                    val allDeclarations = mutableListOf<JSONObject>()
+                    for (i in 0 until features.length()) allDeclarations.add(features.getJSONObject(i))
+                    
+                    val maxYear = allDeclarations.maxOfOrNull { it.optJSONObject("properties")?.optInt("exp_ano", 0) ?: 0 } ?: 0
+                    val currentYearFeatures = allDeclarations.filter { it.optJSONObject("properties")?.optInt("exp_ano", 0) == maxYear }
+                    
+                    // Buscar el cultivo geométricamente
+                    for (feat in currentYearFeatures) {
+                        val geom = feat.optJSONObject("geometry")
+                        if (geom != null && isPointInGeoJsonGeometry(lat, lng, geom)) {
+                            geometryRaw = extractGeometryFromGeoJsonObj(geom)
+                            break
+                        }
+                    }
+                }
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
+        // 4. FALLBACK: Si no encontramos cultivo específico, NO devolvemos geometría de cultivo inventada.
+        // Pero necesitamos pintar algo. Devolvemos la geometría del RECINTO para dar contexto.
         if (geometryRaw == null) {
-            val recUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
-            val recJson = fetchUrl(recUrl)
-            if (recJson != null) {
-                geometryRaw = extractGeometryFromGeoJson(recJson)
+            val recGeomUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
+            val recGeomJson = fetchUrl(recGeomUrl)
+            if (recGeomJson != null) {
+                 geometryRaw = extractGeometryFromGeoJson(recGeomJson)
             }
         }
 
         return@withContext Triple(fullRef, geometryRaw, sigpacData)
+    }
+
+    private fun parseSigpacDataJson(jsonStr: String): SigpacData? {
+        try {
+            val array = JSONArray(jsonStr)
+            if (array.length() > 0) {
+                val props = array.getJSONObject(0)
+                val rawUso = props.optString("uso_sigpac")
+                val translatedUso = SigpacCodeManager.getUsoDescription(rawUso)
+                val rawRegion = props.optString("region")
+                val translatedRegion = SigpacCodeManager.getRegionDescription(rawRegion)
+                return SigpacData(
+                    superficie = if (props.isNull("superficie")) null else props.optDouble("superficie"),
+                    pendienteMedia = if (props.isNull("pendiente_media")) null else props.optDouble("pendiente_media"),
+                    coefRegadio = if (props.isNull("coef_regadio")) null else props.optDouble("coef_regadio"),
+                    admisibilidad = if (props.isNull("admisibilidad")) null else props.optDouble("admisibilidad"),
+                    incidencias = props.optString("incidencias")?.replace("[", "")?.replace("]", "")?.replace("\"", ""),
+                    usoSigpac = translatedUso,
+                    region = translatedRegion,
+                    altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
+                )
+            }
+        } catch (e: Exception) { }
+        return null
+    }
+
+    private fun extractGeometryFromGeoJsonObj(geometry: JSONObject?): String? {
+        if (geometry == null) return null
+        return try {
+            val coords = geometry.getJSONArray("coordinates")
+            val sb = StringBuilder()
+            flattenCoordinates(coords, sb)
+            sb.toString().trim()
+        } catch (e: Exception) { null }
     }
 
     private fun extractGeometryFromGeoJson(jsonStr: String): String? {
@@ -227,13 +262,7 @@ object SigpacApiService {
             } else if (root.has("geometry")) {
                 geometry = root.optJSONObject("geometry")
             }
-
-            if (geometry != null) {
-                val coords = geometry.getJSONArray("coordinates")
-                val sb = StringBuilder()
-                flattenCoordinates(coords, sb)
-                sb.toString().trim()
-            } else null
+            extractGeometryFromGeoJsonObj(geometry)
         } catch (e: Exception) { null }
     }
 
@@ -249,6 +278,57 @@ object SigpacApiService {
                 flattenCoordinates(arr.getJSONArray(i), sb)
             }
         }
+    }
+
+    private fun isPointInGeoJsonGeometry(lat: Double, lng: Double, geometry: JSONObject): Boolean {
+        return try {
+            val type = geometry.optString("type")
+            val coordinates = geometry.getJSONArray("coordinates")
+            
+            if (type.equals("Polygon", ignoreCase = true)) {
+                // Polygon: coordinates[0] is outer ring
+                if (coordinates.length() > 0) {
+                    val ring = parseRing(coordinates.getJSONArray(0))
+                    return isPointInPolygon(lat, lng, ring)
+                }
+            } else if (type.equals("MultiPolygon", ignoreCase = true)) {
+                // MultiPolygon: coordinates[i][0] are outer rings
+                for (i in 0 until coordinates.length()) {
+                    val poly = coordinates.getJSONArray(i)
+                    if (poly.length() > 0) {
+                        val ring = parseRing(poly.getJSONArray(0))
+                        if (isPointInPolygon(lat, lng, ring)) return true
+                    }
+                }
+            }
+            false
+        } catch (e: Exception) { false }
+    }
+
+    private fun parseRing(jsonRing: JSONArray): List<Pair<Double, Double>> {
+        val list = mutableListOf<Pair<Double, Double>>()
+        for (i in 0 until jsonRing.length()) {
+            val pt = jsonRing.getJSONArray(i)
+            val pLng = pt.getDouble(0)
+            val pLat = pt.getDouble(1)
+            list.add(pLat to pLng)
+        }
+        return list
+    }
+
+    private fun isPointInPolygon(lat: Double, lng: Double, polygon: List<Pair<Double, Double>>): Boolean {
+        var inside = false
+        var j = polygon.lastIndex
+        for (i in polygon.indices) {
+            val (latI, lngI) = polygon[i]
+            val (latJ, lngJ) = polygon[j]
+            if (((latI > lat) != (latJ > lat)) &&
+                (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
+                inside = !inside
+            }
+            j = i
+        }
+        return inside
     }
 
     private fun fetchUrl(urlString: String): String? {
