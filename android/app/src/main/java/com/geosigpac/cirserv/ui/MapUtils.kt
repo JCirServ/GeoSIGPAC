@@ -13,6 +13,7 @@ import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
 import org.maplibre.geojson.Polygon
+import org.maplibre.geojson.Geometry
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
@@ -81,6 +82,42 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
     if (parcela.geometryRaw.isNullOrEmpty()) return null
 
     return try {
+        // Caso A: GeoJSON (Recinto hidratado desde API)
+        if (parcela.geometryRaw.trim().startsWith("{")) {
+            val feature = Feature.fromGeometry(Geometry.fromJson(parcela.geometryRaw))
+            // Calculamos bounds simples iterando coordenadas del JSON raw (más rápido que parsear el objeto Feature completo manualmente)
+            val root = JSONObject(parcela.geometryRaw)
+            val coords = root.optJSONArray("coordinates")
+            
+            var minLat = Double.MAX_VALUE; var maxLat = -Double.MAX_VALUE
+            var minLng = Double.MAX_VALUE; var maxLng = -Double.MAX_VALUE
+
+            fun traverse(arr: JSONArray) {
+                if (arr.length() == 0) return
+                val first = arr.get(0)
+                if (first is Number) {
+                    val lng = arr.getDouble(0)
+                    val lat = arr.getDouble(1)
+                    if (lat < minLat) minLat = lat
+                    if (lat > maxLat) maxLat = lat
+                    if (lng < minLng) minLng = lng
+                    if (lng > maxLng) maxLng = lng
+                } else if (first is JSONArray) {
+                    for (i in 0 until arr.length()) traverse(arr.getJSONArray(i))
+                }
+            }
+            if (coords != null) traverse(coords)
+
+            if (minLat == Double.MAX_VALUE) return null
+
+            val latPadding = (maxLat - minLat) * 0.20
+            val lngPadding = (maxLng - minLng) * 0.20
+            
+            val bounds = LatLngBounds.from(maxLat + latPadding, maxLng + lngPadding, minLat - latPadding, minLng - lngPadding)
+            return ParcelSearchResult(bounds, feature)
+        }
+
+        // Caso B: KML String legacy (Pares lat,lng separados por espacios)
         val points = mutableListOf<Point>()
         var minLat = Double.MAX_VALUE
         var maxLat = -Double.MAX_VALUE
@@ -106,11 +143,9 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
 
         if (points.isEmpty()) return null
 
-        // Padding del 20% para visualización
         val latPadding = (maxLat - minLat) * 0.20
         val lngPadding = (maxLng - minLng) * 0.20
         
-        // Crear Bounds
         val bounds = LatLngBounds.from(
             maxLat + latPadding,
             maxLng + lngPadding,
@@ -118,8 +153,6 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
             minLng - lngPadding
         )
 
-        // Crear Feature (Polígono)
-        // KML coordinates usually implicitly close the loop, but MapLibre requires explicit closing
         if (points.first() != points.last()) {
             points.add(points.first())
         }

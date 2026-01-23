@@ -235,13 +235,9 @@ object SigpacApiService {
     }
 
     private fun extractGeometryFromGeoJsonObj(geometry: JSONObject?): String? {
-        if (geometry == null) return null
-        return try {
-            val coords = geometry.getJSONArray("coordinates")
-            val sb = StringBuilder()
-            flattenCoordinates(coords, sb)
-            sb.toString().trim()
-        } catch (e: Exception) { null }
+        // CORRECCIÓN CLAVE: Devolvemos el JSON String completo para mantener polígonos complejos/multipolígonos válidos.
+        // MapLibre puede parsear Geometry.fromJson() directamente.
+        return geometry?.toString()
     }
 
     private fun extractGeometryFromGeoJson(jsonStr: String): String? {
@@ -258,20 +254,6 @@ object SigpacApiService {
             }
             extractGeometryFromGeoJsonObj(geometry)
         } catch (e: Exception) { null }
-    }
-
-    private fun flattenCoordinates(arr: JSONArray, sb: StringBuilder) {
-        if (arr.length() == 0) return
-        val first = arr.get(0)
-        if (first is Number) {
-            val lng = arr.getDouble(0)
-            val lat = arr.getDouble(1)
-            sb.append("$lng,$lat ")
-        } else if (first is JSONArray) {
-            for (i in 0 until arr.length()) {
-                flattenCoordinates(arr.getJSONArray(i), sb)
-            }
-        }
     }
 
     private fun isPointInGeoJsonGeometry(lat: Double, lng: Double, geometry: JSONObject): Boolean {

@@ -71,6 +71,7 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Geometry
 import org.maplibre.geojson.Polygon
 import org.maplibre.geojson.Point
 import java.util.Locale
@@ -173,33 +174,47 @@ fun NativeMap(
         
         currentExpedientes.filter { visibleIds.contains(it.id) }.forEach { exp ->
             exp.parcelas.forEach { p ->
-                // 1. Polígono del KML original (o recuperado por hidratación)
+                // 1. Geometría
                 if (p.geometryRaw != null) {
-                    try {
-                        val points = mutableListOf<Point>()
-                        val coordPairs = p.geometryRaw.trim().split("\\s+".toRegex())
-                        coordPairs.forEach { pair ->
-                            val coords = pair.split(",")
-                            if (coords.size >= 2) {
-                                val lng = coords[0].toDoubleOrNull()
-                                val lat = coords[1].toDoubleOrNull()
-                                if (lng != null && lat != null) points.add(Point.fromLngLat(lng, lat))
-                            }
-                        }
-                        if (points.isNotEmpty()) {
-                            // CRÍTICO: Cerrar el polígono si el último punto no es igual al primero
-                            // Esto asegura que la capa de relleno (FillLayer) funcione, pintándolo de azul
-                            if (points.first() != points.last()) {
-                                points.add(points.first())
-                            }
-
-                            val polygon = Polygon.fromLngLats(listOf(points))
-                            val feat = Feature.fromGeometry(polygon)
+                    val raw = p.geometryRaw.trim()
+                    
+                    // A. GeoJSON Directo (Hidratado desde API)
+                    if (raw.startsWith("{")) {
+                        try {
+                            val geometry = Geometry.fromJson(raw)
+                            val feat = Feature.fromGeometry(geometry)
                             feat.addStringProperty("type", "parcela")
                             feat.addStringProperty("ref", p.referencia)
                             features.add(feat)
+                        } catch(e: Exception) {
+                            Log.e(TAG, "Error parsing GeoJSON geometry: ${e.message}")
                         }
-                    } catch (e: Exception) {}
+                    } 
+                    // B. Formato KML Legado ("lat,lng lat,lng")
+                    else {
+                        try {
+                            val points = mutableListOf<Point>()
+                            val coordPairs = raw.split("\\s+".toRegex())
+                            coordPairs.forEach { pair ->
+                                val coords = pair.split(",")
+                                if (coords.size >= 2) {
+                                    val lng = coords[0].toDoubleOrNull()
+                                    val lat = coords[1].toDoubleOrNull()
+                                    if (lng != null && lat != null) points.add(Point.fromLngLat(lng, lat))
+                                }
+                            }
+                            if (points.isNotEmpty()) {
+                                if (points.first() != points.last()) {
+                                    points.add(points.first())
+                                }
+                                val polygon = Polygon.fromLngLats(listOf(points))
+                                val feat = Feature.fromGeometry(polygon)
+                                feat.addStringProperty("type", "parcela")
+                                feat.addStringProperty("ref", p.referencia)
+                                features.add(feat)
+                            }
+                        } catch (e: Exception) {}
+                    }
                 }
 
                 // 2. Punto del Centroide oficial
