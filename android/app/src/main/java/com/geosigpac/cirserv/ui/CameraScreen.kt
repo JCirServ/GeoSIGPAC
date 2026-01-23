@@ -17,10 +17,8 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import android.util.Size
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -29,9 +27,6 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
-import androidx.camera.core.resolutionselector.AspectRatioStrategy
-import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
@@ -55,9 +50,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Backspace
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
@@ -71,7 +63,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -102,32 +93,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
-
-// --- ENUMS CONFIGURACIÓN ---
-enum class CamAspectRatio(val label: String, val ratioConstant: Int, val isFull: Boolean = false) {
-    SQUARE("1:1", AspectRatio.RATIO_4_3),
-    RATIO_4_3("4:3", AspectRatio.RATIO_4_3),
-    RATIO_16_9("16:9", AspectRatio.RATIO_16_9),
-    FULL("Full", AspectRatio.RATIO_16_9, true)
-}
-
-enum class CamQuality(val label: String, val targetSize: Size?) {
-    LOW("Baja", Size(640, 480)),
-    MEDIUM("Media", Size(1280, 720)),
-    HIGH("Alta", Size(1920, 1080)),
-    VERY_HIGH("Muy Alta", Size(3840, 2160)),
-    MAX("Máxima", null)
-}
-
-// Helper para normalizar referencias (elimina ceros a la izquierda: 46:01 -> 46:1)
-fun normalizeSigpacRef(ref: String?): String {
-    if (ref == null) return ""
-    return ref.split(":", "-")
-        .joinToString(":") { part -> 
-            part.trim().toIntOrNull()?.toString() ?: part.trim() 
-        }
-}
+import androidx.compose.ui.graphics.TransformOrigin
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -149,29 +115,32 @@ fun CameraScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     
-    // Estados Cámara
-    var selectedRatio by remember { mutableStateOf(CamAspectRatio.RATIO_4_3) }
-    var selectedQuality by remember { mutableStateOf(CamQuality.HIGH) }
+    // --- ESTADOS DE CONFIGURACIÓN DE CÁMARA ---
+    var aspectRatio by remember { mutableIntStateOf(AspectRatio.RATIO_4_3) }
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) }
     var showGrid by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     
-    // UI States
+    // Control de la Tarjeta de Recinto (Overlay) y Galería
     var showParcelSheet by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
 
-    // CameraX
+    // --- OBJETOS CAMERAX ---
     var camera by remember { mutableStateOf<Camera?>(null) }
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
+    
+    // Vista previa persistente
     val previewView = remember { PreviewView(context) }
 
-    // Zoom & Focus
+    // --- ESTADO ZOOM ---
     var currentLinearZoom by remember { mutableFloatStateOf(0f) }
     var currentZoomRatio by remember { mutableFloatStateOf(1f) }
+
+    // --- ESTADO TAP TO FOCUS ---
     var focusRingPosition by remember { mutableStateOf<Offset?>(null) }
     var showFocusRing by remember { mutableStateOf(false) }
 
-    // GPS & SIGPAC
+    // Estado para información GPS y SIGPAC
     var locationText by remember { mutableStateOf("Obteniendo ubicación...") }
     var sigpacRef by remember { mutableStateOf<String?>(null) }
     var sigpacUso by remember { mutableStateOf<String?>(null) }
@@ -181,25 +150,13 @@ fun CameraScreen(
     var lastApiLocation by remember { mutableStateOf<Location?>(null) }
     var lastApiTimestamp by remember { mutableStateOf(0L) }
 
-    // --- NUEVO: REFERENCIA MANUAL ---
-    // Si el GPS falla, el usuario puede introducir la referencia manualmente
-    var manualRef by remember { mutableStateOf<String?>(null) }
-    var showManualInput by remember { mutableStateOf(false) }
-    var manualInputBuffer by remember { mutableStateOf("") }
-
-    // Referencia Efectiva: Prioriza la manual, sino la del GPS
-    val effectiveRef = manualRef ?: sigpacRef
-
-    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO (NORMALIZADA) ---
-    val matchedParcelInfo = remember(effectiveRef, expedientes) {
-        if (effectiveRef == null) return@remember null
-        val normalizedCurrent = normalizeSigpacRef(effectiveRef)
-        
+    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO ---
+    val matchedParcelInfo = remember(sigpacRef, expedientes) {
+        if (sigpacRef == null) return@remember null
         var foundExp: NativeExpediente? = null
         val foundParcel = expedientes.flatMap { exp ->
             exp.parcelas.map { p -> 
-                // Comparación robusta usando normalización
-                if (normalizeSigpacRef(p.referencia) == normalizedCurrent) {
+                if (p.referencia == sigpacRef) {
                     foundExp = exp
                     p 
                 } else null
@@ -211,24 +168,10 @@ fun CameraScreen(
         } else null
     }
 
-    // --- DETERMINAR DATOS DE GUARDADO (Variable para la UI) ---
-    // Esta variable la usamos principalmente para mostrar información en pantalla
-    val uiContextData = remember(matchedParcelInfo, projectId, expedientes, effectiveRef) {
-        if (matchedParcelInfo != null) {
-            Triple(matchedParcelInfo.first.titular, matchedParcelInfo.second.referencia, true)
-        } else if (projectId != null) {
-            val foundExp = expedientes.find { exp -> exp.parcelas.any { it.id == projectId } }
-            val foundParcel = foundExp?.parcelas?.find { it.id == projectId }
-            val folderName = foundExp?.titular ?: "SIN PROYECTO"
-            val refName = foundParcel?.referencia ?: effectiveRef ?: "SIN_REFERENCIA"
-            Triple(folderName, refName, foundExp != null)
-        } else {
-            Triple("SIN PROYECTO", effectiveRef ?: "SIN_REFERENCIA", false)
-        }
-    }
-
-    // Bitmap Preview
+    // --- ESTADO PREVISUALIZACIÓN FOTO (Carga de Bitmap) ---
     var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+
+    // Efecto para cargar el bitmap: Prioriza la última foto de la parcela detectada, sino usa lastCapturedUri
     val targetPreviewUri = remember(matchedParcelInfo, lastCapturedUri) {
         if (matchedParcelInfo != null && matchedParcelInfo.second.photos.isNotEmpty()) {
             Uri.parse(matchedParcelInfo.second.photos.last())
@@ -237,11 +180,11 @@ fun CameraScreen(
         }
     }
     
+    // Contador real basado en la parcela
     val currentPhotoCount = remember(matchedParcelInfo, photoCount) {
         if (matchedParcelInfo != null) matchedParcelInfo.second.photos.size else photoCount
     }
 
-    // (Carga de Bitmap)
     LaunchedEffect(targetPreviewUri) {
         targetPreviewUri?.let { uri ->
             withContext(Dispatchers.IO) {
@@ -249,59 +192,117 @@ fun CameraScreen(
                     val inputStream = context.contentResolver.openInputStream(uri)
                     val bitmap = BitmapFactory.decodeStream(inputStream)
                     inputStream?.close()
+
+                    // Rotar Bitmap según EXIF para que el botón de preview se vea correcto
                     var finalBitmap = bitmap
-                    if (bitmap != null) {
-                        capturedBitmap = finalBitmap?.asImageBitmap()
+                    context.contentResolver.openInputStream(uri)?.use { exifInput ->
+                        val exif = ExifInterface(exifInput)
+                        val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                        val matrix = Matrix()
+                        when (orientation) {
+                            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                        }
+                        if (bitmap != null) {
+                            finalBitmap = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                        }
                     }
-                } catch (e: Exception) { }
+
+                    capturedBitmap = finalBitmap?.asImageBitmap()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
-        } ?: run { capturedBitmap = null }
-    }
-
-    val infiniteTransition = rememberInfiniteTransition()
-    val blinkAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(500), repeatMode = RepeatMode.Reverse),
-        label = "Blink"
-    )
-    
-    val MapIcon = remember {
-        ImageVector.Builder(name = "Map", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
-            path(fill = SolidColor(Color.White)) { moveTo(20.5f, 3.0f); lineTo(20.34f, 3.03f); lineTo(15.0f, 5.1f); lineTo(9.0f, 3.0f); lineTo(3.36f, 4.9f); curveTo(3.15f, 4.97f, 3.0f, 5.15f, 3.0f, 5.38f); verticalLineTo(20.5f); curveTo(3.0f, 20.78f, 3.22f, 21.0f, 3.5f, 21.0f); lineTo(3.66f, 20.97f); lineTo(9.0f, 18.9f); lineTo(15.0f, 21.0f); lineTo(20.64f, 19.1f); curveTo(20.85f, 19.03f, 21.0f, 18.85f, 21.0f, 18.62f); verticalLineTo(3.5f); curveTo(21.0f, 3.22f, 20.78f, 3.0f, 20.5f, 3.0f); close(); moveTo(15.0f, 19.0f); lineTo(9.0f, 16.89f); verticalLineTo(5.0f); lineTo(15.0f, 7.11f); verticalLineTo(19.0f); close() }
-        }.build()
-    }
-
-    // Zoom Observer
-    LaunchedEffect(camera) {
-        val cam = camera ?: return@LaunchedEffect
-        cam.cameraInfo.zoomState.observe(lifecycleOwner) { state ->
-            currentLinearZoom = state.linearZoom; currentZoomRatio = state.zoomRatio
+        } ?: run {
+            capturedBitmap = null
         }
     }
 
-    // Camera Bind
-    LaunchedEffect(selectedRatio, selectedQuality, flashMode) {
+    // Animación de Parpadeo
+    val infiniteTransition = rememberInfiniteTransition()
+    val blinkAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "Blink"
+    )
+    
+    // --- ICONO MAPA MANUAL ---
+    val MapIcon = remember {
+        ImageVector.Builder(
+            name = "Map",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(fill = SolidColor(Color.White)) {
+                moveTo(20.5f, 3.0f)
+                lineTo(20.34f, 3.03f)
+                lineTo(15.0f, 5.1f)
+                lineTo(9.0f, 3.0f)
+                lineTo(3.36f, 4.9f)
+                curveTo(3.15f, 4.97f, 3.0f, 5.15f, 3.0f, 5.38f)
+                verticalLineTo(20.5f)
+                curveTo(3.0f, 20.78f, 3.22f, 21.0f, 3.5f, 21.0f)
+                lineTo(3.66f, 20.97f)
+                lineTo(9.0f, 18.9f)
+                lineTo(15.0f, 21.0f)
+                lineTo(20.64f, 19.1f)
+                curveTo(20.85f, 19.03f, 21.0f, 18.85f, 21.0f, 18.62f)
+                verticalLineTo(3.5f)
+                curveTo(21.0f, 3.22f, 20.78f, 3.0f, 20.5f, 3.0f)
+                close()
+                moveTo(15.0f, 19.0f)
+                lineTo(9.0f, 16.89f)
+                verticalLineTo(5.0f)
+                lineTo(15.0f, 7.11f)
+                verticalLineTo(19.0f)
+                close()
+            }
+        }.build()
+    }
+
+    // --- OBSERVADOR DE ESTADO DE ZOOM ---
+    LaunchedEffect(camera) {
+        val cam = camera ?: return@LaunchedEffect
+        cam.cameraInfo.zoomState.observe(lifecycleOwner) { state ->
+            currentLinearZoom = state.linearZoom
+            currentZoomRatio = state.zoomRatio
+        }
+    }
+
+    // --- VINCULACIÓN DE CÁMARA ---
+    LaunchedEffect(aspectRatio, flashMode) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
             cameraProvider.unbindAll()
-            val resolutionStrategy = if (selectedQuality == CamQuality.MAX) ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY else ResolutionStrategy(selectedQuality.targetSize!!, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)
-            val aspectRatioStrategy = if (selectedRatio == CamAspectRatio.FULL) AspectRatioStrategy(AspectRatio.RATIO_16_9, AspectRatioStrategy.FALLBACK_RULE_AUTO) else AspectRatioStrategy(selectedRatio.ratioConstant, AspectRatioStrategy.FALLBACK_RULE_AUTO)
-            val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(resolutionStrategy).setAspectRatioStrategy(aspectRatioStrategy).build()
-            val preview = Preview.Builder().setResolutionSelector(resolutionSelector).build()
+            val preview = Preview.Builder().setTargetAspectRatio(aspectRatio).build()
             preview.setSurfaceProvider(previewView.surfaceProvider)
-            if (selectedRatio == CamAspectRatio.FULL) previewView.scaleType = PreviewView.ScaleType.FILL_CENTER else previewView.scaleType = PreviewView.ScaleType.FIT_CENTER 
-            val imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).setResolutionSelector(resolutionSelector).setFlashMode(flashMode).build()
+            val imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setTargetAspectRatio(aspectRatio)
+                .setFlashMode(flashMode)
+                .build()
             try {
-                camera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                camera = cameraProvider.bindToLifecycle(
+                    lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture
+                )
                 imageCaptureUseCase = imageCapture
-            } catch (exc: Exception) { Log.e("CameraScreen", "Binding failed", exc) }
+            } catch (exc: Exception) {
+                Log.e("CameraScreen", "Binding failed", exc)
+            }
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // Bucle SIGPAC
-    LaunchedEffect(manualRef) {
-        while (manualRef == null) {
+    // --- BUCLE SIGPAC Y GPS ---
+    LaunchedEffect(Unit) {
+        while (true) {
             val loc = currentLocation
             val now = System.currentTimeMillis()
             if (loc != null) {
@@ -326,44 +327,84 @@ fun CameraScreen(
     DisposableEffect(Unit) {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) { currentLocation = location }
+            override fun onLocationChanged(location: Location) {
+                locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
+                currentLocation = location
+            }
             override fun onProviderEnabled(provider: String) {}
             override fun onProviderDisabled(provider: String) { locationText = "Sin señal GPS" }
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            try { locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, listener) } catch (e: Exception) {}
+            try {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, listener)
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 5f, listener)
+            } catch (e: Exception) { locationText = "Error GPS" }
         }
-        onDispose { if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) locationManager.removeUpdates(listener) }
+        onDispose {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                locationManager.removeUpdates(listener)
+            }
+        }
     }
 
-    // UI Styles
+    // --- COMPONENTES UI REUTILIZABLES ---
     val NeonGreen = Color(0xFF00FF88)
-    val WarningRed = Color(0xFFFF5252)
+    val NeonYellow = Color(0xFFFFFF00)
 
-    val ProjectsBtn = @Composable { Box(modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { onGoToProjects() }, contentAlignment = Alignment.Center) { Icon(Icons.Default.List, "Proyectos", tint = NeonGreen) } }
-    val SettingsBtn = @Composable { Box(modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { showSettingsDialog = true }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Settings, "Configuración", tint = NeonGreen) } }
-    val MatchInfoBtn = @Composable { if (matchedParcelInfo != null) { Box(modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.7f)).clickable { showParcelSheet = true }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Info, contentDescription = "Info Parcela", tint = NeonGreen.copy(alpha = blinkAlpha), modifier = Modifier.size(32.dp)) } } }
+    // Definición individual de botones para reorganización flexible
+    val ProjectsBtn = @Composable {
+        Box(
+            modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { onGoToProjects() },
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Default.List, "Proyectos", tint = NeonGreen) }
+    }
 
+    val SettingsBtn = @Composable {
+        Box(
+            modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.Black.copy(0.5f)).clickable { showSettingsDialog = true },
+            contentAlignment = Alignment.Center
+        ) { Icon(Icons.Default.Settings, "Configuración", tint = NeonGreen) }
+    }
+
+    // --- NUEVO: BOTÓN INFO PARPADEANTE ---
+    val MatchInfoBtn = @Composable {
+        if (matchedParcelInfo != null) {
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(0.7f))
+                    .clickable { showParcelSheet = true },
+                contentAlignment = Alignment.Center
+            ) { 
+                Icon(
+                    Icons.Default.Info, 
+                    contentDescription = "Info Parcela", 
+                    tint = NeonGreen.copy(alpha = blinkAlpha), // PARPADEO APLICADO
+                    modifier = Modifier.size(32.dp)
+                ) 
+            }
+        }
+    }
+
+    // Cajetín de Información
     val InfoBox = @Composable {
         Box(
             modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Column(horizontalAlignment = Alignment.End) {
-                if (manualRef != null) {
-                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("REF. MANUAL", color = NeonGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.Default.Close, "Borrar manual", tint = Color.Gray, modifier = Modifier.size(16.dp).clickable { manualRef = null; sigpacRef = null })
-                    }
-                    Text(manualRef!!, color = Color.White, fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
-                } else if (sigpacRef != null) {
-                    Text("GPS SIGPAC", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text(sigpacRef!!, color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
+                Text(locationText, color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                Spacer(Modifier.height(6.dp))
+                if (sigpacRef != null) {
+                    Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
                     Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
-                    if (matchedParcelInfo != null) Text("EN PROYECTO", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    
+                    if (matchedParcelInfo != null) {
+                        Text("EN PROYECTO", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    }
                 } else if (showNoDataMessage) {
-                    Text("Sin datos SIGPAC", color = WarningRed, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+                    Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
                 } else {
                     Text("Analizando zona...", color = Color.LightGray, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
                 }
@@ -371,55 +412,30 @@ fun CameraScreen(
         }
     }
 
+    // Botón Disparador
     val ShutterButton = @Composable {
         Box(
             modifier = Modifier
                 .size(80.dp)
-                .border(4.dp, if(effectiveRef != null || uiContextData.second != "SIN_REFERENCIA") NeonGreen else Color.Gray, CircleShape)
+                .border(4.dp, NeonGreen, CircleShape)
                 .padding(6.dp)
-                .background(if(effectiveRef != null || uiContextData.second != "SIN_REFERENCIA") NeonGreen else Color.Transparent, CircleShape)
+                .background(NeonGreen, CircleShape)
                 .clickable {
-                    // Si no hay referencia, mostramos teclado
-                    if (uiContextData.second == "SIN_REFERENCIA" && effectiveRef == null) {
-                         manualInputBuffer = ""
-                         showManualInput = true
-                    } else {
-                        // LÓGICA DE DISPARO ROBUSTA:
-                        // Recalculamos los datos EN EL MOMENTO DEL CLICK para evitar estados obsoletos
-                        // Si matchedParcelInfo existe (icono parpadeando), FORZAMOS el uso de datos del proyecto
-                        val currentMatch = matchedParcelInfo // Accedemos al estado actual
-                        
-                        val finalFolderName = if (currentMatch != null) currentMatch.first.titular else uiContextData.first
-                        val finalRefName = if (currentMatch != null) currentMatch.second.referencia else uiContextData.second
-                        val finalIsProjectActive = currentMatch != null || uiContextData.third // Prioridad al match GPS
-                        
-                        takePhoto(context, imageCaptureUseCase, finalFolderName, finalRefName, finalIsProjectActive,
-                            onImageCaptured = { uri -> 
-                                if (currentMatch != null) {
-                                    // Actualizar estado del proyecto si hubo match
-                                    val (exp, parc) = currentMatch
-                                    val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
-                                    val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
-                                    onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
-                                    Toast.makeText(context, "Guardada en: ${exp.titular}", Toast.LENGTH_SHORT).show()
-                                } else if (finalIsProjectActive) {
-                                    // Caso raro: venimos desde projectId manual
-                                    Toast.makeText(context, "Guardada en: $finalFolderName", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "Guardada en: SIN PROYECTO", Toast.LENGTH_SHORT).show()
-                                }
-                                onImageCaptured(uri) 
-                            }, onError)
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            if (effectiveRef == null && uiContextData.second == "SIN_REFERENCIA") {
-                Text("REF", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Color.Gray)
-            }
-        }
+                    takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
+                        onImageCaptured = { uri -> 
+                            if (matchedParcelInfo != null) {
+                                val (exp, parc) = matchedParcelInfo
+                                val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
+                                val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                                onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                            }
+                            onImageCaptured(uri) 
+                        }, onError)
+                }
+        )
     }
 
+    // Preview de Foto con Badge y Apertura de Galería
     val PreviewButton = @Composable {
         Box(contentAlignment = Alignment.TopEnd) {
             Box(
@@ -429,153 +445,251 @@ fun CameraScreen(
                     .background(Color.Black.copy(0.5f))
                     .border(2.dp, NeonGreen, RoundedCornerShape(24.dp))
                     .clickable { 
-                        if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) showGallery = true
-                        else onClose()
+                        // Abrir galería si hay fotos en la parcela actual
+                        if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) {
+                            showGallery = true
+                        } else if (capturedBitmap != null) {
+                            // Si solo hay una foto "suelta" (sin proyecto o antes de asociar), cerrar cámara (comportamiento original) o no hacer nada
+                            onClose()
+                        } else {
+                            onClose()
+                        }
                     }, 
                 contentAlignment = Alignment.Center
             ) { 
-                if (capturedBitmap != null) Image(bitmap = capturedBitmap!!, contentDescription = "Preview", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                else Icon(imageVector = Icons.Default.Image, contentDescription = "Sin Foto", tint = NeonGreen, modifier = Modifier.size(36.dp))
+                if (capturedBitmap != null) {
+                    Image(bitmap = capturedBitmap!!, contentDescription = "Preview", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Icon(imageVector = Icons.Default.Image, contentDescription = "Sin Foto", tint = NeonGreen, modifier = Modifier.size(36.dp))
+                }
             }
             if (currentPhotoCount > 0) {
-                Box(modifier = Modifier.offset(x = 8.dp, y = (-8).dp).size(28.dp).background(Color.Red, CircleShape).border(2.dp, Color.White, CircleShape), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.offset(x = 8.dp, y = (-8).dp).size(28.dp).background(Color.Red, CircleShape).border(2.dp, Color.White, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(text = currentPhotoCount.toString(), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
             }
         }
     }
 
-    // --- MAIN UI ---
+    // Botón Mapa
+    val MapButton = @Composable {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.Black.copy(0.5f))
+                .border(2.dp, NeonGreen, RoundedCornerShape(24.dp))
+                .clickable { onGoToMap() },
+            contentAlignment = Alignment.Center
+        ) { Icon(MapIcon, "Mapa", tint = NeonGreen, modifier = Modifier.size(36.dp)) }
+    }
+
+    // Slider Zoom
+    val ZoomControl = @Composable { isLandscapeMode: Boolean ->
+        val containerModifier = if (isLandscapeMode) {
+             Modifier
+                .width(260.dp)
+                .height(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.Black.copy(alpha = 0.5f))
+                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
+        } else {
+            Modifier
+                .height(300.dp)
+                .width(30.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(Color.Black.copy(alpha = 0.5f))
+                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(15.dp))
+        }
+
+        Box(
+            modifier = containerModifier,
+            contentAlignment = Alignment.Center
+        ) {
+            Slider(
+                value = currentLinearZoom,
+                onValueChange = { valz -> camera?.cameraControl?.setLinearZoom(valz) },
+                modifier = if (isLandscapeMode) {
+                    Modifier.width(240.dp)
+                } else {
+                    Modifier
+                        .graphicsLayer {
+                            rotationZ = 270f
+                            transformOrigin = TransformOrigin.Center
+                        }
+                        .requiredWidth(260.dp)
+                }, 
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = NeonGreen,
+                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                )
+            )
+        }
+    }
+
+    // --- UI LAYOUT PRINCIPAL ---
     Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black)
-            .pointerInput(Unit) { detectTransformGestures { _, _, zoom, _ -> camera?.let { cam -> cam.cameraControl.setZoomRatio((cam.cameraInfo.zoomState.value?.zoomRatio ?: 1f) * zoom) } } }
-            .pointerInput(Unit) { detectTapGestures { offset -> showFocusRing = true; focusRingPosition = offset; scope.launch { delay(1000); showFocusRing = false }; camera?.cameraControl?.startFocusAndMetering(FocusMeteringAction.Builder(SurfaceOrientedMeteringPointFactory(previewView.width.toFloat(), previewView.height.toFloat()).createPoint(offset.x, offset.y), FocusMeteringAction.FLAG_AF).setAutoCancelDuration(3, TimeUnit.SECONDS).build()) } }
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTransformGestures { _, _, zoom, _ ->
+                    camera?.let { cam ->
+                        val currentRatio = cam.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+                        val newRatio = (currentRatio * zoom).coerceIn(cam.cameraInfo.zoomState.value?.minZoomRatio ?: 1f, cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f)
+                        cam.cameraControl.setZoomRatio(newRatio)
+                    }
+                }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    showFocusRing = true; focusRingPosition = offset
+                    scope.launch { delay(1000); showFocusRing = false }
+                    camera?.let { cam ->
+                        val point = SurfaceOrientedMeteringPointFactory(previewView.width.toFloat(), previewView.height.toFloat()).createPoint(offset.x, offset.y)
+                        cam.cameraControl.startFocusAndMetering(FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF).setAutoCancelDuration(3, TimeUnit.SECONDS).build())
+                    }
+                }
+            }
     ) {
-        AndroidView(modifier = Modifier.fillMaxSize(), factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); } })
         
+        // 1. Vista de Cámara (Fondo)
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); scaleType = PreviewView.ScaleType.FILL_CENTER } }
+        )
+        
+        // 2. Anillo de Enfoque
         if (showFocusRing && focusRingPosition != null) {
             Box(modifier = Modifier.offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.x.toDp() - 25.dp }, y = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.y.toDp() - 25.dp }).size(50.dp).border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape))
         }
 
+        // 3. Grid
         if (showGrid) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width; val h = size.height; drawLine(Color.White.copy(0.3f), Offset(w/3, 0f), Offset(w/3, h), 2f); drawLine(Color.White.copy(0.3f), Offset(2*w/3, 0f), Offset(2*w/3, h), 2f); drawLine(Color.White.copy(0.3f), Offset(0f, h/3), Offset(w, h/3), 2f); drawLine(Color.White.copy(0.3f), Offset(0f, 2*h/3), Offset(w, 2*h/3), 2f)
+                val w = size.width; val h = size.height
+                drawLine(Color.White.copy(0.3f), Offset(w/3, 0f), Offset(w/3, h), 2f)
+                drawLine(Color.White.copy(0.3f), Offset(2*w/3, 0f), Offset(2*w/3, h), 2f)
+                drawLine(Color.White.copy(0.3f), Offset(0f, h/3), Offset(w, h/3), 2f)
+                drawLine(Color.White.copy(0.3f), Offset(0f, 2*h/3), Offset(w, 2*h/3), 2f)
             }
         }
 
-        if (selectedRatio == CamAspectRatio.SQUARE) {
-            val maskColor = Color.Black.copy(alpha = 0.5f)
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val s = size.minDimension; val ox = (size.width - s) / 2; val oy = (size.height - s) / 2
-                drawRect(maskColor, topLeft = Offset(0f, 0f), size = androidx.compose.ui.geometry.Size(size.width, oy))
-                drawRect(maskColor, topLeft = Offset(0f, oy + s), size = androidx.compose.ui.geometry.Size(size.width, size.height - (oy + s)))
-                drawRect(maskColor, topLeft = Offset(0f, oy), size = androidx.compose.ui.geometry.Size(ox, s))
-                drawRect(maskColor, topLeft = Offset(ox + s, oy), size = androidx.compose.ui.geometry.Size(size.width - (ox + s), s))
-            }
-        }
-
-        // --- LAYOUTS LANDSCAPE/PORTRAIT ---
+        // --- CAPA DE INTERFAZ (Layout Responsivo) ---
+        
         if (isLandscape) {
-            Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) { Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { SettingsBtn(); ProjectsBtn(); MatchInfoBtn() } }
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { SettingsBtn(); ProjectsBtn(); MatchInfoBtn() }
+            }
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) { InfoBox() }
             Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) { ShutterButton() }
-            Row(modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) { PreviewButton(); Box(modifier = Modifier.size(80.dp).clip(RoundedCornerShape(24.dp)).background(Color.Black.copy(0.5f)).border(2.dp, NeonGreen, RoundedCornerShape(24.dp)).clickable { onGoToMap() }, contentAlignment = Alignment.Center) { Icon(MapIcon, "Mapa", tint = NeonGreen, modifier = Modifier.size(36.dp)) } }
+            Row(modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) { PreviewButton(); MapButton() }
+            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 32.dp)) { ZoomControl(true) }
         } else {
-            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) { Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { SettingsBtn(); ProjectsBtn(); MatchInfoBtn() } }
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { SettingsBtn(); ProjectsBtn(); MatchInfoBtn() }
+            }
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) { InfoBox() }
+            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) { ZoomControl(false) }
             Column(modifier = Modifier.fillMaxSize().padding(bottom = 32.dp), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { PreviewButton(); ShutterButton(); Box(modifier = Modifier.size(80.dp).clip(RoundedCornerShape(24.dp)).background(Color.Black.copy(0.5f)).border(2.dp, NeonGreen, RoundedCornerShape(24.dp)).clickable { onGoToMap() }, contentAlignment = Alignment.Center) { Icon(MapIcon, "Mapa", tint = NeonGreen, modifier = Modifier.size(36.dp)) } }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { PreviewButton(); ShutterButton(); MapButton() }
             }
         }
         
-        // --- KEYBOARD OVERLAY (Manual Entry) ---
-        AnimatedVisibility(
-            visible = showManualInput,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            CameraSigpacKeyboard(
-                buffer = manualInputBuffer,
-                onKey = { manualInputBuffer += it },
-                onBackspace = { if (manualInputBuffer.isNotEmpty()) manualInputBuffer = manualInputBuffer.dropLast(1) },
-                onConfirm = { 
-                    if (manualInputBuffer.isNotEmpty()) {
-                        manualRef = manualInputBuffer
-                        showManualInput = false
-                    }
-                },
-                onClose = { showManualInput = false }
-            )
-        }
-
-        if (showSettingsDialog) { /* ... (Settings dialog remains the same) ... */ 
+        // --- DIÁLOGO CONFIGURACIÓN ---
+        if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
-                title = { Text("Configuración") },
-                text = { Column {
-                        CamAspectRatio.values().forEach { r -> Row(Modifier.clickable { selectedRatio = r }) { RadioButton(selectedRatio == r, { selectedRatio = r }); Text(r.label) } }
+                title = { Text("Configuración de Cámara") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("Resolución (Aspect Ratio)", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_4_3, onClick = { aspectRatio = AspectRatio.RATIO_4_3 }); Text("4:3")
+                            Spacer(Modifier.width(16.dp))
+                            RadioButton(selected = aspectRatio == AspectRatio.RATIO_16_9, onClick = { aspectRatio = AspectRatio.RATIO_16_9 }); Text("16:9")
+                        }
                         Divider()
-                        CamQuality.values().forEach { q -> Row(Modifier.clickable { selectedQuality = q }) { RadioButton(selectedQuality == q, { selectedQuality = q }); Text(q.label) } }
-                }},
-                confirmButton = { TextButton({ showSettingsDialog = false }) { Text("Cerrar") } }
+                        Text("Flash", style = MaterialTheme.typography.titleSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_AUTO, onClick = { flashMode = ImageCapture.FLASH_MODE_AUTO }); Text("Auto")
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_ON, onClick = { flashMode = ImageCapture.FLASH_MODE_ON }); Text("On")
+                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_OFF, onClick = { flashMode = ImageCapture.FLASH_MODE_OFF }); Text("Off")
+                        }
+                        Divider()
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { showGrid = !showGrid }) {
+                            Checkbox(checked = showGrid, onCheckedChange = { showGrid = it }); Text("Mostrar Cuadrícula")
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showSettingsDialog = false }) { Text("Cerrar") } }
             )
         }
         
-        if (showParcelSheet) { Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.7f)).clickable { showParcelSheet = false }) }
-        AnimatedVisibility(visible = showParcelSheet && matchedParcelInfo != null, enter = slideInVertically { it }, exit = slideOutVertically { it }, modifier = Modifier.align(Alignment.BottomCenter)) {
+        // --- PANEL INSPECCIÓN RECINTO (REEMPLAZO DE MODALBOTTOMSHEET) ---
+        // Scrim oscuro (clic cierra)
+        if (showParcelSheet) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.7f)).clickable { showParcelSheet = false })
+        }
+
+        // Panel Deslizante (Mantiene Immersive Mode)
+        AnimatedVisibility(
+            visible = showParcelSheet && matchedParcelInfo != null,
+            enter = slideInVertically { it }, // Desliza desde abajo
+            exit = slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
             matchedParcelInfo?.let { (exp, parc) ->
-                 Surface(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)), color = MaterialTheme.colorScheme.surface, tonalElevation = 8.dp) {
+                 Surface(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp
+                ) {
                     Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
-                        NativeRecintoCard(parcela = parc, onLocate = { onGoToMap() }, onCamera = { showParcelSheet = false }, onUpdateParcela = { updatedParcela -> val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it }); onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it }) }, initiallyExpanded = true, initiallyTechExpanded = true)
-                        Spacer(Modifier.height(32.dp))
+                        // Header de cierre pequeño
+                        Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
+                             Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.Gray.copy(0.4f)))
+                        }
+                        
+                        NativeRecintoCard(
+                            parcela = parc,
+                            onLocate = { query ->
+                                onGoToMap() // Cambiar al tab mapa
+                            }, 
+                            onCamera = { showParcelSheet = false }, // Cerrar panel para tomar foto
+                            onUpdateParcela = { updatedParcela ->
+                                val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                                onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                            },
+                            // PARÁMETROS CLAVE: Forzar expansión y mostrar datos técnicos
+                            initiallyExpanded = true,
+                            initiallyTechExpanded = true
+                        )
+                        Spacer(Modifier.height(32.dp)) // Padding inferior extra
                     }
                 }
             }
         }
         
+        // --- GALERÍA A PANTALLA COMPLETA ---
         if (showGallery && matchedParcelInfo != null) {
             val (exp, parc) = matchedParcelInfo!!
-            FullScreenPhotoGallery(photos = parc.photos, initialIndex = parc.photos.lastIndex, onDismiss = { showGallery = false }, onDeletePhoto = { photoUri -> val updatedPhotos = parc.photos.filter { it != photoUri }; val updatedParcela = parc.copy(photos = updatedPhotos); val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it }); onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it }) })
-        }
-    }
-}
-
-// --- LOCAL KEYBOARD COMPONENT FOR CAMERA ---
-@Composable
-fun CameraSigpacKeyboard(
-    buffer: String,
-    onKey: (String) -> Unit,
-    onBackspace: () -> Unit,
-    onConfirm: () -> Unit,
-    onClose: () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth().background(Color(0xFF252525)).padding(8.dp).navigationBarsPadding()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("INTRODUCIR REF. SIGPAC", color = Color.Gray, style = MaterialTheme.typography.labelSmall, fontSize = 14.sp, modifier = Modifier.padding(start = 8.dp))
-            IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Cerrar", tint = Color.Gray) }
-        }
-        // Input Preview
-        Box(modifier = Modifier.fillMaxWidth().padding(bottom=10.dp).background(Color.Black.copy(0.5f), RoundedCornerShape(8.dp)).padding(16.dp), contentAlignment = Alignment.CenterStart) {
-            if (buffer.isEmpty()) Text("Prov:Mun:Agg:Zon:Pol:Parc:Rec", color = Color.Gray)
-            else Text(buffer, color = Color(0xFF00FF88), fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        }
-
-        val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf(":", "0", "DEL"))
-        rows.forEach { row ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { key ->
-                    Box(modifier = Modifier.weight(1f).height(50.dp).padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF121212)).clickable { if (key == "DEL") onBackspace() else onKey(key) }, contentAlignment = Alignment.Center) {
-                        if (key == "DEL") Icon(Icons.Default.Backspace, "Borrar", tint = Color.White) else Text(text = key, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 22.sp)
-                    }
+            FullScreenPhotoGallery(
+                photos = parc.photos,
+                initialIndex = parc.photos.lastIndex, // Abrir en la última foto
+                onDismiss = { showGallery = false },
+                onDeletePhoto = { photoUri ->
+                    // 1. Borrar de la lista de la parcela
+                    val updatedPhotos = parc.photos.filter { it != photoUri }
+                    val updatedParcela = parc.copy(photos = updatedPhotos)
+                    val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                    onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
                 }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth().height(55.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FF88)), shape = RoundedCornerShape(8.dp)) {
-            Icon(Icons.Default.Check, null, tint = Color.White)
-            Spacer(Modifier.width(8.dp))
-            Text("CONFIRMAR REFERENCIA", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+            )
         }
     }
 }
@@ -622,23 +736,23 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
-    folderName: String,
-    sigpacRef: String,
-    isProjectActive: Boolean,
+    projectId: String?,
+    sigpacRef: String?,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit
 ) {
     val imageCapture = imageCapture ?: return
+
+    // FIX: Set target rotation based on current display rotation
     val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     val rotation = windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
     imageCapture.targetRotation = rotation
 
-    val safeSigpacRef = sigpacRef.replace(":", "_")
+    val projectFolder = projectId ?: "SIN PROYECTO"
+    val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
     val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-    val filename = "${safeSigpacRef}-${timestamp}.jpg"
-    val safeFolderName = folderName.replace("/", "-")
-    
-    val relativePath = if (isProjectActive) "DCIM/GeoSIGPAC/$safeFolderName/$safeSigpacRef" else "DCIM/GeoSIGPAC/SIN PROYECTO"
+    val filename = "${safeSigpacRef}-$timestamp.jpg"
+    val relativePath = "DCIM/GeoSIGPAC/$projectFolder/$safeSigpacRef"
 
     val contentValues = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
@@ -649,16 +763,25 @@ private fun takePhoto(
         }
     }
 
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues).build()
-    imageCapture.takePicture(outputOptions, ContextCompat.getMainExecutor(context), object : ImageCapture.OnImageSavedCallback {
-        override fun onError(exc: ImageCaptureException) { onError(exc) }
-        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-            val savedUri = output.savedUri ?: Uri.EMPTY
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && savedUri != Uri.EMPTY) {
-                val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
-                try { context.contentResolver.update(savedUri, values, null, null) } catch (e: Exception) { e.printStackTrace() }
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(
+        context.contentResolver,
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+        contentValues
+    ).build()
+
+    imageCapture.takePicture(
+        outputOptions,
+        ContextCompat.getMainExecutor(context),
+        object : ImageCapture.OnImageSavedCallback {
+            override fun onError(exc: ImageCaptureException) { onError(exc) }
+            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                val savedUri = output.savedUri ?: Uri.EMPTY
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && savedUri != Uri.EMPTY) {
+                    val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+                    try { context.contentResolver.update(savedUri, values, null, null) } catch (e: Exception) { e.printStackTrace() }
+                }
+                onImageCaptured(savedUri)
             }
-            onImageCaptured(savedUri)
         }
-    })
+    )
 }
