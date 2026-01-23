@@ -14,15 +14,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 object SigpacApiService {
 
     private const val TAG = "SigpacApiService"
 
     /**
-     * @param targetAreaHa Superficie del polígono KML en Hectáreas. Se usa para encontrar la línea de declaración correspondiente.
+     * @param targetArea Valor de superficie del KML. Puede venir en Ha o m2. Se detectará automáticamente.
      */
-    suspend fun fetchHydration(referencia: String, targetAreaHa: Double? = null): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
+    suspend fun fetchHydration(referencia: String, targetArea: Double? = null): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
         val prov = parts.getOrNull(0) ?: ""
@@ -38,7 +39,7 @@ object SigpacApiService {
         // 1. CONSULTA RECINTO (JSON DETALLADO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
         
-        // 2. CONSULTA CULTIVO DECLARADO (OGC API) - Obtenemos TODOS los items (sin paginación compleja, default suele ser suficiente para un recinto)
+        // 2. CONSULTA CULTIVO DECLARADO (OGC API)
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
@@ -81,41 +82,60 @@ object SigpacApiService {
                         allDeclarations.add(features.getJSONObject(i).getJSONObject("properties"))
                     }
 
-                    // B. Filtrar por el AÑO MÁS RECIENTE disponible (evitar datos históricos)
+                    // B. Filtrar por el AÑO MÁS RECIENTE disponible
                     val maxYear = allDeclarations.maxOfOrNull { it.optInt("exp_ano", 0) } ?: 0
                     val currentYearDeclarations = allDeclarations.filter { it.optInt("exp_ano", 0) == maxYear }
 
-                    // C. Lógica de Matching por Superficie
-                    // Buscamos la línea de cultivo cuya superficie (en Ha) sea más parecida a la del KML.
+                    // C. Lógica de Matching por Superficie (Iterativa por tolerancia)
                     var bestMatch: JSONObject? = null
                     
-                    if (targetAreaHa != null && targetAreaHa > 0) {
-                        // Tolerancia de 0.02 ha para errores de redondeo (m2 vs 2 decimales ha)
-                        val tolerance = 0.02 
-                        var minDiff = Double.MAX_VALUE
+                    if (targetArea != null && targetArea > 0) {
+                        // 1. Detectar unidad del KML
+                        val totalCultivoM2 = currentYearDeclarations.sumOf { it.optDouble("parc_supcult", 0.0) }
+                        // Si el target es mucho mayor que el total en Ha, asumimos m2
+                        val isTargetInM2 = targetArea > (totalCultivoM2 / 10000.0) * 10 
+                        val targetHa = if (isTargetInM2) targetArea / 10000.0 else targetArea
+
+                        // 2. Búsqueda incremental por tolerancia
+                        // Primero exacto/administrativo (0.001), luego aumentando de 0.01 en 0.01 hasta 0.10
+                        val toleranceSteps = listOf(0.001, 0.01, 0.02, 0.03, 0.04, 0.05, 0.10)
                         
-                        for (decl in currentYearDeclarations) {
-                            val supM2 = decl.optDouble("parc_supcult", 0.0)
-                            val supHa = supM2 / 10000.0
-                            val diff = abs(supHa - targetAreaHa)
+                        for (tol in toleranceSteps) {
+                            val candidates = mutableListOf<Pair<JSONObject, Double>>()
                             
-                            if (diff < minDiff) {
-                                minDiff = diff
-                                // Si entra dentro de la tolerancia, es un candidato fuerte
-                                if (diff <= tolerance) {
-                                    bestMatch = decl
+                            for (decl in currentYearDeclarations) {
+                                val supM2 = decl.optDouble("parc_supcult", 0.0)
+                                val supHa = supM2 / 10000.0
+                                
+                                val diffRaw = abs(supHa - targetHa)
+                                
+                                // Check administrativo (redondeo a 2 decimales para coincidencia visual)
+                                val targetRounded = (targetHa * 100.0).roundToInt() / 100.0
+                                val supRounded = (supHa * 100.0).roundToInt() / 100.0
+                                val diffRounded = abs(supRounded - targetRounded)
+                                
+                                // Si coincide administrativamente, tratamos la diferencia como 0 para entrar en el tier exacto
+                                val effectiveMetric = if (diffRounded < 0.001) 0.0 else diffRaw
+                                
+                                if (effectiveMetric <= tol) {
+                                    candidates.add(decl to diffRaw)
                                 }
+                            }
+                            
+                            if (candidates.isNotEmpty()) {
+                                // Encontramos coincidencias en este nivel de tolerancia.
+                                // Elegimos la que tenga la menor diferencia bruta real.
+                                bestMatch = candidates.minByOrNull { it.second }?.first
+                                break 
                             }
                         }
                     }
 
-                    // D. Fallback: Si no hay targetArea o no hubo match por superficie, 
-                    // devolvemos el cultivo PRINCIPAL (el de mayor superficie)
+                    // D. Fallback: Si no hubo match por superficie en ningún rango razonable, usar el cultivo PRINCIPAL
                     if (bestMatch == null && currentYearDeclarations.isNotEmpty()) {
                         bestMatch = currentYearDeclarations.maxByOrNull { it.optDouble("parc_supcult", 0.0) }
                     }
 
-                    // Mapear resultado final
                     if (bestMatch != null) {
                         val props = bestMatch
                         val rawAprovecha = props.optString("tipo_aprovecha")
@@ -125,7 +145,7 @@ object SigpacApiService {
                             expNum = props.optString("exp_num"),
                             parcProducto = if (props.isNull("parc_producto")) null else props.optInt("parc_producto"),
                             parcSistexp = props.optString("parc_sistexp"),
-                            parcSupcult = if (props.isNull("parc_supcult")) null else props.optDouble("parc_supcult"), // Devuelve m2
+                            parcSupcult = if (props.isNull("parc_supcult")) null else props.optDouble("parc_supcult"),
                             parcAyudasol = props.optString("parc_ayudasol"),
                             pdrRec = props.optString("pdr_rec"),
                             cultsecunProducto = if (props.isNull("cultsecun_producto")) null else props.optInt("cultsecun_producto"),
@@ -141,12 +161,7 @@ object SigpacApiService {
         Triple(sigpac, cultivo, centroid)
     }
 
-    /**
-     * Recupera la información completa de una parcela (Ref, Geometría, Datos) a partir de un punto Lat/Lng.
-     * Prioriza la geometría de Cultivo Declarado. Si no existe, usa la de Recinto.
-     */
     suspend fun recoverParcelaFromPoint(lat: Double, lng: Double): Triple<String?, String?, SigpacData?> = withContext(Dispatchers.IO) {
-        // 1. OBTENER REFERENCIA (Reverse Geocoding)
         val identifyUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
         val idResponse = fetchUrl(identifyUrl) ?: return@withContext Triple(null, null, null)
 
@@ -181,7 +196,6 @@ object SigpacApiService {
         val fullRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
         var geometryRaw: String? = null
 
-        // 2. INTENTAR GEOMETRÍA DE CULTIVO (OGC API)
         val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoJson = fetchUrl(ogcUrl)
         
@@ -189,7 +203,6 @@ object SigpacApiService {
             geometryRaw = extractGeometryFromGeoJson(cultivoJson)
         }
 
-        // 3. SI NO HAY CULTIVO, INTENTAR GEOMETRÍA DE RECINTO
         if (geometryRaw == null) {
             val recUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
             val recJson = fetchUrl(recUrl)
@@ -205,15 +218,12 @@ object SigpacApiService {
         return try {
             val root = JSONNative(jsonStr)
             var geometry: JSONNative? = null
-            
-            // Caso FeatureCollection
             if (root.has("features")) {
                 val features = root.getJSONArray("features")
                 if (features.length() > 0) {
                     geometry = features.getJSONObject(0).optJSONObject("geometry")
                 }
             } else if (root.has("geometry")) {
-                // Caso Feature simple
                 geometry = root.optJSONObject("geometry")
             }
 
