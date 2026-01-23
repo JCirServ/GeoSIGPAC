@@ -65,20 +65,30 @@ object MapLayers {
         
         currentExpedientes.filter { visibleIds.contains(it.id) }.forEach { exp ->
             exp.parcelas.forEach { p ->
-                // 1. Geometría
+                // 1. Geometría (Polygon/MultiPolygon)
                 if (p.geometryRaw != null) {
                     val raw = p.geometryRaw.trim()
                     
                     // A. GeoJSON Directo (Hidratado desde API)
                     if (raw.startsWith("{")) {
                         try {
-                            val featureJson = """{"type": "Feature", "properties": {}, "geometry": $raw}"""
+                            // Construimos el Feature JSON completo con propiedades INCRUSTADAS
+                            // Esto evita problemas de mutabilidad o referencias perdidas al usar addStringProperty después
+                            val featureJson = """
+                                {
+                                    "type": "Feature", 
+                                    "properties": {
+                                        "type": "parcela",
+                                        "ref": "${p.referencia}"
+                                    }, 
+                                    "geometry": $raw
+                                }
+                            """.trimIndent()
+                            
                             val feat = Feature.fromJson(featureJson)
-                            feat.addStringProperty("type", "parcela")
-                            feat.addStringProperty("ref", p.referencia)
                             features.add(feat)
                         } catch(e: Exception) {
-                            Log.e(TAG_MAP, "Error parsing GeoJSON geometry: ${e.message}")
+                            Log.e(TAG_MAP, "Error parsing GeoJSON geometry for ${p.referencia}: ${e.message}")
                         }
                     } 
                     // B. Formato KML Legado ("lat,lng lat,lng")
