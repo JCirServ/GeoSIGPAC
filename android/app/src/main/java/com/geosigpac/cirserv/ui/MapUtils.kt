@@ -84,7 +84,12 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
     return try {
         // Caso A: GeoJSON (Recinto hidratado desde API)
         if (parcela.geometryRaw.trim().startsWith("{")) {
-            val feature = Feature.fromGeometry(Geometry.fromJson(parcela.geometryRaw))
+            // Workaround: Envolvemos la geometría cruda en un objeto Feature para poder usar Feature.fromJson
+            // ya que Geometry.fromJson a veces da problemas de resolución en tiempo de compilación/linkado.
+            val rawGeom = parcela.geometryRaw.trim()
+            val featureJson = """{"type": "Feature", "properties": {}, "geometry": $rawGeom}"""
+            val feature = Feature.fromJson(featureJson)
+
             // Calculamos bounds simples iterando coordenadas del JSON raw (más rápido que parsear el objeto Feature completo manualmente)
             val root = JSONObject(parcela.geometryRaw)
             val coords = root.optJSONArray("coordinates")

@@ -71,7 +71,6 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.Geometry
 import org.maplibre.geojson.Polygon
 import org.maplibre.geojson.Point
 import java.util.Locale
@@ -181,8 +180,11 @@ fun NativeMap(
                     // A. GeoJSON Directo (Hidratado desde API)
                     if (raw.startsWith("{")) {
                         try {
-                            val geometry = Geometry.fromJson(raw)
-                            val feat = Feature.fromGeometry(geometry)
+                            // Workaround: Envolvemos la geometría en un objeto Feature para usar Feature.fromJson
+                            // Esto evita problemas con Geometry.fromJson en algunas versiones de la librería
+                            val featureJson = """{"type": "Feature", "properties": {}, "geometry": $raw}"""
+                            val feat = Feature.fromJson(featureJson)
+                            
                             feat.addStringProperty("type", "parcela")
                             feat.addStringProperty("ref", p.referencia)
                             features.add(feat)
