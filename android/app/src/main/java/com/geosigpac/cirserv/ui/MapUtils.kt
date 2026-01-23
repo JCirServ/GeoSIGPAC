@@ -60,8 +60,10 @@ val FieldDivider = Color(0xFF424242)
 
 // Colores de capas de mapa
 val HighlightColor = Color(0xFFF97316) // Naranja SIGPAC para selección
-// CAMBIO: Cian Neón para alto contraste en Ortofoto (oscuro) y OSM (claro)
-val RecintoLineColor = Color(0xFF00E5FF) 
+
+// COLORES DINÁMICOS SEGÚN MAPA BASE
+val RecintoColorPNOA = Color(0xFF00E5FF) // Cian Neón (Alto contraste sobre satélite oscuro)
+val RecintoColorOSM = Color(0xFF6200EA)  // Púrpura Intenso (Alto contraste sobre mapa claro)
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),

@@ -109,12 +109,14 @@ fun loadMapStyle(
                 style.addLayer(highlightLine)
 
                 // 3. Capa de Líneas Generales (Bordes)
-                // Se mantiene FillLayer para evitar artefactos de cuadrícula, pero usando RecintoLineColor (Cian)
+                // Usamos FillLayer para evitar rejilla, pero cambiamos color según la base.
+                val outlineColor = if (baseMap == BaseMap.PNOA) RecintoColorPNOA else RecintoColorOSM
+
                 val outlineLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 outlineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 outlineLayer.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(RecintoLineColor.toArgb())
+                    PropertyFactory.fillOutlineColor(outlineColor.toArgb())
                 )
                 style.addLayer(outlineLayer)
                 
