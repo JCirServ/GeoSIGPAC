@@ -76,8 +76,7 @@ fun NativeProjectManager(
                     
                     if (parcelaToHydrate == null) break
                     
-                    // --- HYDRATION CALL ---
-                    // Ahora recibe también la geometría si se recuperó externamente
+                    // Fetch completo incluyendo geometría si faltaba
                     val result = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
                     val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
                     
@@ -91,7 +90,7 @@ fun NativeProjectManager(
                                             cultivoInfo = result.cultivoData,
                                             centroidLat = result.centroid?.first,
                                             centroidLng = result.centroid?.second,
-                                            // Si p.geometryRaw era null (era un Punto en el KML), usamos el obtenido de la API
+                                            // Si venía de KML Point (null), usar geometryRaw descargado. Si ya tenía (KML Polygon), mantenerlo.
                                             geometryRaw = p.geometryRaw ?: result.geometryRaw,
                                             informeIA = reportIA,
                                             isHydrated = true
@@ -135,8 +134,7 @@ fun NativeProjectManager(
             }
         }
     }
-    
-    // ... Rest of the UI code remains unchanged ...
+
     if (selectedExpedienteId != null) {
         val currentExp = expedientes.find { it.id == selectedExpedienteId }
         if (currentExp != null) {
@@ -189,7 +187,7 @@ fun NativeProjectManager(
         }
     }
 }
-// ... Include the rest of ProjectListItem, ProjectDetailsScreen, etc. from original file ...
+
 @Composable
 fun ProjectListItem(
     exp: NativeExpediente, 

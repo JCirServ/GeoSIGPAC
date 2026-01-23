@@ -12,12 +12,12 @@ import org.json.JSONObject as JSONNative
 import java.net.HttpURLConnection
 import java.net.URL
 
-// Clase de resultado para evitar tuplas complejas
+// Clase de resultado para manejar geometría opcional
 data class HydrationResult(
     val sigpacData: SigpacData?,
     val cultivoData: CultivoData?,
     val centroid: Pair<Double, Double>?,
-    val geometryRaw: String? // Geometría recuperada si no existía
+    val geometryRaw: String? // Geometría en formato string "lng,lat lng,lat"
 )
 
 object SigpacApiService {
@@ -37,17 +37,17 @@ object SigpacApiService {
         val parc = if (hasCompleteFormat) parts[5] else (parts.getOrNull(parts.size - 2) ?: "")
         val rec = if (hasCompleteFormat) parts[6] else (parts.getOrNull(parts.size - 1) ?: "")
 
-        // 1. CONSULTA RECINTO (JSON DETALLADO)
+        // 1. CONSULTA RECINTO
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
         
-        // 2. CONSULTA CULTIVO DECLARADO (OGC API)
+        // 2. CONSULTA CULTIVO
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
-        // 3. CONSULTA CENTROIDE (GeoJSON)
+        // 3. CONSULTA CENTROIDE
         val centroidUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recincentroid/$prov/$mun/$ag/$zo/$pol/$parc/$rec.geojson"
 
-        // 4. CONSULTA GEOMETRÍA POLÍGONO (GeoJSON) - Para recintos cargados como puntos
+        // 4. CONSULTA GEOMETRÍA POLÍGONO (Para chinchetas)
         val geometryUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$ag/$zo/$pol/$parc/$rec.geojson"
 
         val sigpac = fetchUrl(recintoUrl)?.let { jsonStr ->
@@ -106,15 +106,14 @@ object SigpacApiService {
                 if (features.length() > 0) {
                     val geometry = features.getJSONObject(0).getJSONObject("geometry")
                     val coords = geometry.getJSONArray("coordinates")
-                    // coordinates[0] = lng, coordinates[1] = lat
                     Pair(coords.getDouble(1), coords.getDouble(0))
                 } else null
             } catch (e: Exception) { null }
         }
 
+        // Descarga y conversión de GeoJSON a String plano para geometría
         val geometryRaw = fetchUrl(geometryUrl)?.let { jsonStr ->
             try {
-                // Parseamos GeoJSON y lo convertimos al formato string "lng,lat lng,lat" que usa la app
                 val root = JSONNative(jsonStr)
                 val features = root.optJSONArray("features")
                 if (features != null && features.length() > 0) {
@@ -124,7 +123,7 @@ object SigpacApiService {
                     
                     val pointsList = StringBuilder()
                     
-                    // Manejo básico de Polígonos (ignoramos huecos interiores por simplicidad en raycasting rápido)
+                    // Manejo básico de MultiPolygon vs Polygon
                     val outerRing = if (type == "MultiPolygon") {
                          coordsArray.getJSONArray(0).getJSONArray(0)
                     } else {

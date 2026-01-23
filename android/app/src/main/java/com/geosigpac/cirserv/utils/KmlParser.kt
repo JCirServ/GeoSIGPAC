@@ -70,12 +70,11 @@ object KmlParser {
                 val element = placemarks.item(i) as Element
                 val metadata = mutableMapOf<String, String>()
 
-                // 1. Extraer ExtendedData (Soporte dual: Data y SimpleData)
+                // 1. Extraer ExtendedData
                 val extendedDataList = element.getElementsByTagName("ExtendedData")
                 if (extendedDataList.length > 0) {
                     val extendedElem = extendedDataList.item(0) as Element
                     
-                    // Formato A: <Data name="..."> (Estándar Google Earth)
                     val dataNodes = extendedElem.getElementsByTagName("Data")
                     for (j in 0 until dataNodes.length) {
                         val dataElem = dataNodes.item(j) as Element
@@ -84,7 +83,6 @@ object KmlParser {
                         metadata[name.lowercase()] = value
                     }
 
-                    // Formato B: <SchemaData ...> <SimpleData name="..."> (Formato OGC/QGIS)
                     val schemaDataNodes = extendedElem.getElementsByTagName("SchemaData")
                     for (k in 0 until schemaDataNodes.length) {
                         val simpleDataNodes = (schemaDataNodes.item(k) as Element).getElementsByTagName("SimpleData")
@@ -125,7 +123,7 @@ object KmlParser {
                 var lng = 0.0
                 var coordsRaw: String? = null
 
-                // Buscamos Polígonos explícitamente para geometryRaw
+                // Buscamos Polígonos/LinearRing (Geometría Real)
                 val polygons = element.getElementsByTagName("Polygon")
                 val linearRings = element.getElementsByTagName("LinearRing")
                 
@@ -135,7 +133,7 @@ object KmlParser {
                         val coordsText = coordsNodes.item(0).textContent.trim()
                         coordsRaw = coordsText
                         
-                        // Centroide aproximado del primer punto
+                        // Centroide aproximado del primer punto para centrar mapa
                         val rawCoords = coordsText.split("\\s+".toRegex())
                         if (rawCoords.isNotEmpty()) {
                             val firstPoint = rawCoords[0].split(",")
@@ -172,7 +170,7 @@ object KmlParser {
                         lng = lng,
                         area = area,
                         metadata = metadata,
-                        geometryRaw = coordsRaw // Será null si es un punto, activando la descarga remota
+                        geometryRaw = coordsRaw // Será null si es un punto (chincheta)
                     )
                 )
             }
