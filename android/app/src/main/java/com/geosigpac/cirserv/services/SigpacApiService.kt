@@ -171,13 +171,31 @@ object SigpacApiService {
             }
 
             if (props != null) {
-                prov = props.optString("provincia")
-                mun = props.optString("municipio")
-                agg = props.optString("agregado", "0")
-                zon = props.optString("zona", "0")
-                pol = props.optString("poligono")
-                parc = props.optString("parcela")
-                rec = props.optString("recinto")
+                // FIX: Manejar respuesta combinada "refrecinto" si las propiedades individuales faltan
+                if (props.has("refrecinto")) {
+                    val combinedRef = props.optString("refrecinto")
+                    val parts = combinedRef.split(":")
+                    // Formato esperado: Prov:Mun:Agg:Zon:Pol:Parc:Rec
+                    if (parts.size >= 7) {
+                        prov = parts[0]
+                        mun = parts[1]
+                        agg = parts[2]
+                        zon = parts[3]
+                        pol = parts[4]
+                        parc = parts[5]
+                        rec = parts[6]
+                    }
+                } else {
+                    // Fallback a propiedades individuales
+                    prov = props.optString("provincia")
+                    mun = props.optString("municipio")
+                    agg = props.optString("agregado", "0")
+                    zon = props.optString("zona", "0")
+                    pol = props.optString("poligono")
+                    parc = props.optString("parcela")
+                    rec = props.optString("recinto")
+                }
+                
                 Log.d(TAG, "Parsed Location: P:$prov M:$mun Pol:$pol Parc:$parc Rec:$rec")
             } else {
                 Log.e(TAG, "Parsed Location: Properties not found in JSON (Empty features?)")
