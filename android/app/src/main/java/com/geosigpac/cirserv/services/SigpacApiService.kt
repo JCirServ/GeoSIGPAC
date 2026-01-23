@@ -12,11 +12,19 @@ import org.json.JSONObject as JSONNative
 import java.net.HttpURLConnection
 import java.net.URL
 
+// Clase de resultado para evitar tuplas complejas
+data class HydrationResult(
+    val sigpacData: SigpacData?,
+    val cultivoData: CultivoData?,
+    val centroid: Pair<Double, Double>?,
+    val geometryRaw: String? // Geometría recuperada si no existía
+)
+
 object SigpacApiService {
 
     private const val TAG = "SigpacApiService"
 
-    suspend fun fetchHydration(referencia: String): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
+    suspend fun fetchHydration(referencia: String): HydrationResult = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
         val prov = parts.getOrNull(0) ?: ""
@@ -38,6 +46,9 @@ object SigpacApiService {
 
         // 3. CONSULTA CENTROIDE (GeoJSON)
         val centroidUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recincentroid/$prov/$mun/$ag/$zo/$pol/$parc/$rec.geojson"
+
+        // 4. CONSULTA GEOMETRÍA POLÍGONO (GeoJSON) - Para recintos cargados como puntos
+        val geometryUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$ag/$zo/$pol/$parc/$rec.geojson"
 
         val sigpac = fetchUrl(recintoUrl)?.let { jsonStr ->
             try {
@@ -101,7 +112,38 @@ object SigpacApiService {
             } catch (e: Exception) { null }
         }
 
-        Triple(sigpac, cultivo, centroid)
+        val geometryRaw = fetchUrl(geometryUrl)?.let { jsonStr ->
+            try {
+                // Parseamos GeoJSON y lo convertimos al formato string "lng,lat lng,lat" que usa la app
+                val root = JSONNative(jsonStr)
+                val features = root.optJSONArray("features")
+                if (features != null && features.length() > 0) {
+                    val geometry = features.getJSONObject(0).getJSONObject("geometry")
+                    val type = geometry.optString("type")
+                    val coordsArray = geometry.getJSONArray("coordinates")
+                    
+                    val pointsList = StringBuilder()
+                    
+                    // Manejo básico de Polígonos (ignoramos huecos interiores por simplicidad en raycasting rápido)
+                    val outerRing = if (type == "MultiPolygon") {
+                         coordsArray.getJSONArray(0).getJSONArray(0)
+                    } else {
+                         coordsArray.getJSONArray(0)
+                    }
+
+                    for (i in 0 until outerRing.length()) {
+                        val pt = outerRing.getJSONArray(i)
+                        val lng = pt.getDouble(0)
+                        val lat = pt.getDouble(1)
+                        if (pointsList.isNotEmpty()) pointsList.append(" ")
+                        pointsList.append("$lng,$lat")
+                    }
+                    pointsList.toString()
+                } else null
+            } catch (e: Exception) { null }
+        }
+
+        HydrationResult(sigpac, cultivo, centroid, geometryRaw)
     }
 
     private fun fetchUrl(urlString: String): String? {

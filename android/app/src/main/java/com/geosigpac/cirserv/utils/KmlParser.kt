@@ -98,68 +98,81 @@ object KmlParser {
                 }
 
                 // 2. Extraer o Construir Referencia SIGPAC
-                // Prioridad: Campos individuales > Ref_SigPac existente > Name > Fallback
                 var rawRef = ""
-                
                 if (metadata.containsKey("provincia") && metadata.containsKey("parcela")) {
-                    // Construcción desde campos individuales (Nuevo Formato)
                     val prov = metadata["provincia"] ?: "0"
                     val mun = metadata["municipio"] ?: "0"
                     val pol = metadata["poligono"] ?: "0"
                     val parc = metadata["parcela"] ?: "0"
                     val rec = metadata["recinto"] ?: "0"
-                    // Agregado y Zona suelen ser 0 si no vienen
                     val agg = metadata["agregado"] ?: "0" 
                     val zon = metadata["zona"] ?: "0"
-                    
                     rawRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
                 } else {
-                    // Fallback a formatos antiguos
                     rawRef = metadata["ref_sigpac"] ?: metadata["id"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
                 }
 
-                // 3. Formatear para visualización (Prov:Mun:Pol:Parc:Rec)
+                // 3. Formatear para visualización
                 val displayRef = formatToDisplayRef(rawRef)
 
-                // 4. Extraer Uso
+                // 4. Metadatos básicos
                 val uso = metadata["uso_sigpac"] ?: metadata["uso"] ?: "N/D"
-
-                // 5. Extraer Superficie
                 val superficieStr = metadata["dn_surface"] ?: metadata["superficie"] ?: "0"
                 val area = superficieStr.toDoubleOrNull() ?: 0.0
 
-                // 6. Extraer Coordenadas (Geometry)
+                // 5. GEOMETRÍA: Diferenciar Point vs Polygon
                 var lat = 0.0
                 var lng = 0.0
                 var coordsRaw: String? = null
 
-                // getElementsByTagName busca recursivamente, por lo que encuentra Polygon/outerBoundaryIs/LinearRing/coordinates
-                val coordsNodes = element.getElementsByTagName("coordinates")
-                if (coordsNodes.length > 0) {
-                    val coordsText = coordsNodes.item(0).textContent.trim()
-                    coordsRaw = coordsText
-                    // Tomamos el primer punto para centrar la cámara inicialmente
-                    val rawCoords = coordsText.split("\\s+".toRegex())
-                    if (rawCoords.isNotEmpty()) {
-                        val firstPoint = rawCoords[0].split(",")
-                        if (firstPoint.size >= 2) {
-                            lng = firstPoint[0].toDoubleOrNull() ?: 0.0
-                            lat = firstPoint[1].toDoubleOrNull() ?: 0.0
+                // Buscamos Polígonos explícitamente para geometryRaw
+                val polygons = element.getElementsByTagName("Polygon")
+                val linearRings = element.getElementsByTagName("LinearRing")
+                
+                if (polygons.length > 0 || linearRings.length > 0) {
+                    val coordsNodes = element.getElementsByTagName("coordinates")
+                    if (coordsNodes.length > 0) {
+                        val coordsText = coordsNodes.item(0).textContent.trim()
+                        coordsRaw = coordsText
+                        
+                        // Centroide aproximado del primer punto
+                        val rawCoords = coordsText.split("\\s+".toRegex())
+                        if (rawCoords.isNotEmpty()) {
+                            val firstPoint = rawCoords[0].split(",")
+                            if (firstPoint.size >= 2) {
+                                lng = firstPoint[0].toDoubleOrNull() ?: 0.0
+                                lat = firstPoint[1].toDoubleOrNull() ?: 0.0
+                            }
+                        }
+                    }
+                } else {
+                    // Si no hay polígono, buscamos Punto (Point)
+                    // En este caso, geometryRaw se queda NULL para forzar la hidratación externa
+                    val points = element.getElementsByTagName("Point")
+                    if (points.length > 0) {
+                        val coordsNodes = element.getElementsByTagName("coordinates")
+                        if (coordsNodes.length > 0) {
+                            val coordsText = coordsNodes.item(0).textContent.trim()
+                            val parts = coordsText.split(",")
+                            if (parts.size >= 2) {
+                                lng = parts[0].toDoubleOrNull() ?: 0.0
+                                lat = parts[1].toDoubleOrNull() ?: 0.0
+                            }
                         }
                     }
                 }
 
-                // 7. Crear objeto
+                // 6. Crear objeto
                 parcelas.add(
                     NativeParcela(
                         id = "p_${System.currentTimeMillis()}_$i",
-                        referencia = displayRef, // Título formateado
+                        referencia = displayRef,
                         uso = uso,
                         lat = lat,
                         lng = lng,
                         area = area,
-                        metadata = metadata, // Guardamos raw metadata por si acaso
-                        geometryRaw = coordsRaw
+                        metadata = metadata,
+                        geometryRaw = coordsRaw // Será null si es un punto, activando la descarga remota
                     )
                 )
             }
@@ -169,19 +182,12 @@ object KmlParser {
         return parcelas
     }
 
-    /**
-     * Convierte cualquier referencia (7 partes, con guiones, etc.) 
-     * al formato visual estándar de 5 partes: Prov:Mun:Pol:Parc:Rec
-     */
     private fun formatToDisplayRef(raw: String): String {
-        // Limpiar separadores (guiones por dos puntos)
         val clean = raw.replace("-", ":")
         val parts = clean.split(":").filter { it.isNotBlank() }
 
         return when {
-            // Caso completo: Prov:Mun:Agg:Zon:Pol:Parc:Rec (7 partes) -> Cogemos 0,1,4,5,6
             parts.size >= 7 -> "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
-            // Caso ya resumido o incompleto: Devolvemos tal cual con separador ':'
             else -> parts.joinToString(":")
         }
     }
