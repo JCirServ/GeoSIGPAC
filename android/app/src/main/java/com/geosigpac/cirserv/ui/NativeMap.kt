@@ -2,9 +2,7 @@
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
-import android.content.Intent
 import android.graphics.RectF
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -28,8 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
@@ -43,11 +39,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,7 +93,6 @@ fun NativeMap(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusManager = LocalFocusManager.current
-    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     
     // --- ESTADO ---
@@ -139,26 +132,6 @@ fun NativeMap(
     val mapView = remember {
         MapView(context).apply {
             onCreate(Bundle())
-        }
-    }
-
-    // --- HELPER PARA ABRIR GOOGLE MAPS ---
-    fun openGoogleMaps(lat: Double, lng: Double) {
-        try {
-            // "google.navigation:q=" abre directamente el modo navegación GPS
-            val uri = Uri.parse("google.navigation:q=$lat,$lng")
-            val intent = Intent(Intent.ACTION_VIEW, uri)
-            intent.setPackage("com.google.android.apps.maps")
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            // Fallback si no está instalado Google Maps: abre navegador
-            try {
-                val uri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lng")
-                val intent = Intent(Intent.ACTION_VIEW, uri)
-                context.startActivity(intent)
-            } catch (e2: Exception) {
-                Toast.makeText(context, "No se pudo abrir la navegación", Toast.LENGTH_SHORT).show()
-            }
         }
     }
 
@@ -604,18 +577,6 @@ fun NativeMap(
             SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
             SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, shouldCenter = true) }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.MyLocation, "Ubicación") }
-            // NUEVO BOTÓN: NAVEGAR A LA CRUZ CENTRAL
-            SmallFloatingActionButton(
-                onClick = {
-                    val center = mapInstance?.cameraPosition?.target
-                    if (center != null) openGoogleMaps(center.latitude, center.longitude)
-                },
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = FieldGreen,
-                shape = CircleShape
-            ) {
-                Icon(Icons.Default.Directions, "Navegar")
-            }
         }
         if (isLoadingData || isSearching) { Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) { CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp) } }
         if (!showCustomKeyboard) {
@@ -626,51 +587,7 @@ fun NativeMap(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) { Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f))) }
                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                            val refText = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}..."
-                            Column { 
-                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 13.sp)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = refText, 
-                                        style = MaterialTheme.typography.titleMedium, 
-                                        fontWeight = FontWeight.Black, 
-                                        color = FieldGreen, 
-                                        fontSize = 20.sp
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    IconButton(
-                                        onClick = {
-                                            clipboardManager.setText(AnnotatedString(refText))
-                                            Toast.makeText(context, "Referencia copiada", Toast.LENGTH_SHORT).show()
-                                        },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = "Copiar Referencia",
-                                            tint = FieldGray,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                    // NUEVO BOTÓN: NAVEGAR AL RECINTO SELECCIONADO
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    IconButton(
-                                        onClick = {
-                                            // La referencia mostrada corresponde al centro del mapa en ese momento
-                                            val center = mapInstance?.cameraPosition?.target
-                                            if (center != null) openGoogleMaps(center.latitude, center.longitude)
-                                        },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Directions,
-                                            contentDescription = "Ir al recinto",
-                                            tint = FieldGray,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
+                            Column { Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 13.sp); Text(text = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}...", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = FieldGreen, fontSize = 20.sp) }
                             IconButton(onClick = { instantSigpacRef = ""; recintoData = null; cultivoData = null; isPanelExpanded = false; clearSearch() }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
                         }
                         if (recintoData != null) {

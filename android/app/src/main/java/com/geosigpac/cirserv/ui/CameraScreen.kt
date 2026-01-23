@@ -550,44 +550,6 @@ fun CameraScreen(
             }
         }
 
-        // --- ZOOM SLIDER ---
-        if (camera != null) {
-            Box(
-                modifier = Modifier
-                    .align(if (isLandscape) Alignment.CenterEnd else Alignment.CenterEnd)
-                    .padding(end = if (isLandscape) 120.dp else 16.dp, bottom = if (!isLandscape) 100.dp else 0.dp)
-                    .width(40.dp)
-                    .height(220.dp)
-                    .background(Color.Black.copy(0.4f), RoundedCornerShape(20.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                 Slider(
-                    value = currentLinearZoom,
-                    onValueChange = { 
-                        currentLinearZoom = it
-                        camera?.cameraControl?.setLinearZoom(it)
-                    },
-                    modifier = Modifier
-                        .graphicsLayer { rotationZ = 270f }
-                        .width(180.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = NeonGreen,
-                        activeTrackColor = NeonGreen,
-                        inactiveTrackColor = Color.White.copy(0.5f)
-                    )
-                )
-                Text(
-                    text = "%.1fx".format(currentZoomRatio),
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 10.dp)
-                )
-            }
-        }
-
         // --- LAYOUTS LANDSCAPE/PORTRAIT ---
         if (isLandscape) {
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) { Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { SettingsBtn(); ProjectsBtn(); MatchInfoBtn() } }
