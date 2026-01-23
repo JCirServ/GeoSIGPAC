@@ -20,6 +20,7 @@ import android.util.Log
 import android.util.Size
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -120,7 +121,7 @@ enum class CamQuality(val label: String, val targetSize: Size?) {
 @Composable
 fun CameraScreen(
     expedientes: List<NativeExpediente>,
-    projectId: String?,
+    projectId: String?, // NOTA: Este parámetro es realmente el ID de la PARCELA (o null)
     lastCapturedUri: Uri?,
     photoCount: Int,
     onUpdateExpedientes: (List<NativeExpediente>) -> Unit,
@@ -188,6 +189,29 @@ fun CameraScreen(
         if (foundParcel != null && foundExp != null) {
             Pair(foundExp!!, foundParcel)
         } else null
+    }
+
+    // --- DETERMINAR DATOS DE GUARDADO (CARPETA Y REFERENCIA) ---
+    val effectiveContextData = remember(matchedParcelInfo, projectId, expedientes, sigpacRef) {
+        if (matchedParcelInfo != null) {
+            // Caso A: Estamos físicamente en un recinto del proyecto (GPS Match)
+            // Estructura: DCIM/GeoSIGPAC/[NombreProyecto]/[Referencia]/...
+            Triple(matchedParcelInfo.first.titular, matchedParcelInfo.second.referencia, true)
+        } else if (projectId != null) {
+            // Caso B: Hemos entrado desde una parcela específica del proyecto (Botón Cámara en Ficha)
+            // Buscamos el nombre del expediente usando el ID de parcela (projectId)
+            val foundExp = expedientes.find { exp -> exp.parcelas.any { it.id == projectId } }
+            val foundParcel = foundExp?.parcelas?.find { it.id == projectId }
+            
+            val folderName = foundExp?.titular ?: "SIN PROYECTO"
+            // Usamos la referencia del recinto si está disponible, si no la del GPS
+            val refName = foundParcel?.referencia ?: sigpacRef ?: "SIN_REFERENCIA"
+            Triple(folderName, refName, foundExp != null)
+        } else {
+            // Caso C: Cámara libre (Sin Proyecto)
+            // Estructura: DCIM/GeoSIGPAC/SIN PROYECTO/...
+            Triple("SIN PROYECTO", sigpacRef ?: "SIN_REFERENCIA", false)
+        }
     }
 
     // --- ESTADO PREVISUALIZACIÓN FOTO (Carga de Bitmap) ---
@@ -292,7 +316,7 @@ fun CameraScreen(
         }
     }
 
-    // --- VINCULACIÓN DE CÁMARA (LÓGICA ACTUALIZADA) ---
+    // --- VINCULACIÓN DE CÁMARA ---
     LaunchedEffect(selectedRatio, selectedQuality, flashMode) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
@@ -329,8 +353,7 @@ fun CameraScreen(
             if (selectedRatio == CamAspectRatio.FULL) {
                 previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
             } else if (selectedRatio == CamAspectRatio.SQUARE) {
-                // Para 1:1 usamos FIT_CENTER del flujo 4:3, pero visualmente se podría enmascarar
-                // Por simplicidad en CameraX nativo, usamos FIT_CENTER que mostrará 4:3
+                // Para 1:1 usamos FIT_CENTER del flujo 4:3
                 previewView.scaleType = PreviewView.ScaleType.FIT_CENTER 
             } else {
                 previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
@@ -470,13 +493,22 @@ fun CameraScreen(
                 .padding(6.dp)
                 .background(NeonGreen, CircleShape)
                 .clickable {
-                    takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
+                    // Usar datos calculados efectivos (SIN PROYECTO o NOMBRE PROYECTO)
+                    val (folderName, refName, isProjectActive) = effectiveContextData
+                    
+                    takePhoto(context, imageCaptureUseCase, folderName, refName, isProjectActive,
                         onImageCaptured = { uri -> 
                             if (matchedParcelInfo != null) {
                                 val (exp, parc) = matchedParcelInfo
                                 val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
                                 val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
                                 onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                            }
+                            // Feedback visual importante
+                            if (isProjectActive) {
+                                Toast.makeText(context, "Guardada en: $folderName", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Guardada en: SIN PROYECTO", Toast.LENGTH_SHORT).show()
                             }
                             onImageCaptured(uri) 
                         }, onError)
@@ -820,8 +852,9 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
-    projectId: String?,
-    sigpacRef: String?,
+    folderName: String,
+    sigpacRef: String,
+    isProjectActive: Boolean,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit
 ) {
@@ -831,11 +864,20 @@ private fun takePhoto(
     val rotation = windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
     imageCapture.targetRotation = rotation
 
-    val projectFolder = projectId ?: "SIN PROYECTO"
-    val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
+    val safeSigpacRef = sigpacRef.replace(":", "_")
+    // Formato de nombre solicitado: "referencia sigpac-fecha y hora.jpg"
     val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-    val filename = "${safeSigpacRef}-$timestamp.jpg"
-    val relativePath = "DCIM/GeoSIGPAC/$projectFolder/$safeSigpacRef"
+    val filename = "${safeSigpacRef}-${timestamp}.jpg"
+    val safeFolderName = folderName.replace("/", "-")
+    
+    // Lógica estricta de carpetas solicitada:
+    // 1. Proyecto: DCIM/GeoSIGPAC/[NombreProyecto]/[Referencia]/[Archivo].jpg
+    // 2. Sin Proyecto: DCIM/GeoSIGPAC/SIN PROYECTO/[Archivo].jpg (Carpeta plana)
+    val relativePath = if (isProjectActive) {
+        "DCIM/GeoSIGPAC/$safeFolderName/$safeSigpacRef"
+    } else {
+        "DCIM/GeoSIGPAC/SIN PROYECTO"
+    }
 
     val contentValues = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
