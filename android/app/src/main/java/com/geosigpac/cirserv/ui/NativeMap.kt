@@ -2,7 +2,9 @@
 package com.geosigpac.cirserv.ui
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.RectF
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MyLocation
@@ -136,6 +139,26 @@ fun NativeMap(
     val mapView = remember {
         MapView(context).apply {
             onCreate(Bundle())
+        }
+    }
+
+    // --- HELPER PARA ABRIR GOOGLE MAPS ---
+    fun openGoogleMaps(lat: Double, lng: Double) {
+        try {
+            // "google.navigation:q=" abre directamente el modo navegación GPS
+            val uri = Uri.parse("google.navigation:q=$lat,$lng")
+            val intent = Intent(Intent.ACTION_VIEW, uri)
+            intent.setPackage("com.google.android.apps.maps")
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback si no está instalado Google Maps: abre navegador
+            try {
+                val uri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lng")
+                val intent = Intent(Intent.ACTION_VIEW, uri)
+                context.startActivity(intent)
+            } catch (e2: Exception) {
+                Toast.makeText(context, "No se pudo abrir la navegación", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -581,6 +604,18 @@ fun NativeMap(
             SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
             SmallFloatingActionButton(onClick = { enableLocation(mapInstance, context, shouldCenter = true) }, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.MyLocation, "Ubicación") }
+            // NUEVO BOTÓN: NAVEGAR A LA CRUZ CENTRAL
+            SmallFloatingActionButton(
+                onClick = {
+                    val center = mapInstance?.cameraPosition?.target
+                    if (center != null) openGoogleMaps(center.latitude, center.longitude)
+                },
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = FieldGreen,
+                shape = CircleShape
+            ) {
+                Icon(Icons.Default.Directions, "Navegar")
+            }
         }
         if (isLoadingData || isSearching) { Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) { CircularProgressIndicator(color = FieldGreen, modifier = Modifier.size(30.dp), strokeWidth = 3.dp) } }
         if (!showCustomKeyboard) {
@@ -613,6 +648,23 @@ fun NativeMap(
                                         Icon(
                                             imageVector = Icons.Default.ContentCopy,
                                             contentDescription = "Copiar Referencia",
+                                            tint = FieldGray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    // NUEVO BOTÓN: NAVEGAR AL RECINTO SELECCIONADO
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(
+                                        onClick = {
+                                            // La referencia mostrada corresponde al centro del mapa en ese momento
+                                            val center = mapInstance?.cameraPosition?.target
+                                            if (center != null) openGoogleMaps(center.latitude, center.longitude)
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Directions,
+                                            contentDescription = "Ir al recinto",
                                             tint = FieldGray,
                                             modifier = Modifier.size(16.dp)
                                         )
