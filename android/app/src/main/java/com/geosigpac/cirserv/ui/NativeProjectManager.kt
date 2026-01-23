@@ -999,13 +999,8 @@ fun NativeRecintoCard(
                         Spacer(Modifier.height(20.dp))
                         Button(
                             onClick = { 
-                                val parts = parcela.referencia.split("[:\\-]".toRegex()).filter { it.isNotEmpty() }
-                                val searchStr = if (parts.size >= 7) {
-                                    "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
-                                } else {
-                                    parts.joinToString(":")
-                                }
-                                onLocate(searchStr)
+                                // Usamos el ID interno para localizar usando geometría local, evitando la API externa
+                                onLocate("LOC:${parcela.id}")
                             },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),

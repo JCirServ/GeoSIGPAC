@@ -156,22 +156,40 @@ object KmlParser {
                 // Limpiar comas por puntos si es necesario y parsear
                 val area = superficieStr.replace(",", ".").toDoubleOrNull() ?: 0.0
 
-                // 6. Extraer Coordenadas (Geometry)
-                var lat = 0.0
-                var lng = 0.0
+                // 6. Extraer Coordenadas y Calcular Centroide Local
+                var centroidLat = 0.0
+                var centroidLng = 0.0
                 var coordsRaw: String? = null
 
                 val coordsNodes = element.getElementsByTagName("coordinates")
                 if (coordsNodes.length > 0) {
                     val coordsText = coordsNodes.item(0).textContent.trim()
                     coordsRaw = coordsText
+                    
+                    // Calcular centroide matemático
                     val rawCoords = coordsText.split("\\s+".toRegex())
+                    var sumLat = 0.0
+                    var sumLng = 0.0
+                    var count = 0
+
                     if (rawCoords.isNotEmpty()) {
-                        val firstPoint = rawCoords[0].split(",")
-                        if (firstPoint.size >= 2) {
-                            lng = firstPoint[0].toDoubleOrNull() ?: 0.0
-                            lat = firstPoint[1].toDoubleOrNull() ?: 0.0
+                        for (pointStr in rawCoords) {
+                            val parts = pointStr.split(",")
+                            if (parts.size >= 2) {
+                                val lng = parts[0].toDoubleOrNull()
+                                val lat = parts[1].toDoubleOrNull()
+                                if (lng != null && lat != null) {
+                                    sumLat += lat
+                                    sumLng += lng
+                                    count++
+                                }
+                            }
                         }
+                    }
+                    
+                    if (count > 0) {
+                        centroidLat = sumLat / count
+                        centroidLng = sumLng / count
                     }
                 }
 
@@ -181,11 +199,13 @@ object KmlParser {
                         id = "p_${System.currentTimeMillis()}_$i",
                         referencia = displayRef, 
                         uso = uso,
-                        lat = lat,
-                        lng = lng,
+                        lat = centroidLat, // Usamos el centroide calculado
+                        lng = centroidLng, // Usamos el centroide calculado
                         area = area,
                         metadata = metadata, 
-                        geometryRaw = coordsRaw
+                        geometryRaw = coordsRaw,
+                        centroidLat = centroidLat,
+                        centroidLng = centroidLng
                     )
                 )
             }
