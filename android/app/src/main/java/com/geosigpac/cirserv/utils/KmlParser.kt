@@ -132,65 +132,89 @@ object KmlParser {
                 }
 
                 // 3. Formatear y Atributos
-                val displayRef = formatToDisplayRef(rawRef)
+                var displayRef = formatToDisplayRef(rawRef)
                 val keysUso = listOf("uso_sigpac", "uso", "dn_uso", "uso_sig", "desc_uso")
                 val uso = findValue(keysUso) ?: "N/D"
                 val keysSup = listOf("dn_surface", "superficie", "area", "sup", "dn_sup", "shape_area")
                 val superficieStr = findValue(keysSup) ?: "0"
                 val area = superficieStr.replace(",", ".").toDoubleOrNull() ?: 0.0
 
-                // 4. Procesar Geometría y Calcular Centroide Local
+                // 4. Procesar Geometría (Polygon o Point)
                 var centroidLat = 0.0
                 var centroidLng = 0.0
                 var coordsRaw: String? = null
+                var isPointGeometry = false
 
-                val coordsNodes = element.getElementsByTagName("coordinates")
-                if (coordsNodes.length > 0) {
-                    val coordsText = coordsNodes.item(0).textContent.trim()
-                    coordsRaw = coordsText
-                    
-                    // Parsear puntos del polígono (Lat, Lng)
-                    val polygonPoints = mutableListOf<Pair<Double, Double>>()
-                    val rawCoords = coordsText.split("\\s+".toRegex())
-                    
-                    for (pointStr in rawCoords) {
-                        val parts = pointStr.split(",")
-                        if (parts.size >= 2) {
-                            val lng = parts[0].toDoubleOrNull()
-                            val lat = parts[1].toDoubleOrNull()
-                            if (lng != null && lat != null) {
-                                polygonPoints.add(lat to lng)
-                            }
-                        }
+                // Intentar buscar Polygon
+                var coordsNodes = element.getElementsByTagName("Polygon")
+                if (coordsNodes.length == 0) {
+                    // Si no hay Polygon, buscar Point
+                    coordsNodes = element.getElementsByTagName("Point")
+                    if (coordsNodes.length > 0) {
+                        isPointGeometry = true
                     }
+                }
 
-                    if (polygonPoints.isNotEmpty()) {
-                        // A. Calcular Centroide Matemático (Promedio simple)
-                        var sumLat = 0.0
-                        var sumLng = 0.0
-                        polygonPoints.forEach { 
-                            sumLat += it.first
-                            sumLng += it.second 
-                        }
-                        val avgLat = sumLat / polygonPoints.size
-                        val avgLng = sumLng / polygonPoints.size
-
-                        // B. Verificar con Ray Casting si está dentro del polígono
-                        if (isPointInPolygon(avgLat, avgLng, polygonPoints)) {
-                            // El promedio cae dentro, es válido
-                            centroidLat = avgLat
-                            centroidLng = avgLng
+                if (coordsNodes.length > 0) {
+                    val coordsTag = (coordsNodes.item(0) as Element).getElementsByTagName("coordinates")
+                    if (coordsTag.length > 0) {
+                        val coordsText = coordsTag.item(0).textContent.trim()
+                        
+                        if (isPointGeometry) {
+                            // Caso PUNTO: Extraer lat/lng y marcar para búsqueda remota
+                            val parts = coordsText.split(",")
+                            if (parts.size >= 2) {
+                                val lng = parts[0].toDoubleOrNull() ?: 0.0
+                                val lat = parts[1].toDoubleOrNull() ?: 0.0
+                                centroidLat = lat
+                                centroidLng = lng
+                                coordsRaw = null // Dejamos null para que el ProjectManager sepa que debe buscar la geometría real
+                                
+                                // Si no tenemos una referencia válida parseada, ponemos una temporal
+                                if (!displayRef.contains(":")) {
+                                    displayRef = "PENDIENTE_${i}"
+                                }
+                            }
                         } else {
-                            // C. El promedio cae fuera (ej. forma de "L" o "U").
-                            // Buscamos un punto interior válido usando Scanline en la latitud promedio.
-                            val corrected = getInternalPoint(avgLat, polygonPoints)
-                            centroidLat = corrected.first
-                            centroidLng = corrected.second
+                            // Caso POLÍGONO: Lógica existente
+                            coordsRaw = coordsText
+                            val polygonPoints = mutableListOf<Pair<Double, Double>>()
+                            val rawCoords = coordsText.split("\\s+".toRegex())
+                            
+                            for (pointStr in rawCoords) {
+                                val parts = pointStr.split(",")
+                                if (parts.size >= 2) {
+                                    val lng = parts[0].toDoubleOrNull()
+                                    val lat = parts[1].toDoubleOrNull()
+                                    if (lng != null && lat != null) {
+                                        polygonPoints.add(lat to lng)
+                                    }
+                                }
+                            }
+
+                            if (polygonPoints.isNotEmpty()) {
+                                var sumLat = 0.0
+                                var sumLng = 0.0
+                                polygonPoints.forEach { 
+                                    sumLat += it.first
+                                    sumLng += it.second 
+                                }
+                                val avgLat = sumLat / polygonPoints.size
+                                val avgLng = sumLng / polygonPoints.size
+
+                                if (isPointInPolygon(avgLat, avgLng, polygonPoints)) {
+                                    centroidLat = avgLat
+                                    centroidLng = avgLng
+                                } else {
+                                    val corrected = getInternalPoint(avgLat, polygonPoints)
+                                    centroidLat = corrected.first
+                                    centroidLng = corrected.second
+                                }
+                            }
                         }
                     }
                 }
 
-                // 5. Crear objeto (Usando centroide calculado localmente, NUNCA de API)
                 parcelas.add(
                     NativeParcela(
                         id = "p_${System.currentTimeMillis()}_$i",

@@ -76,26 +76,43 @@ fun NativeProjectManager(
                     
                     if (parcelaToHydrate == null) break
                     
-                    // La API devuelve Triple(Sigpac, Cultivo, CentroidAPI). Ignoramos CentroidAPI.
-                    val (sigpac, cultivo, _) = SigpacApiService.fetchHydration(parcelaToHydrate.referencia)
-                    val reportIA = GeminiService.analyzeParcela(parcelaToHydrate)
+                    var updatedParcela = parcelaToHydrate.copy(isHydrated = true)
+
+                    // CASO ESPECIAL: Parcela importada como PUNTO (sin geometría, ref pendiente)
+                    if (parcelaToHydrate.geometryRaw == null && parcelaToHydrate.centroidLat != null) {
+                        val (realRef, realGeom, realSigpac) = SigpacApiService.recoverParcelaFromPoint(
+                            parcelaToHydrate.centroidLat, 
+                            parcelaToHydrate.centroidLng!!
+                        )
+                        
+                        if (realRef != null) {
+                            updatedParcela = updatedParcela.copy(
+                                referencia = realRef,
+                                geometryRaw = realGeom,
+                                sigpacInfo = realSigpac
+                            )
+                        }
+                    }
+
+                    // Hidratación Normal (Datos Cultivo y Análisis IA)
+                    // PASAMOS EL ÁREA PARA MATCHING DE CULTIVO
+                    val (sigpac, cultivo, _) = SigpacApiService.fetchHydration(updatedParcela.referencia, updatedParcela.area)
                     
+                    val finalSigpac = sigpac ?: updatedParcela.sigpacInfo
+                    
+                    val reportIA = GeminiService.analyzeParcela(updatedParcela.copy(sigpacInfo = finalSigpac, cultivoInfo = cultivo))
+                    
+                    updatedParcela = updatedParcela.copy(
+                        sigpacInfo = finalSigpac,
+                        cultivoInfo = cultivo,
+                        informeIA = reportIA,
+                        isHydrated = true
+                    )
+
+                    // Commit update
                     val updatedList = currentExpedientesState.value.map { e ->
                         if (e.id == targetExpId) {
-                            e.copy(
-                                parcelas = e.parcelas.map { p ->
-                                    if (p.id == parcelaToHydrate.id) {
-                                        p.copy(
-                                            sigpacInfo = sigpac,
-                                            cultivoInfo = cultivo,
-                                            // IMPORTANTE: Mantenemos el centroide calculado localmente por el KML
-                                            // No sobrescribimos con p.centroidLat / p.centroidLng
-                                            informeIA = reportIA,
-                                            isHydrated = true
-                                        )
-                                    } else p
-                                }
-                            )
+                            e.copy(parcelas = e.parcelas.map { p -> if (p.id == parcelaToHydrate.id) updatedParcela else p })
                         } else e
                     }
                     onUpdateExpedientes(updatedList)

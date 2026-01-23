@@ -8,15 +8,21 @@ import com.geosigpac.cirserv.utils.SigpacCodeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import org.json.JSONObject as JSONNative
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
+import kotlin.math.abs
 
 object SigpacApiService {
 
     private const val TAG = "SigpacApiService"
 
-    suspend fun fetchHydration(referencia: String): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
+    /**
+     * @param targetAreaHa Superficie del polígono KML en Hectáreas. Se usa para encontrar la línea de declaración correspondiente.
+     */
+    suspend fun fetchHydration(referencia: String, targetAreaHa: Double? = null): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
         val prov = parts.getOrNull(0) ?: ""
@@ -32,13 +38,11 @@ object SigpacApiService {
         // 1. CONSULTA RECINTO (JSON DETALLADO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
         
-        // 2. CONSULTA CULTIVO DECLARADO (OGC API)
+        // 2. CONSULTA CULTIVO DECLARADO (OGC API) - Obtenemos TODOS los items (sin paginación compleja, default suele ser suficiente para un recinto)
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
-        // 3. CENTROIDE: DESACTIVADO
-        // Usamos exclusivamente el centroide calculado localmente desde la geometría del KML.
-        // Esto evita discrepancias si el SIGPAC devuelve el centroide de toda la parcela en lugar del recinto KML.
+        // 3. CENTROIDE: DESACTIVADO (Usamos KML)
         val centroid: Pair<Double, Double>? = null
 
         val sigpac = fetchUrl(recintoUrl)?.let { jsonStr ->
@@ -69,28 +73,171 @@ object SigpacApiService {
             try {
                 val root = JSONNative(jsonStr)
                 val features = root.optJSONArray("features")
+                
                 if (features != null && features.length() > 0) {
-                    val props = features.getJSONObject(0).getJSONObject("properties")
-                    val rawAprovecha = props.optString("tipo_aprovecha")
-                    val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
+                    // A. Extraer todas las declaraciones a una lista
+                    val allDeclarations = mutableListOf<JSONObject>()
+                    for (i in 0 until features.length()) {
+                        allDeclarations.add(features.getJSONObject(i).getJSONObject("properties"))
+                    }
 
-                    CultivoData(
-                        expNum = props.optString("exp_num"),
-                        parcProducto = if (props.isNull("parc_producto")) null else props.optInt("parc_producto"),
-                        parcSistexp = props.optString("parc_sistexp"),
-                        parcSupcult = if (props.isNull("parc_supcult")) null else props.optDouble("parc_supcult"),
-                        parcAyudasol = props.optString("parc_ayudasol"),
-                        pdrRec = props.optString("pdr_rec"),
-                        cultsecunProducto = if (props.isNull("cultsecun_producto")) null else props.optInt("cultsecun_producto"),
-                        cultsecunAyudasol = props.optString("cultsecun_ayudasol"),
-                        parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
-                        tipoAprovecha = translatedAprovecha
-                    )
+                    // B. Filtrar por el AÑO MÁS RECIENTE disponible (evitar datos históricos)
+                    val maxYear = allDeclarations.maxOfOrNull { it.optInt("exp_ano", 0) } ?: 0
+                    val currentYearDeclarations = allDeclarations.filter { it.optInt("exp_ano", 0) == maxYear }
+
+                    // C. Lógica de Matching por Superficie
+                    // Buscamos la línea de cultivo cuya superficie (en Ha) sea más parecida a la del KML.
+                    var bestMatch: JSONObject? = null
+                    
+                    if (targetAreaHa != null && targetAreaHa > 0) {
+                        // Tolerancia de 0.02 ha para errores de redondeo (m2 vs 2 decimales ha)
+                        val tolerance = 0.02 
+                        var minDiff = Double.MAX_VALUE
+                        
+                        for (decl in currentYearDeclarations) {
+                            val supM2 = decl.optDouble("parc_supcult", 0.0)
+                            val supHa = supM2 / 10000.0
+                            val diff = abs(supHa - targetAreaHa)
+                            
+                            if (diff < minDiff) {
+                                minDiff = diff
+                                // Si entra dentro de la tolerancia, es un candidato fuerte
+                                if (diff <= tolerance) {
+                                    bestMatch = decl
+                                }
+                            }
+                        }
+                    }
+
+                    // D. Fallback: Si no hay targetArea o no hubo match por superficie, 
+                    // devolvemos el cultivo PRINCIPAL (el de mayor superficie)
+                    if (bestMatch == null && currentYearDeclarations.isNotEmpty()) {
+                        bestMatch = currentYearDeclarations.maxByOrNull { it.optDouble("parc_supcult", 0.0) }
+                    }
+
+                    // Mapear resultado final
+                    if (bestMatch != null) {
+                        val props = bestMatch
+                        val rawAprovecha = props.optString("tipo_aprovecha")
+                        val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
+
+                        CultivoData(
+                            expNum = props.optString("exp_num"),
+                            parcProducto = if (props.isNull("parc_producto")) null else props.optInt("parc_producto"),
+                            parcSistexp = props.optString("parc_sistexp"),
+                            parcSupcult = if (props.isNull("parc_supcult")) null else props.optDouble("parc_supcult"), // Devuelve m2
+                            parcAyudasol = props.optString("parc_ayudasol"),
+                            pdrRec = props.optString("pdr_rec"),
+                            cultsecunProducto = if (props.isNull("cultsecun_producto")) null else props.optInt("cultsecun_producto"),
+                            cultsecunAyudasol = props.optString("cultsecun_ayudasol"),
+                            parcIndcultapro = if (props.isNull("parc_indcultapro")) null else props.optInt("parc_indcultapro"),
+                            tipoAprovecha = translatedAprovecha
+                        )
+                    } else null
                 } else null
             } catch (e: Exception) { null }
         }
 
         Triple(sigpac, cultivo, centroid)
+    }
+
+    /**
+     * Recupera la información completa de una parcela (Ref, Geometría, Datos) a partir de un punto Lat/Lng.
+     * Prioriza la geometría de Cultivo Declarado. Si no existe, usa la de Recinto.
+     */
+    suspend fun recoverParcelaFromPoint(lat: Double, lng: Double): Triple<String?, String?, SigpacData?> = withContext(Dispatchers.IO) {
+        // 1. OBTENER REFERENCIA (Reverse Geocoding)
+        val identifyUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
+        val idResponse = fetchUrl(identifyUrl) ?: return@withContext Triple(null, null, null)
+
+        var prov = ""; var mun = ""; var pol = ""; var parc = ""; var rec = ""; var agg = "0"; var zon = "0"
+        var sigpacData: SigpacData? = null
+
+        try {
+            val jsonArray = JSONArray(idResponse)
+            if (jsonArray.length() > 0) {
+                val obj = jsonArray.getJSONObject(0)
+                prov = obj.optString("provincia"); mun = obj.optString("municipio")
+                agg = obj.optString("agregado", "0"); zon = obj.optString("zona", "0")
+                pol = obj.optString("poligono"); parc = obj.optString("parcela"); rec = obj.optString("recinto")
+
+                val translatedUso = SigpacCodeManager.getUsoDescription(obj.optString("uso_sigpac"))
+                val translatedRegion = SigpacCodeManager.getRegionDescription(obj.optString("region"))
+                
+                sigpacData = SigpacData(
+                    superficie = obj.optDouble("superficie"),
+                    pendienteMedia = obj.optDouble("pendiente_media"),
+                    coefRegadio = obj.optDouble("coef_regadio"),
+                    admisibilidad = obj.optDouble("coef_admisibilidad_pastos"),
+                    usoSigpac = translatedUso,
+                    region = translatedRegion,
+                    altitud = obj.optInt("altitud")
+                )
+            }
+        } catch (e: Exception) { return@withContext Triple(null, null, null) }
+
+        if (prov.isEmpty()) return@withContext Triple(null, null, null)
+
+        val fullRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
+        var geometryRaw: String? = null
+
+        // 2. INTENTAR GEOMETRÍA DE CULTIVO (OGC API)
+        val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
+        val cultivoJson = fetchUrl(ogcUrl)
+        
+        if (cultivoJson != null) {
+            geometryRaw = extractGeometryFromGeoJson(cultivoJson)
+        }
+
+        // 3. SI NO HAY CULTIVO, INTENTAR GEOMETRÍA DE RECINTO
+        if (geometryRaw == null) {
+            val recUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
+            val recJson = fetchUrl(recUrl)
+            if (recJson != null) {
+                geometryRaw = extractGeometryFromGeoJson(recJson)
+            }
+        }
+
+        return@withContext Triple(fullRef, geometryRaw, sigpacData)
+    }
+
+    private fun extractGeometryFromGeoJson(jsonStr: String): String? {
+        return try {
+            val root = JSONNative(jsonStr)
+            var geometry: JSONNative? = null
+            
+            // Caso FeatureCollection
+            if (root.has("features")) {
+                val features = root.getJSONArray("features")
+                if (features.length() > 0) {
+                    geometry = features.getJSONObject(0).optJSONObject("geometry")
+                }
+            } else if (root.has("geometry")) {
+                // Caso Feature simple
+                geometry = root.optJSONObject("geometry")
+            }
+
+            if (geometry != null) {
+                val coords = geometry.getJSONArray("coordinates")
+                val sb = StringBuilder()
+                flattenCoordinates(coords, sb)
+                sb.toString().trim()
+            } else null
+        } catch (e: Exception) { null }
+    }
+
+    private fun flattenCoordinates(arr: JSONArray, sb: StringBuilder) {
+        if (arr.length() == 0) return
+        val first = arr.get(0)
+        if (first is Number) {
+            val lng = arr.getDouble(0)
+            val lat = arr.getDouble(1)
+            sb.append("$lng,$lat ")
+        } else if (first is JSONArray) {
+            for (i in 0 until arr.length()) {
+                flattenCoordinates(arr.getJSONArray(i), sb)
+            }
+        }
     }
 
     private fun fetchUrl(urlString: String): String? {
