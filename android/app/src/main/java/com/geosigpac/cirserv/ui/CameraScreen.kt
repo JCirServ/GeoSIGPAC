@@ -120,6 +120,15 @@ enum class CamQuality(val label: String, val targetSize: Size?) {
     MAX("Máxima", null)
 }
 
+// Helper para normalizar referencias (elimina ceros a la izquierda: 46:01 -> 46:1)
+fun normalizeSigpacRef(ref: String?): String {
+    if (ref == null) return ""
+    return ref.split(":", "-")
+        .joinToString(":") { part -> 
+            part.trim().toIntOrNull()?.toString() ?: part.trim() 
+        }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CameraScreen(
@@ -181,13 +190,16 @@ fun CameraScreen(
     // Referencia Efectiva: Prioriza la manual, sino la del GPS
     val effectiveRef = manualRef ?: sigpacRef
 
-    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO ---
+    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO (NORMALIZADA) ---
     val matchedParcelInfo = remember(effectiveRef, expedientes) {
         if (effectiveRef == null) return@remember null
+        val normalizedCurrent = normalizeSigpacRef(effectiveRef)
+        
         var foundExp: NativeExpediente? = null
         val foundParcel = expedientes.flatMap { exp ->
             exp.parcelas.map { p -> 
-                if (p.referencia == effectiveRef) {
+                // Comparación robusta usando normalización
+                if (normalizeSigpacRef(p.referencia) == normalizedCurrent) {
                     foundExp = exp
                     p 
                 } else null
@@ -199,8 +211,9 @@ fun CameraScreen(
         } else null
     }
 
-    // --- DETERMINAR DATOS DE GUARDADO ---
-    val effectiveContextData = remember(matchedParcelInfo, projectId, expedientes, effectiveRef) {
+    // --- DETERMINAR DATOS DE GUARDADO (Variable para la UI) ---
+    // Esta variable la usamos principalmente para mostrar información en pantalla
+    val uiContextData = remember(matchedParcelInfo, projectId, expedientes, effectiveRef) {
         if (matchedParcelInfo != null) {
             Triple(matchedParcelInfo.first.titular, matchedParcelInfo.second.referencia, true)
         } else if (projectId != null) {
@@ -228,7 +241,7 @@ fun CameraScreen(
         if (matchedParcelInfo != null) matchedParcelInfo.second.photos.size else photoCount
     }
 
-    // (Carga de Bitmap omitida por brevedad, igual que antes)
+    // (Carga de Bitmap)
     LaunchedEffect(targetPreviewUri) {
         targetPreviewUri?.let { uri ->
             withContext(Dispatchers.IO) {
@@ -237,7 +250,6 @@ fun CameraScreen(
                     val bitmap = BitmapFactory.decodeStream(inputStream)
                     inputStream?.close()
                     var finalBitmap = bitmap
-                    // Rotación EXIF básica...
                     if (bitmap != null) {
                         capturedBitmap = finalBitmap?.asImageBitmap()
                     }
@@ -253,7 +265,6 @@ fun CameraScreen(
         label = "Blink"
     )
     
-    // ... (MapIcon definition) ...
     val MapIcon = remember {
         ImageVector.Builder(name = "Map", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
             path(fill = SolidColor(Color.White)) { moveTo(20.5f, 3.0f); lineTo(20.34f, 3.03f); lineTo(15.0f, 5.1f); lineTo(9.0f, 3.0f); lineTo(3.36f, 4.9f); curveTo(3.15f, 4.97f, 3.0f, 5.15f, 3.0f, 5.38f); verticalLineTo(20.5f); curveTo(3.0f, 20.78f, 3.22f, 21.0f, 3.5f, 21.0f); lineTo(3.66f, 20.97f); lineTo(9.0f, 18.9f); lineTo(15.0f, 21.0f); lineTo(20.64f, 19.1f); curveTo(20.85f, 19.03f, 21.0f, 18.85f, 21.0f, 18.62f); verticalLineTo(3.5f); curveTo(21.0f, 3.22f, 20.78f, 3.0f, 20.5f, 3.0f); close(); moveTo(15.0f, 19.0f); lineTo(9.0f, 16.89f); verticalLineTo(5.0f); lineTo(15.0f, 7.11f); verticalLineTo(19.0f); close() }
@@ -288,7 +299,7 @@ fun CameraScreen(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // Bucle SIGPAC (Solo si no hay manualRef fijado)
+    // Bucle SIGPAC
     LaunchedEffect(manualRef) {
         while (manualRef == null) {
             val loc = currentLocation
@@ -364,33 +375,46 @@ fun CameraScreen(
         Box(
             modifier = Modifier
                 .size(80.dp)
-                .border(4.dp, if(effectiveRef != null || effectiveContextData.second != "SIN_REFERENCIA") NeonGreen else Color.Gray, CircleShape)
+                .border(4.dp, if(effectiveRef != null || uiContextData.second != "SIN_REFERENCIA") NeonGreen else Color.Gray, CircleShape)
                 .padding(6.dp)
-                .background(if(effectiveRef != null || effectiveContextData.second != "SIN_REFERENCIA") NeonGreen else Color.Transparent, CircleShape)
+                .background(if(effectiveRef != null || uiContextData.second != "SIN_REFERENCIA") NeonGreen else Color.Transparent, CircleShape)
                 .clickable {
-                    // LÓGICA CLAVE: Si no hay referencia (ni manual ni GPS), abrir teclado
-                    if (effectiveContextData.second == "SIN_REFERENCIA" && effectiveRef == null) {
+                    // Si no hay referencia, mostramos teclado
+                    if (uiContextData.second == "SIN_REFERENCIA" && effectiveRef == null) {
                          manualInputBuffer = ""
                          showManualInput = true
                     } else {
-                        val (folderName, refName, isProjectActive) = effectiveContextData
-                        takePhoto(context, imageCaptureUseCase, folderName, refName, isProjectActive,
+                        // LÓGICA DE DISPARO ROBUSTA:
+                        // Recalculamos los datos EN EL MOMENTO DEL CLICK para evitar estados obsoletos
+                        // Si matchedParcelInfo existe (icono parpadeando), FORZAMOS el uso de datos del proyecto
+                        val currentMatch = matchedParcelInfo // Accedemos al estado actual
+                        
+                        val finalFolderName = if (currentMatch != null) currentMatch.first.titular else uiContextData.first
+                        val finalRefName = if (currentMatch != null) currentMatch.second.referencia else uiContextData.second
+                        val finalIsProjectActive = currentMatch != null || uiContextData.third // Prioridad al match GPS
+                        
+                        takePhoto(context, imageCaptureUseCase, finalFolderName, finalRefName, finalIsProjectActive,
                             onImageCaptured = { uri -> 
-                                if (matchedParcelInfo != null) {
-                                    val (exp, parc) = matchedParcelInfo
+                                if (currentMatch != null) {
+                                    // Actualizar estado del proyecto si hubo match
+                                    val (exp, parc) = currentMatch
                                     val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
                                     val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
                                     onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                                    Toast.makeText(context, "Guardada en: ${exp.titular}", Toast.LENGTH_SHORT).show()
+                                } else if (finalIsProjectActive) {
+                                    // Caso raro: venimos desde projectId manual
+                                    Toast.makeText(context, "Guardada en: $finalFolderName", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Guardada en: SIN PROYECTO", Toast.LENGTH_SHORT).show()
                                 }
-                                if (isProjectActive) Toast.makeText(context, "Guardada en: $folderName", Toast.LENGTH_SHORT).show()
-                                else Toast.makeText(context, "Guardada en: SIN PROYECTO", Toast.LENGTH_SHORT).show()
                                 onImageCaptured(uri) 
                             }, onError)
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            if (effectiveRef == null && effectiveContextData.second == "SIN_REFERENCIA") {
+            if (effectiveRef == null && uiContextData.second == "SIN_REFERENCIA") {
                 Text("REF", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Color.Gray)
             }
         }
