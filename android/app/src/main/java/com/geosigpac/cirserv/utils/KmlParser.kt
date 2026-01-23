@@ -10,8 +10,7 @@ import org.w3c.dom.NodeList
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.*
 
 object KmlParser {
 
@@ -131,15 +130,15 @@ object KmlParser {
                     }
                 }
 
-                // 3. Formatear y Atributos
                 var displayRef = formatToDisplayRef(rawRef)
+                
+                // 3. Extracción de Geometría y CÁLCULO DE ÁREA REAL
                 val keysUso = listOf("uso_sigpac", "uso", "dn_uso", "uso_sig", "desc_uso")
                 val uso = findValue(keysUso) ?: "N/D"
-                val keysSup = listOf("dn_surface", "superficie", "area", "sup", "dn_sup", "shape_area")
-                val superficieStr = findValue(keysSup) ?: "0"
-                val area = superficieStr.replace(",", ".").toDoubleOrNull() ?: 0.0
+                
+                // Ignoramos el área de metadatos ("dn_surface") y la calculamos geométricamente abajo
+                var calculatedAreaHa = 0.0 
 
-                // 4. Procesar Geometría (Polygon o Point)
                 var centroidLat = 0.0
                 var centroidLng = 0.0
                 var coordsRaw: String? = null
@@ -161,22 +160,18 @@ object KmlParser {
                         val coordsText = coordsTag.item(0).textContent.trim()
                         
                         if (isPointGeometry) {
-                            // Caso PUNTO: Extraer lat/lng y marcar para búsqueda remota
+                            // Caso PUNTO
                             val parts = coordsText.split(",")
                             if (parts.size >= 2) {
                                 val lng = parts[0].toDoubleOrNull() ?: 0.0
                                 val lat = parts[1].toDoubleOrNull() ?: 0.0
                                 centroidLat = lat
                                 centroidLng = lng
-                                coordsRaw = null // Dejamos null para que el ProjectManager sepa que debe buscar la geometría real
-                                
-                                // Si no tenemos una referencia válida parseada, ponemos una temporal
-                                if (!displayRef.contains(":")) {
-                                    displayRef = "PENDIENTE_${i}"
-                                }
+                                coordsRaw = null 
+                                if (!displayRef.contains(":")) displayRef = "PENDIENTE_${i}"
                             }
                         } else {
-                            // Caso POLÍGONO: Lógica existente
+                            // Caso POLÍGONO
                             coordsRaw = coordsText
                             val polygonPoints = mutableListOf<Pair<Double, Double>>()
                             val rawCoords = coordsText.split("\\s+".toRegex())
@@ -193,6 +188,7 @@ object KmlParser {
                             }
 
                             if (polygonPoints.isNotEmpty()) {
+                                // 1. Calcular Centroide
                                 var sumLat = 0.0
                                 var sumLng = 0.0
                                 polygonPoints.forEach { 
@@ -210,6 +206,10 @@ object KmlParser {
                                     centroidLat = corrected.first
                                     centroidLng = corrected.second
                                 }
+
+                                // 2. CALCULAR ÁREA GEOMÉTRICA REAL (Metros Cuadrados -> Hectáreas)
+                                val areaM2 = calculateSphericalArea(polygonPoints)
+                                calculatedAreaHa = areaM2 / 10000.0
                             }
                         }
                     }
@@ -222,7 +222,7 @@ object KmlParser {
                         uso = uso,
                         lat = centroidLat,
                         lng = centroidLng,
-                        area = area,
+                        area = calculatedAreaHa, // ÁREA CALCULADA, NO LEÍDA
                         metadata = metadata, 
                         geometryRaw = coordsRaw,
                         centroidLat = centroidLat,
@@ -237,8 +237,33 @@ object KmlParser {
     }
 
     /**
-     * Algoritmo Ray Casting: Devuelve true si el punto (testLat, testLng) está dentro del polígono.
+     * Calcula el área de un polígono en la superficie de la tierra (esférica) en metros cuadrados.
+     * Utiliza la fórmula del exceso esférico simplificada para polígonos cerrados.
      */
+    private fun calculateSphericalArea(points: List<Pair<Double, Double>>): Double {
+        val earthRadius = 6378137.0 // Radio de la tierra en metros
+        if (points.size < 3) return 0.0
+
+        var area = 0.0
+        val size = points.size
+
+        for (i in 0 until size) {
+            val p1 = points[i]
+            val p2 = points[(i + 1) % size]
+            
+            val lat1 = Math.toRadians(p1.first)
+            val lat2 = Math.toRadians(p2.first)
+            val lng1 = Math.toRadians(p1.second)
+            val lng2 = Math.toRadians(p2.second)
+
+            // Fórmula estándar para área de polígonos esféricos
+            area += (lng2 - lng1) * (2 + sin(lat1) + sin(lat2))
+        }
+
+        area = abs(area * earthRadius * earthRadius / 2.0)
+        return area
+    }
+
     private fun isPointInPolygon(testLat: Double, testLng: Double, polygon: List<Pair<Double, Double>>): Boolean {
         var inside = false
         var j = polygon.lastIndex
@@ -246,8 +271,6 @@ object KmlParser {
         for (i in polygon.indices) {
             val (latI, lngI) = polygon[i]
             val (latJ, lngJ) = polygon[j]
-            
-            // Verifica intersección del rayo horizontal proyectado hacia la derecha
             if (((latI > testLat) != (latJ > testLat)) &&
                 (testLng < (lngJ - lngI) * (testLat - latI) / (latJ - latI) + lngI)) {
                 inside = !inside
@@ -257,45 +280,29 @@ object KmlParser {
         return inside
     }
 
-    /**
-     * Encuentra un punto garantizado dentro del polígono.
-     * Traza una línea horizontal en refLat y encuentra el punto medio del primer segmento de intersección.
-     */
     private fun getInternalPoint(refLat: Double, polygon: List<Pair<Double, Double>>): Pair<Double, Double> {
         val intersections = mutableListOf<Double>()
         var j = polygon.lastIndex
-        
-        // 1. Encontrar todas las intersecciones de longitud en la latitud de referencia
         for (i in polygon.indices) {
             val (latI, lngI) = polygon[i]
             val (latJ, lngJ) = polygon[j]
-            
-            // Si el segmento cruza la latitud de referencia
             if ((latI > refLat) != (latJ > refLat)) {
-                // Calcular longitud de intersección (Interpolación lineal)
                 val intersectLng = (lngJ - lngI) * (refLat - latI) / (latJ - latI) + lngI
                 intersections.add(intersectLng)
             }
             j = i
         }
-        
-        // 2. Ordenar intersecciones de oeste a este
         intersections.sort()
-        
-        // 3. Tomar el punto medio del primer par de intersecciones (Define un segmento "dentro" del polígono)
         if (intersections.size >= 2) {
             val newLng = (intersections[0] + intersections[1]) / 2.0
             return refLat to newLng
         }
-        
-        // Fallback extremo: Si falla la geometría (polígono inválido), devuelve el primer vértice.
         return polygon.firstOrNull() ?: (0.0 to 0.0)
     }
 
     private fun formatToDisplayRef(raw: String): String {
         val clean = raw.replace("-", ":").replace(" ", ":")
         val parts = clean.split(":").filter { it.isNotBlank() }
-
         return when {
             parts.size >= 7 -> "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
             parts.size == 5 -> "${parts[0]}:${parts[1]}:${parts[2]}:${parts[3]}:${parts[4]}"

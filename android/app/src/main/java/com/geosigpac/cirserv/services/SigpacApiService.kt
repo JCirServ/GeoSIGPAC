@@ -21,9 +21,10 @@ object SigpacApiService {
     private const val TAG = "SigpacApiService"
 
     /**
-     * @param targetArea Valor de superficie del KML. Puede venir en Ha o m2. Se detectará automáticamente.
+     * @param targetAreaHa Superficie CALCULADA del polígono KML en Hectáreas. 
+     * Este valor es geométricamente exacto y se usará para encontrar la línea de declaración correspondiente.
      */
-    suspend fun fetchHydration(referencia: String, targetArea: Double? = null): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
+    suspend fun fetchHydration(referencia: String, targetAreaHa: Double? = null): Triple<SigpacData?, CultivoData?, Pair<Double, Double>?> = withContext(Dispatchers.IO) {
         val parts = referencia.split(":", "-").filter { it.isNotBlank() }
         
         val prov = parts.getOrNull(0) ?: ""
@@ -89,32 +90,31 @@ object SigpacApiService {
                     // C. Lógica de Matching por Superficie (Iterativa por tolerancia)
                     var bestMatch: JSONObject? = null
                     
-                    if (targetArea != null && targetArea > 0) {
-                        // 1. Detectar unidad del KML
-                        val totalCultivoM2 = currentYearDeclarations.sumOf { it.optDouble("parc_supcult", 0.0) }
-                        // Si el target es mucho mayor que el total en Ha, asumimos m2
-                        val isTargetInM2 = targetArea > (totalCultivoM2 / 10000.0) * 10 
-                        val targetHa = if (isTargetInM2) targetArea / 10000.0 else targetArea
+                    if (targetAreaHa != null && targetAreaHa > 0) {
+                        
+                        // NOTA: targetAreaHa ya viene calculada en Hectáreas desde KMLParser.
+                        // La API devuelve metros cuadrados. Convertimos API a Ha para comparar.
 
-                        // 2. Búsqueda incremental por tolerancia
-                        // Primero exacto/administrativo (0.001), luego aumentando de 0.01 en 0.01 hasta 0.10
-                        val toleranceSteps = listOf(0.001, 0.01, 0.02, 0.03, 0.04, 0.05, 0.10)
+                        // Secuencia de tolerancias: Muy estricta -> Estricta -> Laxa
+                        // 0.001 Ha = 10 m2 (Error GPS fino)
+                        // 0.01 Ha = 100 m2
+                        val toleranceSteps = listOf(0.001, 0.005, 0.01, 0.02, 0.05, 0.10)
                         
                         for (tol in toleranceSteps) {
                             val candidates = mutableListOf<Pair<JSONObject, Double>>()
                             
                             for (decl in currentYearDeclarations) {
                                 val supM2 = decl.optDouble("parc_supcult", 0.0)
-                                val supHa = supM2 / 10000.0
+                                val supHa = supM2 / 10000.0 // Convertir API m2 -> Ha
                                 
-                                val diffRaw = abs(supHa - targetHa)
+                                val diffRaw = abs(supHa - targetAreaHa)
                                 
-                                // Check administrativo (redondeo a 2 decimales para coincidencia visual)
-                                val targetRounded = (targetHa * 100.0).roundToInt() / 100.0
+                                // Check administrativo (redondeo a 2 decimales para coincidencia visual de documentos)
+                                val targetRounded = (targetAreaHa * 100.0).roundToInt() / 100.0
                                 val supRounded = (supHa * 100.0).roundToInt() / 100.0
                                 val diffRounded = abs(supRounded - targetRounded)
                                 
-                                // Si coincide administrativamente, tratamos la diferencia como 0 para entrar en el tier exacto
+                                // Si coincide administrativamente (ej: 0.2075 vs 0.21 -> diffRounded=0), es un match perfecto
                                 val effectiveMetric = if (diffRounded < 0.001) 0.0 else diffRaw
                                 
                                 if (effectiveMetric <= tol) {
@@ -131,7 +131,8 @@ object SigpacApiService {
                         }
                     }
 
-                    // D. Fallback: Si no hubo match por superficie en ningún rango razonable, usar el cultivo PRINCIPAL
+                    // D. Fallback: Si no hubo match geométrico, usar el cultivo PRINCIPAL (mayor superficie)
+                    // Esto solo ocurre si la geometría del KML difiere bestialmente de la realidad administrativa
                     if (bestMatch == null && currentYearDeclarations.isNotEmpty()) {
                         bestMatch = currentYearDeclarations.maxByOrNull { it.optDouble("parc_supcult", 0.0) }
                     }
