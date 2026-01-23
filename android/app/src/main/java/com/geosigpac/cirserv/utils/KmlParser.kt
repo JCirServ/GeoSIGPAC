@@ -97,48 +97,49 @@ object KmlParser {
                     }
                 }
 
-                // 2. Extraer o Construir Referencia SIGPAC
-                // Prioridad: Campos individuales > Ref_SigPac existente > Name > Fallback
+                // 2. CONSTRUCCIÓN INTELIGENTE DE REFERENCIA SIGPAC
+                // Buscamos cualquier variación común de nombres de columnas
+                val prov = findValue(metadata, listOf("provincia", "prov", "dn_prov", "cd_prov", "id_prov", "pro"))
+                val mun = findValue(metadata, listOf("municipio", "mun", "dn_mun", "dn_municipio", "cd_mun", "id_mun"))
+                val pol = findValue(metadata, listOf("poligono", "pol", "dn_pol", "cd_pol", "id_pol"))
+                val parc = findValue(metadata, listOf("parcela", "parc", "par", "dn_par", "dn_parc", "id_par"))
+                val rec = findValue(metadata, listOf("recinto", "rec", "dn_rec", "id_rec", "dn_recinto")) ?: "0"
+                val agg = findValue(metadata, listOf("agregado", "agg", "ag", "dn_agg")) ?: "0"
+                val zon = findValue(metadata, listOf("zona", "zon", "zn", "dn_zon", "dn_zona")) ?: "0"
+
                 var rawRef = ""
                 
-                if (metadata.containsKey("provincia") && metadata.containsKey("parcela")) {
-                    // Construcción desde campos individuales (Nuevo Formato)
-                    val prov = metadata["provincia"] ?: "0"
-                    val mun = metadata["municipio"] ?: "0"
-                    val pol = metadata["poligono"] ?: "0"
-                    val parc = metadata["parcela"] ?: "0"
-                    val rec = metadata["recinto"] ?: "0"
-                    // Agregado y Zona suelen ser 0 si no vienen
-                    val agg = metadata["agregado"] ?: "0" 
-                    val zon = metadata["zona"] ?: "0"
-                    
+                if (prov != null && mun != null && pol != null && parc != null) {
+                    // Si tenemos los componentes críticos, construimos la referencia canónica
                     rawRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
                 } else {
-                    // Fallback a formatos antiguos
-                    rawRef = metadata["ref_sigpac"] ?: metadata["id"] ?: element.getElementsByTagName("name").item(0)?.textContent ?: "RECINTO_$i"
+                    // Fallback: Buscar campo 'ref_sigpac' explícito o usar el Nombre/ID
+                    rawRef = findValue(metadata, listOf("ref_sigpac", "referencia", "ref", "cod_parcela", "codigo")) 
+                             ?: metadata["id"] 
+                             ?: element.getElementsByTagName("name").item(0)?.textContent 
+                             ?: "RECINTO_$i"
                 }
 
-                // 3. Formatear para visualización (Prov:Mun:Pol:Parc:Rec)
+                // 3. Formatear para visualización
                 val displayRef = formatToDisplayRef(rawRef)
 
-                // 4. Extraer Uso
-                val uso = metadata["uso_sigpac"] ?: metadata["uso"] ?: "N/D"
+                // 4. Extraer Uso (Buscamos variantes)
+                val uso = findValue(metadata, listOf("uso_sigpac", "uso", "dn_uso", "desc_uso")) ?: "N/D"
 
                 // 5. Extraer Superficie
-                val superficieStr = metadata["dn_surface"] ?: metadata["superficie"] ?: "0"
-                val area = superficieStr.toDoubleOrNull() ?: 0.0
+                val superficieStr = findValue(metadata, listOf("superficie", "dn_surface", "area", "superficie_ha", "ha")) ?: "0"
+                val area = superficieStr.replace(",", ".").toDoubleOrNull() ?: 0.0
 
                 // 6. Extraer Coordenadas (Geometry)
                 var lat = 0.0
                 var lng = 0.0
                 var coordsRaw: String? = null
 
-                // getElementsByTagName busca recursivamente, por lo que encuentra Polygon/outerBoundaryIs/LinearRing/coordinates
                 val coordsNodes = element.getElementsByTagName("coordinates")
                 if (coordsNodes.length > 0) {
                     val coordsText = coordsNodes.item(0).textContent.trim()
                     coordsRaw = coordsText
-                    // Tomamos el primer punto para centrar la cámara inicialmente
+                    // Tomamos el primer punto para centrar
                     val rawCoords = coordsText.split("\\s+".toRegex())
                     if (rawCoords.isNotEmpty()) {
                         val firstPoint = rawCoords[0].split(",")
@@ -153,12 +154,12 @@ object KmlParser {
                 parcelas.add(
                     NativeParcela(
                         id = "p_${System.currentTimeMillis()}_$i",
-                        referencia = displayRef, // Título formateado
+                        referencia = displayRef,
                         uso = uso,
                         lat = lat,
                         lng = lng,
                         area = area,
-                        metadata = metadata, // Guardamos raw metadata por si acaso
+                        metadata = metadata,
                         geometryRaw = coordsRaw
                     )
                 )
@@ -170,18 +171,30 @@ object KmlParser {
     }
 
     /**
-     * Convierte cualquier referencia (7 partes, con guiones, etc.) 
-     * al formato visual estándar de 5 partes: Prov:Mun:Pol:Parc:Rec
+     * Busca en el mapa de metadatos el primer valor no nulo para una lista de claves posibles.
+     */
+    private fun findValue(metadata: Map<String, String>, keys: List<String>): String? {
+        for (key in keys) {
+            if (metadata.containsKey(key)) {
+                val value = metadata[key]
+                if (!value.isNullOrBlank()) return value
+            }
+        }
+        return null
+    }
+
+    /**
+     * Convierte cualquier referencia al formato visual estándar: Prov:Mun:Pol:Parc:Rec
      */
     private fun formatToDisplayRef(raw: String): String {
-        // Limpiar separadores (guiones por dos puntos)
-        val clean = raw.replace("-", ":")
+        // Limpiar separadores (guiones por dos puntos) y espacios
+        val clean = raw.replace("-", ":").replace("/", ":").trim()
         val parts = clean.split(":").filter { it.isNotBlank() }
 
         return when {
             // Caso completo: Prov:Mun:Agg:Zon:Pol:Parc:Rec (7 partes) -> Cogemos 0,1,4,5,6
             parts.size >= 7 -> "${parts[0]}:${parts[1]}:${parts[4]}:${parts[5]}:${parts[6]}"
-            // Caso ya resumido o incompleto: Devolvemos tal cual con separador ':'
+            // Caso sin Recinto (6 partes) o parcial: Devolvemos tal cual
             else -> parts.joinToString(":")
         }
     }
