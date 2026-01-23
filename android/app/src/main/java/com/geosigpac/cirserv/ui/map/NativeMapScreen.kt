@@ -220,25 +220,31 @@ fun NativeMapScreen(
                 if (!searchActive) instantSigpacRef = MapLogic.updateRealtimeInfo(map)
             }
 
-            // Extended Data
+            // Extended Data (CORREGIDO: Usando scope.launch en lugar de bloqueo)
             map.addOnCameraIdleListener {
                 if (!searchActive) {
-                    val (recData, cultData) = runBlockingWithResult { MapLogic.fetchExtendedData(map) } // Workaround wrapper, mejor usar LaunchedEffect
-                    // Mejor enfoque: lanzar coroutine
-                    scope.launch {
-                        val (r, c) = MapLogic.fetchExtendedData(map)
-                        if (r != null) {
-                            val uniqueId = "${r["provincia"]}-${r["municipio"]}-${r["poligono"]}-${r["parcela"]}-${r["recinto"]}"
-                            if (uniqueId != lastDataId) {
-                                lastDataId = uniqueId
-                                recintoData = r
-                                cultivoData = c
-                                instantSigpacRef = "$uniqueId".replace("-", ":") // Aproximado
+                    apiJob?.cancel()
+                    apiJob = scope.launch {
+                        isLoadingData = true
+                        try {
+                            val (r, c) = MapLogic.fetchExtendedData(map)
+                            if (r != null) {
+                                val uniqueId = "${r["provincia"]}-${r["municipio"]}-${r["poligono"]}-${r["parcela"]}-${r["recinto"]}"
+                                if (uniqueId != lastDataId) {
+                                    lastDataId = uniqueId
+                                    recintoData = r
+                                    cultivoData = c
+                                    instantSigpacRef = "$uniqueId".replace("-", ":")
+                                }
+                            } else {
+                                lastDataId = null
+                                recintoData = null
+                                cultivoData = null
                             }
-                        } else {
-                            lastDataId = null
-                            recintoData = null
-                            cultivoData = null
+                        } catch (e: Exception) {
+                            Log.e(TAG_MAP, "Error fetching idle data: ${e.message}")
+                        } finally {
+                            isLoadingData = false
                         }
                     }
                 }
@@ -254,9 +260,6 @@ fun NativeMapScreen(
             scope.launch { MapLayers.updateProjectsLayer(map, expedientes, visibleProjectIds) }
         })
     }
-
-    // helper para idle listener (o usar scope.launch directamente arriba)
-    suspend fun <T> runBlockingWithResult(block: suspend () -> T): T = block()
 
     // --- ACTUALIZAR PROYECTOS AL CAMBIAR DATOS ---
     LaunchedEffect(expedientes, visibleProjectIds) {
