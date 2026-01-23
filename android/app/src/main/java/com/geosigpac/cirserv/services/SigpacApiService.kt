@@ -151,11 +151,11 @@ object SigpacApiService {
         val refResponse = fetchUrl(refUrl)
         
         if (refResponse == null) {
-            Log.e(TAG, "STEP 1 FAILED: Response was null")
+            Log.e(TAG, "STEP 1 FAILED: Response was null (Connection error?)")
             return@withContext Triple(null, null, null)
         }
         
-        Log.d(TAG, "STEP 1 SUCCESS: Response length ${refResponse.length}")
+        Log.d(TAG, "STEP 1 RAW JSON: $refResponse")
 
         var prov = ""; var mun = ""; var pol = ""; var parc = ""; var rec = ""; var agg = "0"; var zon = "0"
         
@@ -180,7 +180,7 @@ object SigpacApiService {
                 rec = props.optString("recinto")
                 Log.d(TAG, "Parsed Location: P:$prov M:$mun Pol:$pol Parc:$parc Rec:$rec")
             } else {
-                Log.e(TAG, "Parsed Location: Properties not found in JSON")
+                Log.e(TAG, "Parsed Location: Properties not found in JSON (Empty features?)")
             }
         } catch (e: Exception) { 
             Log.e(TAG, "Exception parsing RefByPoint: ${e.message}")
@@ -189,7 +189,7 @@ object SigpacApiService {
         }
 
         if (prov.isEmpty() || mun.isEmpty()) {
-            Log.e(TAG, "Invalid location data parsed")
+            Log.e(TAG, "Invalid location data parsed: prov=$prov, mun=$mun. Aborting.")
             return@withContext Triple(null, null, null)
         }
         
@@ -376,10 +376,13 @@ object SigpacApiService {
             
             if (code == 200) {
                 val response = conn.inputStream.bufferedReader().use { it.readText() }
-                Log.d(TAG, "HTTP RESP Body: $response")
+                // Loguear solo si no es excesivamente largo
+                if (response.length < 2000) Log.d(TAG, "HTTP RESP Body: $response")
+                else Log.d(TAG, "HTTP RESP Body (Truncated): ${response.substring(0, 2000)}...")
                 response
             } else {
-                Log.e(TAG, "HTTP Error Code: $code")
+                val errorStream = conn.errorStream?.bufferedReader()?.use { it.readText() }
+                Log.e(TAG, "HTTP Error Code: $code. Error Body: $errorStream")
                 null
             }
         } catch (e: Exception) { 
