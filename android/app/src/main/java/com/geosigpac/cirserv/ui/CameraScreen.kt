@@ -58,11 +58,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FlashAuto
-import androidx.compose.material.icons.filled.FlashOff
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Grid3x3
-import androidx.compose.material.icons.filled.GridOff
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
@@ -125,51 +120,6 @@ enum class CamQuality(val label: String, val targetSize: Size?) {
     MAX("Máxima", null)
 }
 
-// --- PERSISTENCIA DE CONFIGURACIÓN ---
-object CameraPreferences {
-    private const val PREFS_NAME = "geosigpac_camera_prefs"
-    private const val KEY_RATIO = "cam_ratio"
-    private const val KEY_QUALITY = "cam_quality"
-    private const val KEY_FLASH = "cam_flash"
-    private const val KEY_GRID = "cam_grid"
-
-    fun getRatio(context: Context): CamAspectRatio {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val name = prefs.getString(KEY_RATIO, CamAspectRatio.RATIO_4_3.name)
-        return try { CamAspectRatio.valueOf(name!!) } catch (e: Exception) { CamAspectRatio.RATIO_4_3 }
-    }
-
-    fun setRatio(context: Context, ratio: CamAspectRatio) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_RATIO, ratio.name).apply()
-    }
-
-    fun getQuality(context: Context): CamQuality {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val name = prefs.getString(KEY_QUALITY, CamQuality.HIGH.name)
-        return try { CamQuality.valueOf(name!!) } catch (e: Exception) { CamQuality.HIGH }
-    }
-
-    fun setQuality(context: Context, quality: CamQuality) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_QUALITY, quality.name).apply()
-    }
-
-    fun getFlashMode(context: Context): Int {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getInt(KEY_FLASH, ImageCapture.FLASH_MODE_AUTO)
-    }
-
-    fun setFlashMode(context: Context, mode: Int) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putInt(KEY_FLASH, mode).apply()
-    }
-
-    fun getGrid(context: Context): Boolean {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_GRID, false)
-    }
-
-    fun setGrid(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(KEY_GRID, enabled).apply()
-    }
-}
-
 // Helper para normalizar referencias (elimina ceros a la izquierda: 46:01 -> 46:1)
 fun normalizeSigpacRef(ref: String?): String {
     if (ref == null) return ""
@@ -177,35 +127,6 @@ fun normalizeSigpacRef(ref: String?): String {
         .joinToString(":") { part -> 
             part.trim().toIntOrNull()?.toString() ?: part.trim() 
         }
-}
-
-// Helper para Point In Polygon (Ray Casting)
-fun isPointInPolygon(lat: Double, lng: Double, geometryRaw: String?): Boolean {
-    if (geometryRaw.isNullOrEmpty()) return false
-    try {
-        val polyPoints = geometryRaw.trim().split("\\s+".toRegex()).mapNotNull { 
-            val parts = it.split(",")
-            if (parts.size >= 2) {
-                val pLng = parts[0].toDoubleOrNull()
-                val pLat = parts[1].toDoubleOrNull()
-                if (pLng != null && pLat != null) pLat to pLng else null
-            } else null
-        }
-        if (polyPoints.isEmpty()) return false
-        
-        var inside = false
-        var j = polyPoints.lastIndex
-        for (i in polyPoints.indices) {
-            val (latI, lngI) = polyPoints[i]
-            val (latJ, lngJ) = polyPoints[j]
-            if (((latI > lat) != (latJ > lat)) &&
-                (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
-                inside = !inside
-            }
-            j = i
-        }
-        return inside
-    } catch (e: Exception) { return false }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -228,12 +149,11 @@ fun CameraScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     
-    // Estados Cámara (Inicializados desde Preferencias)
-    var selectedRatio by remember { mutableStateOf(CameraPreferences.getRatio(context)) }
-    var selectedQuality by remember { mutableStateOf(CameraPreferences.getQuality(context)) }
-    var flashMode by remember { mutableIntStateOf(CameraPreferences.getFlashMode(context)) }
-    var showGrid by remember { mutableStateOf(CameraPreferences.getGrid(context)) }
-    
+    // Estados Cámara
+    var selectedRatio by remember { mutableStateOf(CamAspectRatio.RATIO_4_3) }
+    var selectedQuality by remember { mutableStateOf(CamQuality.HIGH) }
+    var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) }
+    var showGrid by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     
     // UI States
@@ -270,18 +190,16 @@ fun CameraScreen(
     // Referencia Efectiva: Prioriza la manual, sino la del GPS
     val effectiveRef = manualRef ?: sigpacRef
 
-    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO (SOLO GEOMETRÍA) ---
-    val matchedParcelInfo = remember(expedientes, currentLocation) {
-        val curLat = currentLocation?.latitude
-        val curLng = currentLocation?.longitude
+    // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO (NORMALIZADA) ---
+    val matchedParcelInfo = remember(effectiveRef, expedientes) {
+        if (effectiveRef == null) return@remember null
+        val normalizedCurrent = normalizeSigpacRef(effectiveRef)
         
-        if (curLat == null || curLng == null) return@remember null
-
         var foundExp: NativeExpediente? = null
         val foundParcel = expedientes.flatMap { exp ->
             exp.parcelas.map { p -> 
-                // Coincidencia ESTRICTA por GEOMETRÍA (Ray Casting)
-                if (!p.geometryRaw.isNullOrEmpty() && isPointInPolygon(curLat, curLng, p.geometryRaw)) {
+                // Comparación robusta usando normalización
+                if (normalizeSigpacRef(p.referencia) == normalizedCurrent) {
                     foundExp = exp
                     p 
                 } else null
@@ -294,6 +212,7 @@ fun CameraScreen(
     }
 
     // --- DETERMINAR DATOS DE GUARDADO (Variable para la UI) ---
+    // Esta variable la usamos principalmente para mostrar información en pantalla
     val uiContextData = remember(matchedParcelInfo, projectId, expedientes, effectiveRef) {
         if (matchedParcelInfo != null) {
             Triple(matchedParcelInfo.first.titular, matchedParcelInfo.second.referencia, true)
@@ -465,21 +384,26 @@ fun CameraScreen(
                          manualInputBuffer = ""
                          showManualInput = true
                     } else {
-                        // LÓGICA DE DISPARO ROBUSTA
-                        val currentMatch = matchedParcelInfo 
+                        // LÓGICA DE DISPARO ROBUSTA:
+                        // Recalculamos los datos EN EL MOMENTO DEL CLICK para evitar estados obsoletos
+                        // Si matchedParcelInfo existe (icono parpadeando), FORZAMOS el uso de datos del proyecto
+                        val currentMatch = matchedParcelInfo // Accedemos al estado actual
+                        
                         val finalFolderName = if (currentMatch != null) currentMatch.first.titular else uiContextData.first
                         val finalRefName = if (currentMatch != null) currentMatch.second.referencia else uiContextData.second
-                        val finalIsProjectActive = currentMatch != null || uiContextData.third
+                        val finalIsProjectActive = currentMatch != null || uiContextData.third // Prioridad al match GPS
                         
                         takePhoto(context, imageCaptureUseCase, finalFolderName, finalRefName, finalIsProjectActive,
                             onImageCaptured = { uri -> 
                                 if (currentMatch != null) {
+                                    // Actualizar estado del proyecto si hubo match
                                     val (exp, parc) = currentMatch
                                     val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
                                     val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
                                     onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
                                     Toast.makeText(context, "Guardada en: ${exp.titular}", Toast.LENGTH_SHORT).show()
                                 } else if (finalIsProjectActive) {
+                                    // Caso raro: venimos desde projectId manual
                                     Toast.makeText(context, "Guardada en: $finalFolderName", Toast.LENGTH_SHORT).show()
                                 } else {
                                     Toast.makeText(context, "Guardada en: SIN PROYECTO", Toast.LENGTH_SHORT).show()
@@ -585,60 +509,15 @@ fun CameraScreen(
             )
         }
 
-        if (showSettingsDialog) {
+        if (showSettingsDialog) { /* ... (Settings dialog remains the same) ... */ 
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
-                title = { Text("Configuración de Cámara") },
-                text = { 
-                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        Text("Relación de Aspecto", fontWeight = FontWeight.Bold, color = NeonGreen)
-                        CamAspectRatio.values().forEach { r -> 
-                            Row(Modifier.fillMaxWidth().clickable { 
-                                selectedRatio = r
-                                CameraPreferences.setRatio(context, r)
-                            }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { 
-                                RadioButton(selectedRatio == r, { 
-                                    selectedRatio = r 
-                                    CameraPreferences.setRatio(context, r)
-                                })
-                                Text(r.label) 
-                            } 
-                        }
-                        Divider(Modifier.padding(vertical = 8.dp))
-                        Text("Calidad", fontWeight = FontWeight.Bold, color = NeonGreen)
-                        CamQuality.values().forEach { q -> 
-                            Row(Modifier.fillMaxWidth().clickable { 
-                                selectedQuality = q
-                                CameraPreferences.setQuality(context, q)
-                            }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { 
-                                RadioButton(selectedQuality == q, { 
-                                    selectedQuality = q 
-                                    CameraPreferences.setQuality(context, q)
-                                })
-                                Text(q.label) 
-                            } 
-                        }
-                        Divider(Modifier.padding(vertical = 8.dp))
-                        Text("Opciones", fontWeight = FontWeight.Bold, color = NeonGreen)
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Flash")
-                            Row {
-                                val modes = listOf(ImageCapture.FLASH_MODE_AUTO to Icons.Default.FlashAuto, ImageCapture.FLASH_MODE_ON to Icons.Default.FlashOn, ImageCapture.FLASH_MODE_OFF to Icons.Default.FlashOff)
-                                modes.forEach { (m, icon) ->
-                                    IconButton(onClick = { flashMode = m; CameraPreferences.setFlashMode(context, m) }) {
-                                        Icon(icon, null, tint = if (flashMode == m) NeonGreen else Color.Gray)
-                                    }
-                                }
-                            }
-                        }
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Cuadrícula")
-                            IconButton(onClick = { showGrid = !showGrid; CameraPreferences.setGrid(context, !showGrid) }) {
-                                Icon(if (showGrid) Icons.Default.Grid3x3 else Icons.Default.GridOff, null, tint = if (showGrid) NeonGreen else Color.Gray)
-                            }
-                        }
-                    }
-                },
+                title = { Text("Configuración") },
+                text = { Column {
+                        CamAspectRatio.values().forEach { r -> Row(Modifier.clickable { selectedRatio = r }) { RadioButton(selectedRatio == r, { selectedRatio = r }); Text(r.label) } }
+                        Divider()
+                        CamQuality.values().forEach { q -> Row(Modifier.clickable { selectedQuality = q }) { RadioButton(selectedQuality == q, { selectedQuality = q }); Text(q.label) } }
+                }},
                 confirmButton = { TextButton({ showSettingsDialog = false }) { Text("Cerrar") } }
             )
         }
