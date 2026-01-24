@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.geosigpac.cirserv.model.NativeExpediente
+import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.ui.components.recinto.NativeRecintoCard
 import com.geosigpac.cirserv.utils.BatteryOptimizer
 import kotlinx.coroutines.*
@@ -297,7 +298,6 @@ fun CameraScreen(
             }
         }
 
-        // Layout UI (Portrait/Landscape)
         if (isLandscape) {
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -331,7 +331,6 @@ fun CameraScreen(
             }
         }
         
-        // Settings Dialog
         if (showSettingsDialog) {
             AlertDialog(
                 onDismissRequest = { showSettingsDialog = false },
@@ -349,7 +348,6 @@ fun CameraScreen(
             )
         }
 
-        // Parcel Sheet
         if (showParcelSheet && matchedParcelInfo != null) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.7f)).clickable { showParcelSheet = false })
             AnimatedVisibility(visible = true, modifier = Modifier.align(Alignment.BottomCenter)) {
@@ -368,8 +366,6 @@ fun CameraScreen(
     }
 }
 
-// --- COMPONENTES UI SEPARADOS ---
-
 @Composable
 fun InfoBoxContent(loc: String, ref: String?, uso: String?, noData: Boolean, matched: Boolean, neon: Color) {
     Box(modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(8.dp)) {
@@ -385,7 +381,7 @@ fun InfoBoxContent(loc: String, ref: String?, uso: String?, noData: Boolean, mat
 }
 
 @Composable
-fun ShutterButtonContent(ctx: Context, ic: ImageCapture?, pid: String?, ref: String?, scope: CoroutineScope, matched: Pair<NativeExpediente, com.geosigpac.cirserv.model.NativeParcela>?, exps: List<NativeExpediente>, onUpdate: (List<NativeExpediente>) -> Unit, onCap: (Uri) -> Unit, onErr: (ImageCaptureException) -> Unit, neon: Color) {
+fun ShutterButtonContent(ctx: Context, ic: ImageCapture?, pid: String?, ref: String?, scope: CoroutineScope, matched: Pair<NativeExpediente, NativeParcela>?, exps: List<NativeExpediente>, onUpdate: (List<NativeExpediente>) -> Unit, onCap: (Uri) -> Unit, onErr: (ImageCaptureException) -> Unit, neon: Color) {
     Box(modifier = Modifier.size(80.dp).border(4.dp, neon, CircleShape).padding(6.dp).background(neon, CircleShape).clickable {
         takePhoto(ctx, ic, pid, ref, scope, { uri ->
             matched?.let { (exp, parc) ->
@@ -400,15 +396,26 @@ fun ShutterButtonContent(ctx: Context, ic: ImageCapture?, pid: String?, ref: Str
 @Composable
 fun PreviewButtonContent(bmp: ImageBitmap?, count: Int, matched: Any?, onGal: () -> Unit, onCl: () -> Unit, neon: Color) {
     Box(contentAlignment = Alignment.TopEnd) {
-        Box(modifier = Modifier.size(80.dp).clip(RoundedCornerShape(24.dp)).background(Color.Black.copy(0.5f)).border(2.dp, neon, RoundedCornerShape(24.dp)).clickable { if (matched != null) onGal() else onCl() }) {
+        Box(modifier = Modifier
+            .size(80.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.Black.copy(0.5f))
+            .border(2.dp, neon, RoundedCornerShape(24.dp))
+            .clickable { 
+                // CORRECCIÓN LÍNEA 382: If como expresión requiere else
+                if (matched != null) {
+                    onGal()
+                } else {
+                    onCl()
+                }
+            }
+        ) {
             if (bmp != null) Image(bmp, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Icon(Icons.Default.Image, null, tint = neon, modifier = Modifier.align(Alignment.Center))
         }
-        if (count > 0) Box(modifier = Modifier.size(24.dp).background(Color.Red, CircleShape), contentAlignment = Alignment.Center) { Text(count.toString(), color = Color.White, fontSize = 10.sp) }
+        if (count > 0) Box(modifier = Modifier.offset(x = 4.dp, y = (-4).dp).size(24.dp).background(Color.Red, CircleShape), contentAlignment = Alignment.Center) { Text(count.toString(), color = Color.White, fontSize = 10.sp) }
     }
 }
-
-// --- FUNCIONES LÓGICAS (FUERA DEL COMPOSABLE) ---
 
 private fun takePhoto(context: Context, imageCapture: ImageCapture?, projectId: String?, sigpacRef: String?, scope: CoroutineScope, onImageCaptured: (Uri) -> Unit, onError: (ImageCaptureException) -> Unit) {
     val ic = imageCapture ?: return
@@ -449,7 +456,8 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
     try {
         val conn = URL("https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/$lng/$lat.json").openConnection() as HttpURLConnection
         if (conn.responseCode == 200) {
-            val json = JSONObject(conn.inputStream.bufferedReader().readText())
+            val jsonText = conn.inputStream.bufferedReader().readText()
+            val json = JSONObject(jsonText)
             val p = json.optJSONObject("properties") ?: json.optJSONArray("features")?.optJSONObject(0)?.optJSONObject("properties")
             if (p != null) return@withContext Pair("${p.optString("provincia")}:${p.optString("municipio")}:${p.optString("poligono")}:${p.optString("parcela")}:${p.optString("recinto")}", p.optString("uso_sigpac"))
         }
@@ -459,7 +467,6 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
 
 @Composable
 fun FullScreenPhotoGallery(photos: List<String>, onDismiss: () -> Unit) {
-    // Implementación básica de galería
     Box(modifier = Modifier.fillMaxSize().background(Color.Black).clickable { onDismiss() }) {
         Text("Galería: ${photos.size} fotos (Toca para cerrar)", color = Color.White, modifier = Modifier.align(Alignment.Center))
     }
