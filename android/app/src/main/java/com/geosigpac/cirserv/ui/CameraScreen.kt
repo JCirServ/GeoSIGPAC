@@ -1,8 +1,6 @@
 
 package com.geosigpac.cirserv.ui
 
-import id.zelory.compressor.Compressor
-import id.zelory.compressor.constraint.*
 import android.Manifest
 import android.content.ContentValues
 import android.content.Context
@@ -97,10 +95,6 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import androidx.compose.ui.graphics.TransformOrigin
-import com.geosigpac.cirserv.utils.BatteryOptimizer
-import android.graphics.Bitmap         // <--- Para el error de bitmap
-import java.io.File                    // <--- El que añadimos antes
-import kotlinx.coroutines.CoroutineScope // <--- Para el tipo de dato scope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -191,29 +185,15 @@ fun CameraScreen(
     val currentPhotoCount = remember(matchedParcelInfo, photoCount) {
         if (matchedParcelInfo != null) matchedParcelInfo.second.photos.size else photoCount
     }
+
     LaunchedEffect(targetPreviewUri) {
         targetPreviewUri?.let { uri ->
             withContext(Dispatchers.IO) {
                 try {
                     val inputStream = context.contentResolver.openInputStream(uri)
-                
-                    // MEJORA: Calcular tamaño antes de decodificar
-                    val options = BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    BitmapFactory.decodeStream(inputStream, null, options)
+                    val bitmap = BitmapFactory.decodeStream(inputStream)
                     inputStream?.close()
-                
-                    // Calcular factor de escala (para thumbnail 100x100dp)
-                    val targetSize = 200 // pixels
-                    options.inSampleSize = calculateInSampleSize(options, targetSize, targetSize)
-                    options.inJustDecodeBounds = false
-                
-                    // Decodificar con escala reducida
-                    val scaledStream = context.contentResolver.openInputStream(uri)
-                    val bitmap = BitmapFactory.decodeStream(scaledStream, null, options)
-                    scaledStream?.close()
-        
+
                     // Rotar Bitmap según EXIF para que el botón de preview se vea correcto
                     var finalBitmap = bitmap
                     context.contentResolver.openInputStream(uri)?.use { exifInput ->
@@ -235,6 +215,8 @@ fun CameraScreen(
                     e.printStackTrace()
                 }
             }
+        } ?: run {
+            capturedBitmap = null
         }
     }
 
@@ -345,10 +327,6 @@ fun CameraScreen(
 
     DisposableEffect(Unit) {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        
-        BatteryOptimizer.acquireWakeLock(context, "GeoSIGPAC:Camera")
-        val updateInterval = BatteryOptimizer.getOptimalGPSInterval(context)
- 
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
@@ -360,17 +338,14 @@ fun CameraScreen(
         }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER, 
-                    updateInterval, // USAR INTERVALO DINÁMICO
-                    5f, 
-                    listener
-                )
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, listener)
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 5f, listener)
             } catch (e: Exception) { locationText = "Error GPS" }
         }
         onDispose {
-            locationManager.removeUpdates(listener)
-            BatteryOptimizer.releaseWakeLock() // AÑADIR
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                locationManager.removeUpdates(listener)
+            }
         }
     }
 
@@ -438,6 +413,7 @@ fun CameraScreen(
         }
     }
 
+    // Botón Disparador
     val ShutterButton = @Composable {
         Box(
             modifier = Modifier
@@ -446,8 +422,7 @@ fun CameraScreen(
                 .padding(6.dp)
                 .background(NeonGreen, CircleShape)
                 .clickable {
-                    // CORRECCIÓN: Se pasa el 'scope' de Compose a la función
-                    takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, scope,
+                    takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
                         onImageCaptured = { uri -> 
                             if (matchedParcelInfo != null) {
                                 val (exp, parc) = matchedParcelInfo
@@ -471,9 +446,12 @@ fun CameraScreen(
                     .background(Color.Black.copy(0.5f))
                     .border(2.dp, NeonGreen, RoundedCornerShape(24.dp))
                     .clickable { 
-                        // CORRECCIÓN LÍNEA 377-384: Uso correcto de if/else
-                        if (matchedParcelInfo != null && matchedParcelInfo.second.photos.isNotEmpty()) {
+                        // Abrir galería si hay fotos en la parcela actual
+                        if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) {
                             showGallery = true
+                        } else if (capturedBitmap != null) {
+                            // Si solo hay una foto "suelta" (sin proyecto o antes de asociar), cerrar cámara (comportamiento original) o no hacer nada
+                            onClose()
                         } else {
                             onClose()
                         }
@@ -756,48 +734,17 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
     return@withContext Pair(null, null)
 }
 
-private suspend fun compressPhoto(context: Context, uri: Uri): File = withContext(Dispatchers.IO) {
-    // Convertir URI a File temporal
-    val inputStream = context.contentResolver.openInputStream(uri)
-    val tempFile = File(context.cacheDir, "temp_photo_${System.currentTimeMillis()}.jpg")
-    tempFile.outputStream().use { output ->
-        inputStream?.copyTo(output)
-    }
-    inputStream?.close()
-    
-    // Comprimir
-    Compressor.compress(context, tempFile) {
-        quality(80) // 80% calidad (suficiente para evidencia)
-        resolution(1920, 1080) // Full HD máximo
-        format(Bitmap.CompressFormat.JPEG)
-        size(2_000_000) // Máximo 2MB
-    }
-}
-
-private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
-    val (height, width) = options.run { outHeight to outWidth }
-    var inSampleSize = 1
-    if (height > reqHeight || width > reqWidth) {
-        val halfHeight = height / 2
-        val halfWidth = width / 2
-        while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
-            inSampleSize *= 2
-        }
-    }
-    return inSampleSize
-}
-
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
     projectId: String?,
     sigpacRef: String?,
-    scope: kotlinx.coroutines.CoroutineScope, // CORRECCIÓN: Se recibe el scope como parámetro
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit
 ) {
     val imageCapture = imageCapture ?: return
 
+    // FIX: Set target rotation based on current display rotation
     val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     val rotation = windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
     imageCapture.targetRotation = rotation
@@ -830,16 +777,6 @@ private fun takePhoto(
             override fun onError(exc: ImageCaptureException) { onError(exc) }
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 val savedUri = output.savedUri ?: Uri.EMPTY
-
-                // CORRECCIÓN: Ahora usa el scope pasado correctamente
-                scope.launch {
-                    try {
-                        compressPhoto(context, savedUri)
-                    } catch (e: Exception) {
-                        Log.e("PhotoCompression", "Error: ${e.message}")
-                    }
-                }
-                
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && savedUri != Uri.EMPTY) {
                     val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
                     try { context.contentResolver.update(savedUri, values, null, null) } catch (e: Exception) { e.printStackTrace() }

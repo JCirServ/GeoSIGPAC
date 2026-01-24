@@ -33,7 +33,6 @@ import com.geosigpac.cirserv.ui.map.NativeMapScreen
 import com.geosigpac.cirserv.ui.NativeProjectManager
 import com.geosigpac.cirserv.utils.ProjectStorage
 import com.geosigpac.cirserv.utils.SigpacCodeManager
-import com.geosigpac.cirserv.utils.MapCacheManager
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,9 +42,6 @@ class MainActivity : ComponentActivity() {
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         windowInsetsController?.hide(WindowInsetsCompat.Type.systemBars())
-        MapCacheManager.setupCache(this)
-    
-        enableEdgeToEdge()
         
         setContent {
             MaterialTheme(

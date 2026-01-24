@@ -21,17 +21,8 @@ android {
 
     buildTypes {
         release {
-            // 1. Debe ser true para que el shrinker de recursos funcione
-            isMinifyEnabled = true 
-        
-            // 2. En Kotlin DSL se usa el prefijo 'is'
-            isShrinkResources = true 
-        
+            isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-        
-            ndk {
-                abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
-            }
         }
     }
     
@@ -46,7 +37,6 @@ android {
     
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 }
 
@@ -82,10 +72,4 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-
-    implementation("ch.acra:acra-mail:5.11.3")
-    implementation("ch.acra:acra-dialog:5.11.3")
-
-    implementation("id.zelory:compressor:3.0.1")
-    implementation ("com.google.guava:guava:31.1-android")
 }

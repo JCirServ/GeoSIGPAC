@@ -22,34 +22,6 @@ import org.maplibre.geojson.Point
 import org.maplibre.geojson.Polygon
 
 object MapLayers {
-    
-    fun cleanupUnusedResources(map: MapLibreMap, showRecinto: Boolean, showCultivo: Boolean) {
-        map.style?.apply {
-            // Limpiar fuentes no visibles
-            if (!showRecinto) {
-                // Capas base antiguas o simples
-                removeLayer(LAYER_RECINTO_FILL)
-                removeLayer(LAYER_RECINTO_LINE)
-                
-                // Capas multicapa (grosor)
-                removeLayer("${LAYER_RECINTO_LINE}_main")
-                removeLayer("${LAYER_RECINTO_LINE}_offset1")
-                removeLayer("${LAYER_RECINTO_LINE}_offset2")
-
-                // Capas highlight
-                removeLayer(LAYER_RECINTO_HIGHLIGHT_FILL)
-                removeLayer(LAYER_RECINTO_HIGHLIGHT_LINE)
-                removeLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_main")
-                removeLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_offset1")
-                
-                removeSource(SOURCE_RECINTO)
-            }
-            if (!showCultivo) {
-                removeLayer(LAYER_CULTIVO_FILL)
-                removeSource(SOURCE_CULTIVO)
-            }
-        }
-    }   
 
     fun setupProjectLayers(map: MapLibreMap) {
         map.getStyle { style ->
