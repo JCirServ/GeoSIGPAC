@@ -89,38 +89,58 @@ fun loadMapStyle(
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDES SIMULADOS (GROSOR MEDIANTE OFFSET ESCALADO)
+                // CAPA 2: BORDES SIMULADOS (GROSOR EXTREMO MEDIANTE MULTI-OFFSET ESCALADO)
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 
                 // 2A. Borde Principal
-                val borderLayerMain = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                borderLayerMain.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderLayerMain.setProperties(
+                val borderLayer1 = FillLayer("${LAYER_RECINTO_LINE}_main", SOURCE_RECINTO)
+                borderLayer1.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderLayer1.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(borderColor.toArgb()),
                     PropertyFactory.fillAntialias(true)
                 )
-                style.addLayer(borderLayerMain)
+                style.addLayer(borderLayer1)
 
-                // 2B. Borde Secundario (Simula grosor variable con zoom)
-                val borderLayerOffset = FillLayer("${LAYER_RECINTO_LINE}_offset", SOURCE_RECINTO)
-                borderLayerOffset.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderLayerOffset.setProperties(
+                // 2B. Borde Secundario (Offset 1)
+                val borderLayer2 = FillLayer("${LAYER_RECINTO_LINE}_offset1", SOURCE_RECINTO)
+                borderLayer2.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderLayer2.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(borderColor.copy(alpha = 0.6f).toArgb()),
+                    PropertyFactory.fillOutlineColor(borderColor.copy(alpha = 0.8f).toArgb()),
                     PropertyFactory.fillTranslate(
                         Expression.interpolate(
-                            Expression.exponential(1.5f),
+                            Expression.exponential(1.8f),
                             Expression.zoom(),
-                            Expression.stop(10, arrayOf(0.3f, 0.3f)),
-                            Expression.stop(13, arrayOf(0.7f, 0.7f)),
-                            Expression.stop(16, arrayOf(1.5f, 1.5f)),
-                            Expression.stop(19, arrayOf(3f, 3f))
+                            Expression.stop(8, arrayOf(0.5f, 0.5f)),
+                            Expression.stop(12, arrayOf(2f, 2f)),
+                            Expression.stop(15, arrayOf(5f, 5f)),
+                            Expression.stop(18, arrayOf(10f, 10f))
                         )
                     ),
                     PropertyFactory.fillAntialias(true)
                 )
-                style.addLayer(borderLayerOffset)
+                style.addLayer(borderLayer2)
+
+                // 2C. Borde Terciario (Offset 2 - Grosor Extra)
+                val borderLayer3 = FillLayer("${LAYER_RECINTO_LINE}_offset2", SOURCE_RECINTO)
+                borderLayer3.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderLayer3.setProperties(
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(borderColor.copy(alpha = 0.5f).toArgb()),
+                    PropertyFactory.fillTranslate(
+                        Expression.interpolate(
+                            Expression.exponential(1.8f),
+                            Expression.zoom(),
+                            Expression.stop(8, arrayOf(1f, 1f)),
+                            Expression.stop(12, arrayOf(4f, 4f)),
+                            Expression.stop(15, arrayOf(10f, 10f)),
+                            Expression.stop(18, arrayOf(20f, 20f))
+                        )
+                    ),
+                    PropertyFactory.fillAntialias(true)
+                )
+                style.addLayer(borderLayer3)
 
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
@@ -139,38 +159,38 @@ fun loadMapStyle(
                 style.addLayer(highlightFill)
 
                 // Resaltado Borde Principal
-                val highlightLineMain = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
-                highlightLineMain.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLineMain.setFilter(initialFilter)
-                highlightLineMain.setProperties(
+                val highlightLine1 = FillLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_main", SOURCE_RECINTO)
+                highlightLine1.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightLine1.setFilter(initialFilter)
+                highlightLine1.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
                     PropertyFactory.visibility(Property.VISIBLE),
                     PropertyFactory.fillAntialias(true)
                 )
-                style.addLayer(highlightLineMain)
+                style.addLayer(highlightLine1)
 
-                // Resaltado Borde Secundario (Simula grosor variable con zoom)
-                val highlightLineOffset = FillLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_offset", SOURCE_RECINTO)
-                highlightLineOffset.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLineOffset.setFilter(initialFilter)
-                highlightLineOffset.setProperties(
+                // Resaltado Borde Secundario (Offset 1)
+                val highlightLine2 = FillLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_offset1", SOURCE_RECINTO)
+                highlightLine2.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightLine2.setFilter(initialFilter)
+                highlightLine2.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(HighlightColor.copy(alpha = 0.6f).toArgb()),
+                    PropertyFactory.fillOutlineColor(HighlightColor.copy(alpha = 0.8f).toArgb()),
                     PropertyFactory.fillTranslate(
                         Expression.interpolate(
-                            Expression.exponential(1.5f),
+                            Expression.exponential(1.8f),
                             Expression.zoom(),
-                            Expression.stop(10, arrayOf(0.3f, 0.3f)),
-                            Expression.stop(13, arrayOf(0.7f, 0.7f)),
-                            Expression.stop(16, arrayOf(1.5f, 1.5f)),
-                            Expression.stop(19, arrayOf(3f, 3f))
+                            Expression.stop(8, arrayOf(0.5f, 0.5f)),
+                            Expression.stop(12, arrayOf(2f, 2f)),
+                            Expression.stop(15, arrayOf(5f, 5f)),
+                            Expression.stop(18, arrayOf(10f, 10f))
                         )
                     ),
                     PropertyFactory.visibility(Property.VISIBLE),
                     PropertyFactory.fillAntialias(true)
                 )
-                style.addLayer(highlightLineOffset)
+                style.addLayer(highlightLine2)
                 
             } catch (e: Exception) { e.printStackTrace() }
         }
