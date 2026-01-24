@@ -6,8 +6,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -91,27 +93,26 @@ fun NativeRecintoCard(
     }
 
     // --- ESTILOS DINÁMICOS BASADOS EN SEVERIDAD ---
+    // Color del borde e iconos
     val statusColor = remember(agroAnalysis, isLoading, isFullyCompleted, photosEnough) {
         when {
             isLoading -> Color.Gray
-            !photosEnough -> Color(0xFF62D2FF)
-            isFullyCompleted -> Color(0xFF62D2FF)
-            agroAnalysis == null -> Color.Gray
-            // Usamos la nueva Enum de Severidad
-            agroAnalysis.severity == AnalysisSeverity.CRITICAL -> Color(0xFFFF5252) // ROJO
-            agroAnalysis.severity == AnalysisSeverity.WARNING -> Color(0xFFFF9800) // NARANJA
-            else -> Color(0xFF00FF88) // VERDE
+            isFullyCompleted -> Color(0xFF00FF88) // Completado = Verde SIEMPRE
+            agroAnalysis?.severity == AnalysisSeverity.CRITICAL -> Color(0xFFFF5252) // Crítico = Rojo
+            agroAnalysis?.severity == AnalysisSeverity.WARNING -> Color(0xFFFF9800) // Warning = Naranja
+            !photosEnough -> Color(0xFF62D2FF) // Falta foto = Azul
+            else -> Color(0xFF00FF88) // Todo OK = Verde
         }
     }
 
+    // Icono de Estado (Izquierda) - CAMBIO SOLICITADO
     val statusIcon = remember(agroAnalysis, isLoading, isFullyCompleted, photosEnough) {
          when {
             isLoading -> null
-            !photosEnough -> Icons.Default.CameraAlt
-            isFullyCompleted -> Icons.Default.Verified
-            agroAnalysis == null -> null
-            agroAnalysis.severity == AnalysisSeverity.CRITICAL -> Icons.Default.Error
-            agroAnalysis.severity == AnalysisSeverity.WARNING -> Icons.Default.Warning
+            isFullyCompleted -> Icons.Default.Verified // 1. Completado
+            agroAnalysis?.severity == AnalysisSeverity.CRITICAL -> Icons.Default.Report // 2. Discrepancia Grave
+            agroAnalysis?.severity == AnalysisSeverity.WARNING -> Icons.Default.Warning // 3. Advertencia
+            !photosEnough -> Icons.Default.AddPhotoAlternate // 4. Faltan Fotos (Icono distinto a la cámara de acción)
             else -> null
         }
     }
