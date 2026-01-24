@@ -116,13 +116,15 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightFill)
 
-                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                // Cambio solicitado: Usar FillLayer para el borde del resaltado (igual que el borde normal)
+                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
-                    PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineWidth(3f), 
-                    PropertyFactory.visibility(Property.VISIBLE)
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
+                    PropertyFactory.visibility(Property.VISIBLE),
+                    PropertyFactory.fillAntialias(true)
                 )
                 style.addLayer(highlightLine)
                 
