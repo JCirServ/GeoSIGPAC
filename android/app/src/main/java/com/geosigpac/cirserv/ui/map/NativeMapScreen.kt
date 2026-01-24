@@ -254,12 +254,17 @@ fun NativeMapScreen(
                         try {
                             val (r, c) = MapLogic.fetchExtendedData(map)
                             if (r != null) {
-                                val uniqueId = "${r["provincia"]}-${r["municipio"]}-${r["poligono"]}-${r["parcela"]}-${r["recinto"]}"
+                                val baseId = "${r["provincia"]}-${r["municipio"]}-${r["poligono"]}-${r["parcela"]}-${r["recinto"]}"
+                                // FIX: Incluimos la firma del cultivo (sub-recintos) para detectar cambios
+                                // aunque sigamos en el mismo recinto físico.
+                                val cultivoHash = c?.toString() ?: "null"
+                                val uniqueId = "$baseId|$cultivoHash"
+
                                 if (uniqueId != lastDataId) {
                                     lastDataId = uniqueId
                                     recintoData = r
                                     cultivoData = c
-                                    instantSigpacRef = "$uniqueId".replace("-", ":")
+                                    instantSigpacRef = baseId.replace("-", ":")
                                 }
                             } else {
                                 lastDataId = null
@@ -277,7 +282,6 @@ fun NativeMapScreen(
 
             // Cargar Estilo Base
             // CRITICAL FIX: Solo centramos al usuario si NO hay una búsqueda pendiente (searchTarget)
-            // Esto evita que el mapa vuele al usuario antes de volar al recinto, rompiendo la búsqueda.
             val shouldCenterUser = !initialLocationSet && searchTarget.isNullOrEmpty()
             
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser) {

@@ -8,13 +8,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.tween
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Folder
@@ -30,12 +27,12 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.map.NativeMapScreen
 import com.geosigpac.cirserv.ui.NativeProjectManager
 import com.geosigpac.cirserv.utils.ProjectStorage
 import com.geosigpac.cirserv.utils.SigpacCodeManager
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,21 +63,19 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun GeoSigpacApp() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     
     // FIX: Inicializar directamente desde storage para evitar el wipe de la lista vacía al arrancar
     var expedientes by remember { 
         mutableStateOf(ProjectStorage.loadExpedientes(context)) 
     }
     
-    // Configuración del Pager: 0 = Cámara, 1 = Proyectos (Inicio), 2 = Mapa
-    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
-    
+    var isCameraOpen by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     
     // Estados de navegación del mapa
     var mapSearchTarget by remember { mutableStateOf<String?>(null) }
-    var followUserTrigger by remember { mutableLongStateOf(0L) }
+    var followUserTrigger by remember { mutableLongStateOf(0L) } // Trigger para centrar en usuario
     var activeProjectId by remember { mutableStateOf<String?>(expedientes.firstOrNull()?.id) }
 
     // Inicialización de diccionarios (solo una vez)
@@ -92,6 +87,7 @@ fun GeoSigpacApp() {
     LaunchedEffect(expedientes) {
         ProjectStorage.saveExpedientes(context, expedientes)
         
+        // Mantener coherencia del proyecto activo
         if (activeProjectId != null && expedientes.none { it.id == activeProjectId }) {
             activeProjectId = expedientes.firstOrNull()?.id
         } else if (activeProjectId == null && expedientes.isNotEmpty()) {
@@ -115,104 +111,90 @@ fun GeoSigpacApp() {
         }
     }
 
-    // Manejo del botón Atrás
-    BackHandler(enabled = pagerState.currentPage != 1) {
-        // Si estamos en Cámara o Mapa, volver a Proyectos
-        scope.launch { pagerState.animateScrollToPage(1) }
-    }
-
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            // Ocultamos la barra de navegación en la Cámara (Page 0) para tener vista limpia
-            // Se muestra en Proyectos (1) y Mapa (2)
-            if (pagerState.currentPage != 0) { 
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp
-                ) {
-                    NavigationBarItem(
-                        selected = pagerState.currentPage == 0,
-                        onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
-                        icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
-                        label = { Text("Cámara", fontSize = 13.sp) },
-                        colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray, selectedIconColor = Color(0xFF00FF88))
-                    )
-                    NavigationBarItem(
-                        selected = pagerState.currentPage == 1,
-                        onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                        icon = { Icon(Icons.Default.Folder, "Proyectos") },
-                        label = { Text("Proyectos", fontSize = 13.sp) },
-                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
-                    )
-                    NavigationBarItem(
-                        selected = pagerState.currentPage == 2,
-                        onClick = { 
-                            mapSearchTarget = null
-                            followUserTrigger = System.currentTimeMillis()
-                            scope.launch { pagerState.animateScrollToPage(2) }
-                        },
-                        icon = { Icon(Icons.Default.Map, "Mapa") },
-                        label = { Text("Mapa", fontSize = 13.sp) },
-                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
-                    )
+    if (isCameraOpen) {
+        BackHandler { isCameraOpen = false }
+        CameraScreen(
+            expedientes = expedientes, 
+            projectId = currentParcelaId,
+            lastCapturedUri = null,
+            photoCount = 0,
+            onUpdateExpedientes = { newList -> expedientes = newList },
+            onImageCaptured = { /* Local handling */ },
+            onError = { /* Error handling */ },
+            onClose = { isCameraOpen = false },
+            onGoToMap = { 
+                isCameraOpen = false
+                selectedTab = 2
+                mapSearchTarget = null
+                followUserTrigger = System.currentTimeMillis() // Forzar centrado en usuario
+            },
+            onGoToProjects = { isCameraOpen = false; selectedTab = 1 }
+        )
+    } else {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
+                // Solo mostramos la barra de navegación en la pantalla de Proyectos (Tab 1)
+                // En el mapa (Tab 2) usamos los botones flotantes propios del mapa.
+                if (selectedTab == 1) { 
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 8.dp
+                    ) {
+                        NavigationBarItem(
+                            selected = false,
+                            onClick = { isCameraOpen = true },
+                            icon = { Icon(Icons.Default.CameraAlt, "Cámara") },
+                            label = { Text("Cámara", fontSize = 13.sp) },
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, unselectedIconColor = Color.Gray)
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            icon = { Icon(Icons.Default.Folder, "Proyectos") },
+                            label = { Text("Proyectos", fontSize = 13.sp) },
+                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = { 
+                                selectedTab = 2
+                                mapSearchTarget = null
+                                followUserTrigger = System.currentTimeMillis() // Forzar centrado en usuario
+                            },
+                            icon = { Icon(Icons.Default.Map, "Mapa") },
+                            label = { Text("Mapa", fontSize = 13.sp) },
+                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
+                        )
+                    }
                 }
             }
-        }
-    ) { padding ->
-        // HorizontalPager maneja el swipe entre pantallas
-        // userScrollEnabled = true permite el swipe manual
-        // Nota: En la pantalla del Mapa, el mapa capturará los gestos horizontales primero. 
-        // El usuario debe hacer swipe desde el borde o usar la barra inferior para salir del mapa.
-        HorizontalPager(
-            state = pagerState,
-            userScrollEnabled = true,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            beyondViewportPageCount = 1 // Mantiene las pantallas adyacentes en memoria para transiciones suaves
-        ) { page ->
-            when (page) {
-                0 -> CameraScreen(
-                    expedientes = expedientes, 
-                    projectId = currentParcelaId,
-                    lastCapturedUri = null,
-                    photoCount = 0,
-                    onUpdateExpedientes = { newList -> expedientes = newList },
-                    onImageCaptured = { /* Local handling */ },
-                    onError = { /* Error handling */ },
-                    onClose = { scope.launch { pagerState.animateScrollToPage(1) } },
-                    onGoToMap = { 
-                        mapSearchTarget = null
-                        followUserTrigger = System.currentTimeMillis()
-                        scope.launch { pagerState.animateScrollToPage(2) }
-                    },
-                    onGoToProjects = { scope.launch { pagerState.animateScrollToPage(1) } }
-                )
-                1 -> NativeProjectManager(
-                    expedientes = expedientes,
-                    activeProjectId = activeProjectId,
-                    onUpdateExpedientes = { newList -> 
-                        expedientes = newList.toList() 
-                    },
-                    onActivateProject = { id -> activeProjectId = id },
-                    onNavigateToMap = { query -> 
-                        mapSearchTarget = query
-                        scope.launch { pagerState.animateScrollToPage(2) }
-                    },
-                    onOpenCamera = { id -> 
-                        currentParcelaId = id
-                        scope.launch { pagerState.animateScrollToPage(0) }
-                    }
-                )
-                2 -> NativeMapScreen(
-                    expedientes = expedientes, 
-                    searchTarget = mapSearchTarget,
-                    followUserTrigger = followUserTrigger,
-                    onNavigateToProjects = { scope.launch { pagerState.animateScrollToPage(1) } },
-                    onOpenCamera = { scope.launch { pagerState.animateScrollToPage(0) } }
-                )
+        ) { padding ->
+            Surface(modifier = Modifier.padding(padding), color = MaterialTheme.colorScheme.background) {
+                when (selectedTab) {
+                    1 -> NativeProjectManager(
+                        expedientes = expedientes,
+                        activeProjectId = activeProjectId,
+                        onUpdateExpedientes = { newList -> 
+                            expedientes = newList.toList() 
+                        },
+                        onActivateProject = { id -> activeProjectId = id },
+                        onNavigateToMap = { query -> 
+                            mapSearchTarget = query
+                            selectedTab = 2 
+                            // Aquí NO actualizamos followUserTrigger porque queremos ir a una parcela específica
+                        },
+                        onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }
+                    )
+                    2 -> NativeMapScreen(
+                        expedientes = expedientes, 
+                        searchTarget = mapSearchTarget,
+                        followUserTrigger = followUserTrigger,
+                        onNavigateToProjects = { selectedTab = 1 },
+                        onOpenCamera = { isCameraOpen = true }
+                    )
+                }
             }
         }
     }
