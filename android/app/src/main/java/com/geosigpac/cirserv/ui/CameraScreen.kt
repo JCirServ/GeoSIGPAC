@@ -16,7 +16,7 @@ import android.graphics.Typeface
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import androidx.exifinterface.media.ExifInterface
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -820,7 +820,7 @@ private fun processImageWithOverlay(
     location: Location?
 ): Uri {
     // 1. Cargar Bitmap corrigiendo rotación
-    val exifOriginal = ExifInterface(sourceFile)
+    val exifOriginal = ExifInterface(sourceFile.absolutePath)
     val orientation = exifOriginal.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
     
     val bitmap = BitmapFactory.decodeFile(sourceFile.absolutePath)
