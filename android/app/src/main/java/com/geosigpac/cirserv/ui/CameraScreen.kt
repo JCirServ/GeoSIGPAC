@@ -332,21 +332,82 @@ fun CameraScreen(
 
     DisposableEffect(Unit) {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        
+        fun updateLocationUI(location: Location) {
+            locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
+            currentLocation = location
+        }
+
         val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) {
-                locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
-                currentLocation = location
+            override fun onLocationChanged(newLocation: Location) {
+                // Estrategia de priorización: 
+                // 1. Siempre preferimos GPS.
+                // 2. Aceptamos NETWORK si no tenemos nada o si la ubicación actual es muy antigua.
+                // 3. Aceptamos NETWORK si la actual también es Network (actualización).
+                
+                val current = currentLocation
+                var accept = false
+                
+                if (current == null) {
+                    accept = true
+                } else {
+                    if (newLocation.provider == LocationManager.GPS_PROVIDER) {
+                        accept = true // GPS manda
+                    } else if (newLocation.provider == LocationManager.NETWORK_PROVIDER) {
+                        if (current.provider == LocationManager.NETWORK_PROVIDER) {
+                            accept = true // Actualización de red
+                        } else {
+                            // Si tenemos GPS, solo aceptamos Red si el GPS se ha quedado muy viejo (> 2 min sin señal)
+                            val timeDelta = newLocation.time - current.time
+                            if (timeDelta > 120000) {
+                                accept = true
+                            }
+                        }
+                    }
+                }
+                
+                if (accept) {
+                    updateLocationUI(newLocation)
+                }
             }
             override fun onProviderEnabled(provider: String) {}
-            override fun onProviderDisabled(provider: String) { locationText = "Sin señal GPS" }
+            override fun onProviderDisabled(provider: String) { 
+                if (currentLocation == null) locationText = "Sin señal GPS" 
+            }
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         }
+
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
-                // Actualización más rápida para el Ray Casting fluido
+                // 1. OBTENER ÚLTIMA UBICACIÓN CONOCIDA (Arranque Instantáneo)
+                val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                
+                // Elegir la más reciente para mostrar algo YA
+                val bestLast = when {
+                    lastGps != null && lastNet != null -> if (lastGps.time > lastNet.time) lastGps else lastNet
+                    lastGps != null -> lastGps
+                    lastNet != null -> lastNet
+                    else -> null
+                }
+
+                if (bestLast != null) {
+                    updateLocationUI(bestLast)
+                }
+
+                // 2. SOLICITAR ACTUALIZACIONES (Network = Rápido, GPS = Preciso)
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
-            } catch (e: Exception) { locationText = "Error GPS" }
+                try {
+                    locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 1f, listener)
+                } catch (e: Exception) {
+                    Log.w("CameraScreen", "Network provider not available")
+                }
+            } catch (e: Exception) { 
+                locationText = "Error GPS" 
+                e.printStackTrace()
+            }
         }
+        
         onDispose {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                 locationManager.removeUpdates(listener)
