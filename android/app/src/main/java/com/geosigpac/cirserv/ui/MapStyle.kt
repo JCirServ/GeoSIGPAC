@@ -89,13 +89,13 @@ fun loadMapStyle(
                 style.addLayer(tintLayer)
 
                 // CAPA 2: BORDE (OUTLINE)
-                // Borde de otro color, sólido. Usamos FillLayer para líneas nítidas sin grid.
+                // Usamos LineLayer para tener control sobre el grosor (lineWidth)
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
-                val borderLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                val borderLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 borderLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(borderColor.toArgb())
+                    PropertyFactory.lineColor(borderColor.toArgb()),
+                    PropertyFactory.lineWidth(2f) // Grosor aumentado
                 )
                 style.addLayer(borderLayer)
 
@@ -117,7 +117,7 @@ fun loadMapStyle(
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
                     PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineWidth(3f), 
+                    PropertyFactory.lineWidth(4f), // Grosor de resaltado también aumentado ligeramente
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightLine)
