@@ -63,31 +63,34 @@ fun NativeRecintoCard(
         } else null
     }
 
-    // Auto-corrección de uso y producto si es totalmente compatible
-    LaunchedEffect(agroAnalysis) {
-        if (agroAnalysis != null) {
+    // Auto-corrección y Pre-llenado de datos
+    LaunchedEffect(agroAnalysis, parcela.isHydrated) {
+        if (parcela.isHydrated) {
              val sigpacUsoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull() 
              val declaredProd = parcela.cultivoInfo?.parcProducto
+             
+             var newParcela = parcela
+             var changed = false
 
-             // Solo si es compatible
-             if (agroAnalysis.isCompatible) {
-                 var newParcela = parcela
-                 var changed = false
+             // 1. AUTO-RELLENAR PRODUCTO (Prioridad UX)
+             // Se rellena siempre si existe el dato y no está verificado aún, 
+             // para ahorrar al usuario buscar en la lista extensa.
+             if (parcela.verifiedProductoCode == null && declaredProd != null) {
+                 newParcela = newParcela.copy(verifiedProductoCode = declaredProd)
+                 changed = true
+             }
 
-                 // 1. Auto-verificar Uso
+             // 2. AUTO-RELLENAR USO (Solo si es Compatible)
+             // El uso se marca verificado solo si la IA no detecta conflictos.
+             if (agroAnalysis != null && agroAnalysis.isCompatible) {
                  if (parcela.verifiedUso == null && sigpacUsoRaw != null) {
                      newParcela = newParcela.copy(verifiedUso = sigpacUsoRaw)
                      changed = true
                  }
-                 // 2. Auto-verificar Producto (NUEVO)
-                 if (parcela.verifiedProductoCode == null && declaredProd != null) {
-                     newParcela = newParcela.copy(verifiedProductoCode = declaredProd)
-                     changed = true
-                 }
+             }
 
-                 if (changed) {
-                     onUpdateParcela(newParcela)
-                 }
+             if (changed) {
+                 onUpdateParcela(newParcela)
              }
         }
     }
@@ -105,14 +108,14 @@ fun NativeRecintoCard(
         }
     }
 
-    // Icono de Estado (Izquierda) - CAMBIO SOLICITADO
+    // Icono de Estado (Izquierda)
     val statusIcon = remember(agroAnalysis, isLoading, isFullyCompleted, photosEnough) {
          when {
             isLoading -> null
             isFullyCompleted -> Icons.Default.Verified // 1. Completado
             agroAnalysis?.severity == AnalysisSeverity.CRITICAL -> Icons.Default.Report // 2. Discrepancia Grave
             agroAnalysis?.severity == AnalysisSeverity.WARNING -> Icons.Default.Warning // 3. Advertencia
-            !photosEnough -> Icons.Default.AddPhotoAlternate // 4. Faltan Fotos (Icono distinto a la cámara de acción)
+            !photosEnough -> Icons.Default.AddPhotoAlternate // 4. Faltan Fotos
             else -> null
         }
     }
