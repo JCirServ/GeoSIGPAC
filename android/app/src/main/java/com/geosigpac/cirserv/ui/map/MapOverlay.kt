@@ -1,6 +1,12 @@
 
 package com.geosigpac.cirserv.ui.map
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -21,7 +27,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -32,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +61,8 @@ fun MapOverlay(
     instantSigpacRef: String,
     recintoData: Map<String, String>?,
     cultivoData: Map<String, String>?,
+    currentLat: Double? = null,
+    currentLng: Double? = null,
     // Actions
     onSearchQueryChange: (String) -> Unit,
     onSearchPerform: () -> Unit,
@@ -64,6 +75,7 @@ fun MapOverlay(
     onOpenCamera: () -> Unit,
     onCenterLocation: () -> Unit
 ) {
+    val context = LocalContext.current
     var showCustomKeyboard by remember { mutableStateOf(false) }
     var showLayerMenu by remember { mutableStateOf(false) }
     var showProjectsMenu by remember { mutableStateOf(false) }
@@ -179,6 +191,8 @@ fun MapOverlay(
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                 val displayData = recintoData ?: mapOf("provincia" to "", "municipio" to "")
+                val currentRef = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}..."
+                
                 Card(
                     modifier = Modifier.fillMaxWidth()
                         .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
@@ -190,8 +204,48 @@ fun MapOverlay(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), contentAlignment = Alignment.Center) { Box(modifier = Modifier.width(40.dp).height(5.dp).clip(RoundedCornerShape(2.5.dp)).background(Color.White.copy(alpha = 0.3f))) }
                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                            Column { Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 13.sp); Text(text = if (instantSigpacRef.isNotEmpty()) instantSigpacRef else "${displayData["provincia"]}:${displayData["municipio"]}...", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = FieldGreen, fontSize = 20.sp) }
-                            IconButton(onClick = { onClearSearch(); isPanelExpanded = false }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite) }
+                            Column(modifier = Modifier.weight(1f)) { 
+                                Text("REF. SIGPAC", style = MaterialTheme.typography.labelSmall, color = FieldGray, fontSize = 13.sp)
+                                Text(text = currentRef, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = FieldGreen, fontSize = 20.sp) 
+                            }
+                            
+                            // BOTONES DE ACCIÓN (COPIAR / MAPS / CERRAR)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // 1. Copiar al Portapapeles
+                                IconButton(onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("SIGPAC", currentRef)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Referencia copiada", Toast.LENGTH_SHORT).show()
+                                }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.ContentCopy, "Copiar", tint = FieldGreen, modifier = Modifier.size(20.dp))
+                                }
+                                Spacer(Modifier.width(8.dp))
+
+                                // 2. Abrir Google Maps
+                                if (currentLat != null && currentLng != null && currentLat != 0.0) {
+                                    IconButton(onClick = {
+                                        try {
+                                            // Geo URI para navegación
+                                            val uri = Uri.parse("geo:0,0?q=$currentLat,$currentLng(Parcela $currentRef)")
+                                            val intent = Intent(Intent.ACTION_VIEW, uri)
+                                            // Intentamos forzar Google Maps si está disponible, o dejar que el sistema elija
+                                            // intent.setPackage("com.google.android.apps.maps") 
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "No se puede abrir el mapa", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Default.Map, "Google Maps", tint = Color(0xFF62D2FF), modifier = Modifier.size(20.dp))
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                }
+
+                                // 3. Cerrar Ficha
+                                IconButton(onClick = { onClearSearch(); isPanelExpanded = false }, modifier = Modifier.size(32.dp)) { 
+                                    Icon(Icons.Default.Close, "Cerrar", tint = HighContrastWhite, modifier = Modifier.size(24.dp)) 
+                                }
+                            }
                         }
                         
                         if (recintoData != null) {

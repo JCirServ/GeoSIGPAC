@@ -78,6 +78,10 @@ fun NativeMapScreen(
     var isLoadingData by remember { mutableStateOf(false) }
     var apiJob by remember { mutableStateOf<Job?>(null) }
 
+    // Coordenadas actuales del centro (para Google Maps)
+    var currentMapCenterLat by remember { mutableDoubleStateOf(0.0) }
+    var currentMapCenterLng by remember { mutableDoubleStateOf(0.0) }
+
     // Inicializar Singleton MapLibre
     remember { MapLibre.getInstance(context) }
 
@@ -275,6 +279,11 @@ fun NativeMapScreen(
 
             // Extended Data (Carga de atributos al detenerse)
             map.addOnCameraIdleListener {
+                // Actualizar centro del mapa para botones externos (Google Maps)
+                val target = map.cameraPosition.target
+                currentMapCenterLat = target.latitude
+                currentMapCenterLng = target.longitude
+
                 if (!searchActive) {
                     // Validar zoom antes de lanzar corrutina
                     if (map.cameraPosition.zoom > 13.5) {
@@ -373,6 +382,8 @@ fun NativeMapScreen(
             instantSigpacRef = instantSigpacRef,
             recintoData = recintoData,
             cultivoData = cultivoData,
+            currentLat = currentMapCenterLat,
+            currentLng = currentMapCenterLng,
             onSearchQueryChange = { searchQuery = it },
             onSearchPerform = { performSearch() },
             onClearSearch = { clearSearch() },
