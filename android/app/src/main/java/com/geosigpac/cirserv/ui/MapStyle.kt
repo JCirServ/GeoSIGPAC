@@ -23,10 +23,6 @@ import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
 import org.maplibre.android.style.sources.VectorSource
 
-/**
- * Carga el estilo del mapa y corrige las líneas de unión de los tiles.
- * Aplica grosor dinámico a los recintos según el nivel de zoom.
- */
 fun loadMapStyle(
     map: MapLibreMap,
     baseMap: BaseMap,
@@ -38,8 +34,7 @@ fun loadMapStyle(
 ) {
     val styleBuilder = Style.Builder()
 
-    // 1. CAPA DE FONDO: Cambiamos el fondo blanco por defecto a NEGRO.
-    // Esto hace que las rendijas milimétricas entre tiles de satélite sean invisibles.
+    // 1. FONDO NEGRO (Base de seguridad)
     styleBuilder.withLayer(
         BackgroundLayer("background_fill")
             .withProperties(PropertyFactory.backgroundColor(android.graphics.Color.BLACK))
@@ -51,34 +46,28 @@ fun loadMapStyle(
         "https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&tilematrixset=GoogleMapsCompatible&tilematrix={z}&tilerow={y}&tilecol={x}"
     }
 
-    val tileSet = TileSet("2.2.0", tileUrl)
-    tileSet.attribution = if (baseMap == BaseMap.OSM) "© OpenStreetMap" else "© IGN PNOA"
-    
-    val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
-    styleBuilder.withSource(rasterSource)
+    styleBuilder.withSource(RasterSource(SOURCE_BASE, TileSet("2.2.0", tileUrl), 256))
     styleBuilder.withLayer(RasterLayer(LAYER_BASE, SOURCE_BASE))
 
     map.setStyle(styleBuilder) { style ->
-        
-        // Capa de Cultivo
+
+        // CULTIVO
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
-                val cultivoSource = VectorSource(SOURCE_CULTIVO, TileSet("pbf", cultivoUrl))
-                style.addSource(cultivoSource)
-
+                style.addSource(VectorSource(SOURCE_CULTIVO, TileSet("pbf", cultivoUrl)))
+                
                 style.addLayer(FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO).apply {
                     sourceLayer = SOURCE_LAYER_ID_CULTIVO
                     setProperties(
-                        // Usar alpha en el color evita que se sumen opacidades en los bordes
-                        PropertyFactory.fillColor(Color.Yellow.copy(alpha = 0.35f).toArgb()),
-                        PropertyFactory.fillAntialias(false)
+                        PropertyFactory.fillColor(Color.Yellow.copy(alpha = 0.3f).toArgb()),
+                        PropertyFactory.fillAntialias(true) // En cultivo lo mantenemos true
                     )
                 })
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // Capa de Recinto
+        // RECINTO
         if (showRecinto) {
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
@@ -86,17 +75,29 @@ fun loadMapStyle(
 
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
 
-                // RELLENO: Solución a las rayas naranjas horizontales/verticales
+                // --- NUEVA ESTRATEGIA: CAPA "COMODÍN" PARA TAPAR GRIETAS ---
+                // Dibujamos líneas del mismo color del relleno justo debajo de las líneas blancas
+                style.addLayer(LineLayer("recinto_crack_filler", SOURCE_RECINTO).apply {
+                    sourceLayer = SOURCE_LAYER_ID_RECINTO
+                    setProperties(
+                        PropertyFactory.lineColor(tintColor.copy(alpha = 0.15f).toArgb()),
+                        PropertyFactory.lineWidth(0.5f), // Línea casi invisible pero que rellena el gap
+                        PropertyFactory.lineBlur(1f)     // Difuminamos para que "sangre" sobre la grieta
+                    )
+                })
+
+                // RELLENO PRINCIPAL
                 style.addLayer(FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO).apply {
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
                     setProperties(
                         PropertyFactory.fillColor(tintColor.copy(alpha = 0.15f).toArgb()),
                         PropertyFactory.fillOutlineColor(android.graphics.Color.TRANSPARENT),
-                        PropertyFactory.fillAntialias(false)
+                        // IMPORTANTE: Volvemos a True para que el motor intente cerrar el gap
+                        PropertyFactory.fillAntialias(true) 
                     )
                 })
 
-                // BORDES: Grosor variable según Zoom
+                // BORDES DINÁMICOS
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 style.addLayer(LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO).apply {
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
@@ -104,40 +105,32 @@ fun loadMapStyle(
                         PropertyFactory.lineColor(borderColor.toArgb()),
                         PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                         PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                        // Interpolación: aumenta el grosor al acercarte
+                        // Mantenemos el grosor dinámico que pediste
                         PropertyFactory.lineWidth(
                             interpolate(
                                 linear(), zoom(),
-                                stop(12, 0.7f),  // Muy lejos: línea fina
-                                stop(15, 1.8f),  // Zoom medio
-                                stop(18, 3.5f)   // Zoom cerca: línea gruesa
+                                stop(12, 0.7f),
+                                stop(15, 1.8f),
+                                stop(18, 3.5f)
                             )
                         )
                     )
                 })
 
-                // RESALTADO (Selección)
+                // HIGHLIGHTS
+                val initialFilter = literal(false)
                 style.addLayer(FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO).apply {
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
-                    setFilter(literal(false))
-                    setProperties(
-                        PropertyFactory.fillColor(HighlightColor.copy(alpha = 0.45f).toArgb()),
-                        PropertyFactory.fillAntialias(false)
-                    )
+                    setFilter(initialFilter)
+                    setProperties(PropertyFactory.fillColor(HighlightColor.copy(alpha = 0.45f).toArgb()))
                 })
 
                 style.addLayer(LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO).apply {
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
-                    setFilter(literal(false))
+                    setFilter(initialFilter)
                     setProperties(
                         PropertyFactory.lineColor(HighlightColor.toArgb()),
-                        PropertyFactory.lineWidth(
-                            interpolate(
-                                linear(), zoom(),
-                                stop(14, 2.5f),
-                                stop(18, 6.0f)
-                            )
-                        )
+                        PropertyFactory.lineWidth(interpolate(linear(), zoom(), stop(14, 2.5f), stop(18, 6.0f)))
                     )
                 })
                 
@@ -153,18 +146,13 @@ fun loadMapStyle(
 @SuppressLint("MissingPermission")
 fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): Boolean {
     if (map == null || map.style == null) return false
-
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
         try {
             val locationComponent = map.locationComponent
-            val options = LocationComponentActivationOptions.builder(context, map.style!!)
-                .useDefaultLocationEngine(true)
-                .build()
-            
+            val options = LocationComponentActivationOptions.builder(context, map.style!!).useDefaultLocationEngine(true).build()
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
             locationComponent.renderMode = RenderMode.COMPASS
-
             if (shouldCenter) {
                 locationComponent.cameraMode = CameraMode.TRACKING
                 locationComponent.zoomWhileTracking(USER_TRACKING_ZOOM)
@@ -178,10 +166,5 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
 }
 
 fun Color.toArgb(): Int {
-    return android.graphics.Color.argb(
-        (alpha * 255).toInt(),
-        (red * 255).toInt(),
-        (green * 255).toInt(),
-        (blue * 255).toInt()
-    )
+    return android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 }
