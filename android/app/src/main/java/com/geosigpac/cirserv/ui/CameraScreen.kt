@@ -55,6 +55,8 @@ import androidx.core.content.ContextCompat
 import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.ui.camera.*
 import com.geosigpac.cirserv.ui.components.recinto.NativeRecintoCard
+import com.geosigpac.cirserv.utils.CameraSettings
+import com.geosigpac.cirserv.utils.CameraSettingsStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -80,13 +82,27 @@ fun CameraScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     
+    // Cargar ajustes guardados
+    val initialSettings = remember { CameraSettingsStorage.loadSettings(context) }
+
     // --- CONFIGURACIÓN ---
-    var photoFormat by remember { mutableStateOf(PhotoFormat.RATIO_4_3) }
+    var photoFormat by remember { mutableStateOf(initialSettings.photoFormat) }
     // 0:Auto, 1:On, 2:Off, 3:Torch
-    var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) } 
-    var gridMode by remember { mutableStateOf(GridMode.OFF) }
-    var cameraQuality by remember { mutableStateOf(CameraQuality.MAX) }
-    var overlayOptions by remember { mutableStateOf(setOf(OverlayOption.DATE, OverlayOption.COORDS, OverlayOption.REF, OverlayOption.PROJECT)) }
+    var flashMode by remember { mutableIntStateOf(initialSettings.flashMode) } 
+    var gridMode by remember { mutableStateOf(initialSettings.gridMode) }
+    var cameraQuality by remember { mutableStateOf(initialSettings.cameraQuality) }
+    var overlayOptions by remember { mutableStateOf(initialSettings.overlayOptions) }
+    
+    // Guardar cambios automáticamente
+    LaunchedEffect(photoFormat, flashMode, gridMode, cameraQuality, overlayOptions) {
+        CameraSettingsStorage.saveSettings(context, CameraSettings(
+            photoFormat = photoFormat,
+            flashMode = flashMode,
+            gridMode = gridMode,
+            cameraQuality = cameraQuality,
+            overlayOptions = overlayOptions
+        ))
+    }
     
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showParcelSheet by remember { mutableStateOf(false) }
