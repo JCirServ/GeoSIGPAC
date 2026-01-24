@@ -13,7 +13,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -70,89 +69,95 @@ fun NativeProjectManager(
         
         scope.launch {
             try {
-                // Loop para procesar parcelas una a una
+                // FASE 1: RECUPERACIÓN DE GEOMETRÍA (Prioridad Alta)
+                // Convierte puntos sin geometría en polígonos completos para pintarlos en azul.
+                var pendingPoints = true
+                while (pendingPoints) {
+                    val currentList = currentExpedientesState.value
+                    val exp = currentList.find { it.id == targetExpId } ?: break
+                    
+                    // Buscamos parcelas que sean puntos (geometryRaw null) y tengan coordenadas válidas
+                    val pointParcela = exp.parcelas.find { it.geometryRaw == null && it.centroidLat != null }
+                    
+                    if (pointParcela != null) {
+                        Log.d("SigpacDebug", "Recovering Geometry for Point: ${pointParcela.referencia}")
+                        
+                        // 1. Calculamos Referencia y 2. Descargamos Geometría (Detalles)
+                        val (realRef, realGeom, realSigpac) = SigpacApiService.recoverParcelaFromPoint(
+                            pointParcela.centroidLat!!, 
+                            pointParcela.centroidLng!!
+                        )
+                        
+                        var updatedParcela = pointParcela
+                        
+                        if (realRef != null && realGeom != null) {
+                            // Guardamos la geometría recuperada. Al tener geometryRaw, MapLayers la pintará en AZUL.
+                            updatedParcela = updatedParcela.copy(
+                                referencia = realRef,
+                                geometryRaw = realGeom, // JSON GeoJSON String
+                                sigpacInfo = realSigpac,
+                                // Marcamos como parcialmente procesada para que no la coja este bucle de nuevo,
+                                // pero dejamos isHydrated=false si queremos profundizar más datos luego.
+                                // Sin embargo, si ya tenemos SIGPAC info básica, podemos avanzar.
+                                isHydrated = false 
+                            )
+                        } else {
+                            // Si falla, marcamos error para no reintentar infinitamente
+                            updatedParcela = updatedParcela.copy(uso = "Error geometría", geometryRaw = "ERROR")
+                        }
+
+                        // Guardamos en el archivo temporal (Persistencia del estado)
+                        val updatedList = currentExpedientesState.value.map { e ->
+                            if (e.id == targetExpId) {
+                                e.copy(parcelas = e.parcelas.map { p -> if (p.id == pointParcela.id) updatedParcela else p })
+                            } else e
+                        }
+                        onUpdateExpedientes(updatedList)
+                        delay(50) // Pequeño delay para permitir refresco de UI
+                    } else {
+                        pendingPoints = false
+                    }
+                }
+
+                // FASE 2: HIDRATACIÓN PROFUNDA (Datos Cultivo, IA, etc.)
                 while (true) {
                     val currentList = currentExpedientesState.value
                     val exp = currentList.find { it.id == targetExpId } ?: break
-                    val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } 
+                    // Buscamos parcelas pendientes de hidratación completa (excluyendo las que dieron error de geom)
+                    val parcelaToHydrate = exp.parcelas.find { !it.isHydrated && it.geometryRaw != "ERROR" } 
                     
-                    if (parcelaToHydrate == null) break // Todo hidratado
+                    if (parcelaToHydrate == null) break // Todo completo
                     
-                    var updatedParcela = parcelaToHydrate.copy(isHydrated = true)
+                    Log.d("SigpacDebug", "Deep Hydration for: ${parcelaToHydrate.referencia}")
+                    
+                    // Si llegamos aquí, la parcela ya debería tener geometría (si era punto, se recuperó en Fase 1)
+                    var updatedParcela = parcelaToHydrate
 
-                    // CASO 1: Parcela importada como PUNTO (sin geometría, ref pendiente)
-                    // Intentamos recuperar la referencia real usando coordenadas
-                    if (parcelaToHydrate.geometryRaw == null && parcelaToHydrate.centroidLat != null) {
-                        Log.d("SigpacDebug", "Hydrating Point Marker: ${parcelaToHydrate.centroidLat}, ${parcelaToHydrate.centroidLng}")
-                        val (realRef, realGeom, realSigpac) = SigpacApiService.recoverParcelaFromPoint(
-                            parcelaToHydrate.centroidLat, 
-                            parcelaToHydrate.centroidLng!!
+                    // Si la referencia es válida, descargamos datos agronómicos
+                    if (updatedParcela.referencia.contains(":")) {
+                        val pointCheck = if(updatedParcela.area == 0.0 && updatedParcela.centroidLat != null && updatedParcela.centroidLng != null) {
+                            Pair(updatedParcela.centroidLat, updatedParcela.centroidLng)
+                        } else null
+
+                        val (sigpac, cultivo, _) = SigpacApiService.fetchHydration(
+                            updatedParcela.referencia, 
+                            updatedParcela.area, 
+                            pointCheck
                         )
                         
-                        if (realRef != null) {
-                            updatedParcela = updatedParcela.copy(
-                                referencia = realRef,
-                                geometryRaw = realGeom,
-                                sigpacInfo = realSigpac
-                            )
-                        } else {
-                            // SI FALLA LA RECUPERACIÓN (ej: punto fuera de mapa), marcamos como hidratada pero fallida y pasamos a la siguiente
-                            // para evitar bucles o llamadas erróneas a la API
-                            Log.w("SigpacDebug", "Failed to recover reference for point ${parcelaToHydrate.id}. Skipping deep hydration.")
-                            val failedParcela = updatedParcela.copy(
-                                isHydrated = true,
-                                uso = "Ubicación no válida"
-                            )
-                            val updatedList = currentExpedientesState.value.map { e ->
-                                if (e.id == targetExpId) {
-                                    e.copy(parcelas = e.parcelas.map { p -> if (p.id == parcelaToHydrate.id) failedParcela else p })
-                                } else e
-                            }
-                            onUpdateExpedientes(updatedList)
-                            delay(100)
-                            continue // Siguiente parcela
-                        }
+                        val finalSigpac = sigpac ?: updatedParcela.sigpacInfo
+                        val reportIA = GeminiService.analyzeParcela(updatedParcela.copy(sigpacInfo = finalSigpac, cultivoInfo = cultivo))
+                        
+                        updatedParcela = updatedParcela.copy(
+                            sigpacInfo = finalSigpac,
+                            cultivoInfo = cultivo,
+                            informeIA = reportIA,
+                            isHydrated = true
+                        )
+                    } else {
+                        // Si no tiene referencia válida tras Fase 1, la marcamos como finalizada para no bloquear
+                        updatedParcela = updatedParcela.copy(isHydrated = true)
                     }
-
-                    // VALIDACIÓN DE SEGURIDAD:
-                    // Si la referencia no es válida (no contiene ':' o sigue siendo 'PENDIENTE'), NO llamamos a fetchHydration
-                    if (!updatedParcela.referencia.contains(":") || updatedParcela.referencia.startsWith("PENDIENTE")) {
-                        Log.w("SigpacDebug", "Skipping deep hydration for invalid reference: ${updatedParcela.referencia}")
-                        val failedParcela = updatedParcela.copy(isHydrated = true)
-                        val updatedList = currentExpedientesState.value.map { e ->
-                             if (e.id == targetExpId) {
-                                 e.copy(parcelas = e.parcelas.map { p -> if (p.id == parcelaToHydrate.id) failedParcela else p })
-                             } else e
-                        }
-                        onUpdateExpedientes(updatedList)
-                        delay(100)
-                        continue
-                    }
-
-                    // CASO 2: Hidratación Normal (Datos Cultivo y Análisis IA)
-                    // Solo llegamos aquí si tenemos una referencia válida
-                    Log.d("SigpacDebug", "Fetching Details for: ${updatedParcela.referencia}")
-                    
-                    val pointCheck = if(updatedParcela.area == 0.0 && updatedParcela.centroidLat != null && updatedParcela.centroidLng != null) {
-                        Pair(updatedParcela.centroidLat, updatedParcela.centroidLng)
-                    } else null
-
-                    val (sigpac, cultivo, _) = SigpacApiService.fetchHydration(
-                        updatedParcela.referencia, 
-                        updatedParcela.area, 
-                        pointCheck
-                    )
-                    
-                    val finalSigpac = sigpac ?: updatedParcela.sigpacInfo
-                    
-                    val reportIA = GeminiService.analyzeParcela(updatedParcela.copy(sigpacInfo = finalSigpac, cultivoInfo = cultivo))
-                    
-                    updatedParcela = updatedParcela.copy(
-                        sigpacInfo = finalSigpac,
-                        cultivoInfo = cultivo,
-                        informeIA = reportIA,
-                        isHydrated = true
-                    )
 
                     // Commit update
                     val updatedList = currentExpedientesState.value.map { e ->
@@ -161,7 +166,7 @@ fun NativeProjectManager(
                         } else e
                     }
                     onUpdateExpedientes(updatedList)
-                    delay(400) // Delay respetuoso para no saturar
+                    delay(300) 
                 }
             } catch (e: Exception) {
                 Log.e("Hydration", "Error hydrating $targetExpId: ${e.message}")
@@ -173,7 +178,8 @@ fun NativeProjectManager(
 
     LaunchedEffect(expedientes) {
         expedientes.forEach { exp ->
-            if (exp.parcelas.any { !it.isHydrated }) {
+            // Trigger si hay parcelas pendientes (puntos sin geom o datos sin hidratar)
+            if (exp.parcelas.any { !it.isHydrated || (it.geometryRaw == null && it.centroidLat != null) }) {
                 startHydrationSequence(exp.id)
             }
         }

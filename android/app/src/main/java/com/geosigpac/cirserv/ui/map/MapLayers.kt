@@ -128,22 +128,38 @@ object MapLayers {
                     }
                 }
 
-                // 2. CENTROIDE (Siempre existe si está hidratada o es KML punto)
+                // 2. CENTROIDE
                 if (p.centroidLat != null && p.centroidLng != null) {
                     val centerPoint = Point.fromLngLat(p.centroidLng, p.centroidLat)
                     val feat = Feature.fromGeometry(centerPoint)
                     feat.addStringProperty("type", "centroid")
                     feat.addStringProperty("ref", p.referencia)
                     parcelFeatures.add(feat)
+                }
 
-                    // 3. FOTOS: Si tiene fotos, añadimos un marcador en la capa de FOTOS
-                    if (p.photos.isNotEmpty()) {
-                        val photoFeat = Feature.fromGeometry(centerPoint)
-                        // Guardamos IDs para abrir galería al hacer click
-                        photoFeat.addStringProperty("parcelId", p.id)
-                        photoFeat.addStringProperty("expId", exp.id)
-                        photoFeat.addNumberProperty("photoCount", p.photos.size)
-                        photoFeatures.add(photoFeat)
+                // 3. FOTOS INDIVIDUALES GEORREFERENCIADAS
+                // Iteramos sobre las fotos que tienen ubicación guardada
+                p.photos.forEach { uri ->
+                    val locString = p.photoLocations[uri]
+                    if (locString != null) {
+                        try {
+                            val parts = locString.split(",")
+                            if (parts.size >= 2) {
+                                val lat = parts[0].toDouble()
+                                val lng = parts[1].toDouble()
+                                val photoPoint = Point.fromLngLat(lng, lat)
+                                val photoFeat = Feature.fromGeometry(photoPoint)
+                                
+                                photoFeat.addStringProperty("type", "photo")
+                                photoFeat.addStringProperty("uri", uri)
+                                photoFeat.addStringProperty("parcelId", p.id)
+                                photoFeat.addStringProperty("expId", exp.id)
+                                
+                                photoFeatures.add(photoFeat)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("MapLayers", "Error parsing photo location: $locString")
+                        }
                     }
                 }
             }

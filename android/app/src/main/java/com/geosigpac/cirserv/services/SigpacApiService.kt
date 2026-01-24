@@ -138,6 +138,7 @@ object SigpacApiService {
     }
 
     suspend fun recoverParcelaFromPoint(lat: Double, lng: Double): Triple<String?, String?, SigpacData?> = withContext(Dispatchers.IO) {
+        // 1. OBTENER REFERENCIA Y DATOS (recinfobypoint)
         val identifyUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
         val idResponse = fetchUrl(identifyUrl) ?: return@withContext Triple(null, null, null)
 
@@ -169,44 +170,29 @@ object SigpacApiService {
 
         if (prov.isEmpty()) return@withContext Triple(null, null, null)
 
-        // FORMATO CORREGIDO: 5 PARTES (Prov:Mun:Pol:Parc:Rec)
-        // Eliminamos Agregado y Zona para compatibilidad con buscador y visualización
         val fullRef = "$prov:$mun:$pol:$parc:$rec"
-        
         var geometryRaw: String? = null
 
-        // GEOMETRÍA: Intentamos obtener la geometría del cultivo que está justo en el punto
-        val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
-        val cultivoJson = fetchUrl(ogcUrl)
-        
-        if (cultivoJson != null) {
-            try {
-                val root = JSONNative(cultivoJson)
-                val features = root.optJSONArray("features")
-                if (features != null) {
-                    for (i in 0 until features.length()) {
-                        val feat = features.getJSONObject(i)
-                        val geom = feat.optJSONObject("geometry")
-                        // Si el punto cae en esta geometría específica de cultivo, la usamos
-                        if (geom != null && isPointInGeoJsonGeometry(lat, lng, geom)) {
-                            geometryRaw = extractGeometryFromGeoJsonObj(geom)
-                            break
-                        }
-                    }
-                    // Si no encontramos uno específico por punto, cogemos el primero (fallback)
-                    if (geometryRaw == null && features.length() > 0) {
-                         geometryRaw = extractGeometryFromGeoJsonObj(features.getJSONObject(0).optJSONObject("geometry"))
-                    }
-                }
-            } catch (e: Exception) { e.printStackTrace() }
+        // 2. OBTENER GEOMETRÍA DEL RECINTO (recinfoparc) - PRIORIDAD 1 para visualización Azul
+        // Esto garantiza que pintamos el recinto completo, que es lo que el usuario quiere ver en azul.
+        val recUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
+        val recJson = fetchUrl(recUrl)
+        if (recJson != null) {
+            geometryRaw = extractGeometryFromGeoJson(recJson)
         }
 
-        // FALLBACK: Geometría de Recinto
+        // 3. FALLBACK: GEOMETRÍA DE CULTIVO (Si falla la del recinto)
         if (geometryRaw == null) {
-            val recUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
-            val recJson = fetchUrl(recUrl)
-            if (recJson != null) {
-                geometryRaw = extractGeometryFromGeoJson(recJson)
+            val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
+            val cultivoJson = fetchUrl(ogcUrl)
+            if (cultivoJson != null) {
+                try {
+                    val root = JSONNative(cultivoJson)
+                    val features = root.optJSONArray("features")
+                    if (features != null && features.length() > 0) {
+                        geometryRaw = extractGeometryFromGeoJsonObj(features.getJSONObject(0).optJSONObject("geometry"))
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
             }
         }
 
@@ -238,8 +224,7 @@ object SigpacApiService {
     }
 
     private fun extractGeometryFromGeoJsonObj(geometry: JSONObject?): String? {
-        // CORRECCIÓN CLAVE: Devolvemos el JSON String completo para mantener polígonos complejos/multipolígonos válidos.
-        // MapLibre puede parsear Geometry.fromJson() directamente.
+        // Devolvemos el JSON String completo para mantener polígonos complejos/multipolígonos válidos.
         return geometry?.toString()
     }
 

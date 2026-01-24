@@ -88,6 +88,7 @@ fun NativeMapScreen(
     // --- ESTADO GALERÍA (Desde Marcador Mapa) ---
     var selectedParcelForGallery by remember { mutableStateOf<NativeParcela?>(null) }
     var selectedExpForGallery by remember { mutableStateOf<NativeExpediente?>(null) }
+    var initialGalleryIndex by remember { mutableIntStateOf(0) }
 
     // Inicializar Singleton MapLibre
     remember { MapLibre.getInstance(context) }
@@ -248,17 +249,25 @@ fun NativeMapScreen(
                 
                 if (features.isNotEmpty()) {
                     val feature = features[0]
-                    if (feature.hasProperty("parcelId") && feature.hasProperty("expId")) {
-                        val parcelId = feature.getStringProperty("parcelId")
-                        val expId = feature.getStringProperty("expId")
-                        
-                        val exp = expedientes.find { it.id == expId }
-                        val parcel = exp?.parcelas?.find { it.id == parcelId }
-                        
-                        if (exp != null && parcel != null && parcel.photos.isNotEmpty()) {
-                            selectedExpForGallery = exp
-                            selectedParcelForGallery = parcel
-                            return@addOnMapClickListener true
+                    if (feature.hasProperty("parcelId") && feature.hasProperty("expId") && feature.hasProperty("type")) {
+                        // Verificamos que sea un feature de tipo foto
+                        if (feature.getStringProperty("type") == "photo") {
+                            val parcelId = feature.getStringProperty("parcelId")
+                            val expId = feature.getStringProperty("expId")
+                            val clickedUri = if(feature.hasProperty("uri")) feature.getStringProperty("uri") else null
+                            
+                            val exp = expedientes.find { it.id == expId }
+                            val parcel = exp?.parcelas?.find { it.id == parcelId }
+                            
+                            if (exp != null && parcel != null && parcel.photos.isNotEmpty()) {
+                                selectedExpForGallery = exp
+                                selectedParcelForGallery = parcel
+                                // Si clicamos una foto específica, intentamos abrir la galería en esa foto
+                                initialGalleryIndex = if (clickedUri != null) {
+                                    parcel.photos.indexOf(clickedUri).coerceAtLeast(0)
+                                } else 0
+                                return@addOnMapClickListener true
+                            }
                         }
                     }
                 }
@@ -439,14 +448,17 @@ fun NativeMapScreen(
         if (selectedParcelForGallery != null && selectedExpForGallery != null) {
             FullScreenPhotoGallery(
                 photos = selectedParcelForGallery!!.photos,
-                initialIndex = 0,
+                initialIndex = initialGalleryIndex,
                 onDismiss = { selectedParcelForGallery = null },
                 onDeletePhoto = { uriToDelete ->
                     val targetExp = selectedExpForGallery!!
                     val targetParcel = selectedParcelForGallery!!
                     
                     val updatedPhotos = targetParcel.photos.filter { it != uriToDelete }
-                    val updatedParcel = targetParcel.copy(photos = updatedPhotos)
+                    // CRÍTICO: También eliminamos la ubicación geográfica de la foto borrada
+                    val updatedLocs = targetParcel.photoLocations.toMutableMap().apply { remove(uriToDelete) }
+                    
+                    val updatedParcel = targetParcel.copy(photos = updatedPhotos, photoLocations = updatedLocs)
                     
                     // Actualizar el expediente completo
                     val updatedExp = targetExp.copy(

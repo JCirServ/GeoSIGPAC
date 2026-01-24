@@ -45,7 +45,8 @@ data class NativeParcela(
     val verifiedProductoCode: Int? = null, // NUEVO: Producto verificado manualmente
     val completedChecks: List<String> = emptyList(),
     val finalVerdict: String? = null, // "CUMPLE" | "NO_CUMPLE"
-    val photos: List<String> = emptyList() // Lista de URIs de fotos
+    val photos: List<String> = emptyList(), // Lista de URIs de fotos
+    val photoLocations: Map<String, String> = emptyMap() // Mapa URI -> "lat,lng"
 )
 
 data class NativeExpediente(

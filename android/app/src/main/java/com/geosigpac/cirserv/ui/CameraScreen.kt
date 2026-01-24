@@ -361,6 +361,9 @@ fun CameraScreen(
         scope.launch {
             isProcessingImage = true
             
+            // Capturar la ubicación del momento exacto del disparo para el mapa
+            val captureLocation = currentLocation
+            
             val cropToSquare = (photoFormat == PhotoFormat.RATIO_1_1)
             
             // Determinar Calidad JPEG (0-100)
@@ -384,7 +387,7 @@ fun CameraScreen(
             val projectNames = matchedExpedientes.map { it.titular }
 
             CameraCaptureLogic.takePhoto(
-                context, imageCaptureUseCase, projectNames, targetRef, currentLocation,
+                context, imageCaptureUseCase, projectNames, targetRef, captureLocation,
                 cropToSquare = cropToSquare,
                 jpegQuality = jpegQuality,
                 overlayOptions = overlayOptions,
@@ -398,7 +401,15 @@ fun CameraScreen(
                             if (projectUri != null && exp.parcelas.any { it.referencia == targetRef }) {
                                 exp.copy(parcelas = exp.parcelas.map { p ->
                                     if (p.referencia == targetRef) {
-                                        p.copy(photos = p.photos + projectUri.toString())
+                                        // Añadir foto Y guardar su ubicación exacta si está disponible
+                                        val newPhotos = p.photos + projectUri.toString()
+                                        val newLocations = if (captureLocation != null) {
+                                            p.photoLocations + (projectUri.toString() to "${captureLocation.latitude},${captureLocation.longitude}")
+                                        } else {
+                                            p.photoLocations
+                                        }
+                                        
+                                        p.copy(photos = newPhotos, photoLocations = newLocations)
                                     } else p
                                 })
                             } else exp
@@ -622,8 +633,10 @@ fun CameraScreen(
             val (exp, parc) = matchedParcelInfo!!
             FullScreenPhotoGallery(photos = parc.photos, initialIndex = parc.photos.lastIndex, onDismiss = { showGallery = false }, onDeletePhoto = { photoUriToDelete ->
                 val updatedPhotos = parc.photos.filter { it != photoUriToDelete }
-                val updatedParcela = parc.copy(photos = updatedPhotos)
-                val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                val updatedLocs = parc.photoLocations.toMutableMap().apply { remove(photoUriToDelete) }
+                
+                val updatedParcel = parc.copy(photos = updatedPhotos, photoLocations = updatedLocs)
+                val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcel.id) updatedParcel else it })
                 onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
             })
         }
