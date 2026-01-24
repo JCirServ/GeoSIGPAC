@@ -61,12 +61,31 @@ fun NativeRecintoCard(
         } else null
     }
 
-    // Auto-corrección de uso si es totalmente compatible
+    // Auto-corrección de uso y producto si es totalmente compatible
     LaunchedEffect(agroAnalysis) {
-        if (agroAnalysis != null && parcela.verifiedUso == null) {
+        if (agroAnalysis != null) {
              val sigpacUsoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull() 
-             if (agroAnalysis.isCompatible && sigpacUsoRaw != null) {
-                 onUpdateParcela(parcela.copy(verifiedUso = sigpacUsoRaw))
+             val declaredProd = parcela.cultivoInfo?.parcProducto
+
+             // Solo si es compatible
+             if (agroAnalysis.isCompatible) {
+                 var newParcela = parcela
+                 var changed = false
+
+                 // 1. Auto-verificar Uso
+                 if (parcela.verifiedUso == null && sigpacUsoRaw != null) {
+                     newParcela = newParcela.copy(verifiedUso = sigpacUsoRaw)
+                     changed = true
+                 }
+                 // 2. Auto-verificar Producto (NUEVO)
+                 if (parcela.verifiedProductoCode == null && declaredProd != null) {
+                     newParcela = newParcela.copy(verifiedProductoCode = declaredProd)
+                     changed = true
+                 }
+
+                 if (changed) {
+                     onUpdateParcela(newParcela)
+                 }
              }
         }
     }

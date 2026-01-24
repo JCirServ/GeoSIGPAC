@@ -360,6 +360,29 @@ object SigpacCodeManager {
             code to (getUsoDescription(code) ?: code)
         }
     }
+    
+    /**
+     * Devuelve TODOS los usos cargados del JSON, ordenados alfabéticamente por código.
+     * Si el JSON no se ha cargado aún, devuelve la lista de usos comunes como fallback.
+     */
+    fun getAllUsos(): List<Pair<String, String>> {
+        if (usoMap.isEmpty()) return getCommonUsos()
+        
+        return usoMap.entries
+            .map { it.key to it.value } // (Codigo, Descripcion)
+            .sortedBy { it.first }
+    }
+    
+    /**
+     * Devuelve TODOS los productos cargados del JSON, ordenados alfabéticamente por NOMBRE.
+     * Convierte la clave String a Int para su uso en el modelo.
+     */
+    fun getAllProductos(): List<Pair<Int, String>> {
+        return productoMap.entries.mapNotNull { entry ->
+            val code = entry.key.toIntOrNull()
+            if (code != null) code to entry.value else null
+        }.sortedBy { it.second } // Orden alfabético para facilitar búsqueda humana
+    }
 
     /**
      * Devuelve "Código - Descripción" del producto.

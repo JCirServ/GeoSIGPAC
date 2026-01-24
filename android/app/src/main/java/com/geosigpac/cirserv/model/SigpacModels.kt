@@ -42,6 +42,7 @@ data class NativeParcela(
     val centroidLng: Double? = null,
     // Nuevos campos para el Checklist
     val verifiedUso: String? = null,
+    val verifiedProductoCode: Int? = null, // NUEVO: Producto verificado manualmente
     val completedChecks: List<String> = emptyList(),
     val finalVerdict: String? = null, // "CUMPLE" | "NO_CUMPLE"
     val photos: List<String> = emptyList() // Lista de URIs de fotos

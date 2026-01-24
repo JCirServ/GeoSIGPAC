@@ -32,7 +32,11 @@ fun RecintoInspection(
     onUpdateParcela: (NativeParcela) -> Unit
 ) {
     var showUsoDropdown by remember { mutableStateOf(false) }
-    val commonUsos = remember { SigpacCodeManager.getCommonUsos() }
+    var showProductoDropdown by remember { mutableStateOf(false) }
+    
+    // Listas cargadas
+    val allUsos = remember { SigpacCodeManager.getAllUsos() }
+    val allProductos = remember { SigpacCodeManager.getAllProductos() }
 
     Box(
         modifier = Modifier
@@ -47,7 +51,10 @@ fun RecintoInspection(
              val isWarning = explanation.contains("AVISO", ignoreCase = true) || explanation.contains("Nota", ignoreCase = true)
              val isIrrigationError = explanation.contains("ERROR RIEGO", ignoreCase = true)
              val isUseIncompatible = !agroAnalysis.isCompatible && !isIrrigationError
-             val hasManualOverride = parcela.verifiedUso != null
+             
+             // Si el sistema lo ha auto-verificado (por compatibilidad), mostramos que está activo.
+             val hasUsoOverride = parcela.verifiedUso != null
+             val hasProdOverride = parcela.verifiedProductoCode != null
              
              // 1. Mensajes de Aviso/Error
              if (!agroAnalysis.isCompatible || isWarning) {
@@ -68,55 +75,115 @@ fun RecintoInspection(
                  }
              }
 
-             // 2. Selector de Uso Real
-             if (isUseIncompatible || isWarning || hasManualOverride) {
-                 Row(verticalAlignment = Alignment.CenterVertically) {
-                     val isUsoChecked = parcela.verifiedUso != null
-                     Icon(
-                         imageVector = if(isUsoChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                         contentDescription = null,
-                         tint = if(isUsoChecked) Color(0xFF00FF88) else Color.Gray,
-                         modifier = Modifier.size(24.dp).clickable {
-                             if (isUsoChecked) {
-                                 onUpdateParcela(parcela.copy(verifiedUso = null))
-                             } else {
-                                 showUsoDropdown = true
-                             }
-                         }
-                     )
-                     Spacer(Modifier.width(12.dp))
+             // ----------------------------
+             // 2A. SELECTOR DE USO SIGPAC
+             // ----------------------------
+             Text("USO SUELO OBSERVADO:", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Black)
+             Spacer(Modifier.height(4.dp))
+             
+             Row(verticalAlignment = Alignment.CenterVertically) {
+                 Icon(
+                     imageVector = if(hasUsoOverride) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                     contentDescription = null,
+                     tint = if(hasUsoOverride) Color(0xFF00FF88) else Color.Gray,
+                     modifier = Modifier.size(24.dp).clickable {
+                         if (hasUsoOverride) onUpdateParcela(parcela.copy(verifiedUso = null))
+                         else showUsoDropdown = true
+                     }
+                 )
+                 Spacer(Modifier.width(12.dp))
+                 
+                 Box(modifier = Modifier.weight(1f)) {
+                     OutlinedButton(
+                         onClick = { showUsoDropdown = true },
+                         modifier = Modifier.fillMaxWidth(),
+                         colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                         border = BorderStroke(1.dp, if(hasUsoOverride) Color(0xFF00FF88) else Color.Gray)
+                     ) {
+                         Text(
+                             text = if(parcela.verifiedUso != null) "USO: ${parcela.verifiedUso}" else "SELECCIONAR USO...", 
+                             fontSize = 13.sp,
+                             fontWeight = if(hasUsoOverride) FontWeight.Bold else FontWeight.Normal
+                         )
+                     }
                      
-                     Box(modifier = Modifier.weight(1f)) {
-                         OutlinedButton(
-                             onClick = { showUsoDropdown = true },
-                             modifier = Modifier.fillMaxWidth(),
-                             colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = Color.White),
-                             border = BorderStroke(1.dp, if(isUsoChecked) Color(0xFF00FF88) else Color.Gray)
-                         ) {
-                             Text(text = if(parcela.verifiedUso != null) "USO OBSERVADO: ${parcela.verifiedUso}" else "SELECCIONAR USO REAL...", fontSize = 13.sp)
-                         }
-                         
-                         DropdownMenu(
-                             expanded = showUsoDropdown,
-                             onDismissRequest = { showUsoDropdown = false },
-                             modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                         ) {
+                     DropdownMenu(
+                         expanded = showUsoDropdown,
+                         onDismissRequest = { showUsoDropdown = false },
+                         modifier = Modifier.background(MaterialTheme.colorScheme.surface).heightIn(max = 300.dp)
+                     ) {
+                         DropdownMenuItem(
+                             text = { Text("Ninguno (Borrar)", fontSize = 14.sp, color = Color(0xFFFF5252)) },
+                             onClick = { onUpdateParcela(parcela.copy(verifiedUso = null)); showUsoDropdown = false }
+                         )
+                         allUsos.forEach { (code, desc) ->
                              DropdownMenuItem(
-                                 text = { Text("Ninguno (Borrar)", fontSize = 14.sp, color = Color(0xFFFF5252)) },
-                                 onClick = { 
-                                     onUpdateParcela(parcela.copy(verifiedUso = null))
-                                     showUsoDropdown = false 
-                                 }
+                                 text = { Text("$code - $desc", fontSize = 14.sp) },
+                                 onClick = { onUpdateParcela(parcela.copy(verifiedUso = code)); showUsoDropdown = false }
                              )
-                             commonUsos.forEach { (code, desc) ->
-                                 DropdownMenuItem(
-                                     text = { Text("$code - $desc", fontSize = 14.sp) },
-                                     onClick = { 
-                                         onUpdateParcela(parcela.copy(verifiedUso = code))
-                                         showUsoDropdown = false 
-                                     }
-                                 )
-                             }
+                         }
+                     }
+                 }
+             }
+
+             Spacer(Modifier.height(12.dp))
+
+             // ----------------------------
+             // 2B. SELECTOR DE PRODUCTO
+             // ----------------------------
+             Text("CULTIVO/PRODUCTO OBSERVADO:", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Black)
+             Spacer(Modifier.height(4.dp))
+
+             Row(verticalAlignment = Alignment.CenterVertically) {
+                 Icon(
+                     imageVector = if(hasProdOverride) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                     contentDescription = null,
+                     tint = if(hasProdOverride) Color(0xFF00FF88) else Color.Gray,
+                     modifier = Modifier.size(24.dp).clickable {
+                         if (hasProdOverride) onUpdateParcela(parcela.copy(verifiedProductoCode = null))
+                         else showProductoDropdown = true
+                     }
+                 )
+                 Spacer(Modifier.width(12.dp))
+                 
+                 Box(modifier = Modifier.weight(1f)) {
+                     val buttonText = remember(parcela.verifiedProductoCode) {
+                         if (parcela.verifiedProductoCode != null) {
+                             val desc = SigpacCodeManager.getProductoDescription(parcela.verifiedProductoCode.toString())
+                             "CULTIVO: $desc"
+                         } else {
+                             "SELECCIONAR CULTIVO..."
+                         }
+                     }
+
+                     OutlinedButton(
+                         onClick = { showProductoDropdown = true },
+                         modifier = Modifier.fillMaxWidth(),
+                         colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                         border = BorderStroke(1.dp, if(hasProdOverride) Color(0xFF00FF88) else Color.Gray)
+                     ) {
+                         Text(
+                             text = buttonText, 
+                             fontSize = 13.sp,
+                             maxLines = 1,
+                             fontWeight = if(hasProdOverride) FontWeight.Bold else FontWeight.Normal
+                         )
+                     }
+                     
+                     DropdownMenu(
+                         expanded = showProductoDropdown,
+                         onDismissRequest = { showProductoDropdown = false },
+                         modifier = Modifier.background(MaterialTheme.colorScheme.surface).heightIn(max = 300.dp)
+                     ) {
+                         DropdownMenuItem(
+                             text = { Text("Ninguno (Borrar)", fontSize = 14.sp, color = Color(0xFFFF5252)) },
+                             onClick = { onUpdateParcela(parcela.copy(verifiedProductoCode = null)); showProductoDropdown = false }
+                         )
+                         allProductos.forEach { (code, desc) ->
+                             DropdownMenuItem(
+                                 text = { Text("$code - $desc", fontSize = 14.sp) },
+                                 onClick = { onUpdateParcela(parcela.copy(verifiedProductoCode = code)); showProductoDropdown = false }
+                             )
                          }
                      }
                  }
