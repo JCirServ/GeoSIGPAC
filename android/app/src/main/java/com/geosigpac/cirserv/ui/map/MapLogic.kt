@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv.ui.map
 
 import android.graphics.RectF
@@ -9,186 +8,179 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.geometry.LatLng
 
 object MapLogic {
 
+    private const val TAG_MAP = "MapLogic"
+    private var lastSelectedRef = "" // Caché para evitar cálculos redundantes
+
     /**
-     * Actualiza la información básica bajo el puntero central en tiempo real.
-     * Devuelve la referencia SIGPAC formateada (Prov:Mun:Agg:Zon:Pol:Par:Rec) o cadena vacía.
+     * Actualiza la información y el resaltado en tiempo real.
+     * Optimizada para teselas PBF entre niveles 12 y 15.
      */
     fun updateRealtimeInfo(map: MapLibreMap): String {
-        // Optimización: No consultar si el zoom es muy lejano
-        if (map.cameraPosition.zoom < 13.5) {
+        val currentZoom = map.cameraPosition.zoom
+        
+        // El nivel 13.5 es el umbral ideal donde los recintos PBF suelen ser consultables
+        if (currentZoom < 13.5) {
+            if (lastSelectedRef.isNotEmpty()) clearHighlight(map)
             return ""
         }
-        
+
         try {
             val center = map.cameraPosition.target ?: return ""
             val screenPoint = map.projection.toScreenLocation(center)
-            // Aumentamos el área de toque (+/- 30px) para facilitar aún más la detección al mover rápido
-            val searchArea = RectF(screenPoint.x - 30f, screenPoint.y - 30f, screenPoint.x + 30f, screenPoint.y + 30f)
+
+            // AJUSTE 1: Sensibilidad dinámica según el zoom para evitar fallos de puntería
+            val sensitivity = when {
+                currentZoom < 14.0 -> 12f // Más margen en zooms lejanos
+                currentZoom < 15.5 -> 8f
+                else -> 4f // Puntería fina en zoom alto (overzooming)
+            }
             
+            val searchArea = RectF(
+                screenPoint.x - sensitivity, screenPoint.y - sensitivity, 
+                screenPoint.x + sensitivity, screenPoint.y + sensitivity
+            )
+
             val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
+            
             if (features.isNotEmpty()) {
                 val feature = features[0]
                 
-                // Helper para extracción segura de propiedades (Maneja Strings y Numbers)
-                fun getSafeProp(key: String): String {
-                    if (!feature.hasProperty(key)) return "0"
-                    val prop = feature.getProperty(key)
-                    return when {
-                        prop.isJsonPrimitive -> {
-                            val prim = prop.asJsonPrimitive
-                            when {
-                                prim.isString -> prim.asString
-                                prim.isNumber -> prim.asNumber.toString().replace(".0", "") // Integers sin decimal
-                                else -> prim.toString()
-                            }
-                        }
-                        else -> prop.toString()
-                    }
-                }
-
-                // Extracción robusta: Usamos "0" por defecto para evitar cadenas vacías que rompan la lógica
-                val prov = getSafeProp("provincia")
-                val mun = getSafeProp("municipio")
-                val agg = getSafeProp("agregado")
-                val zon = getSafeProp("zona")
-                val pol = getSafeProp("poligono")
-                val parc = getSafeProp("parcela")
-                val rec = getSafeProp("recinto")
+                // AJUSTE 2: Extracción y comparación con caché
+                val currentRef = extractSigpacRef(feature)
                 
-                var resultRef = ""
-                // Validamos que al menos provincia y municipio existan para formar una ref válida
-                if (prov != "0" && mun != "0") {
-                    resultRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
+                if (currentRef != lastSelectedRef) {
+                    applyHighlight(map, feature)
+                    lastSelectedRef = currentRef
                 }
                 
-                // Resaltar el recinto seleccionado
-                val filterConditions = mutableListOf<Expression>()
-                SIGPAC_KEYS.forEach { key ->
-                    if (feature.hasProperty(key)) {
-                        val prop = feature.getProperty(key)
-                        // Para el filtro Expression, necesitamos mantener el tipo original (Number o String)
-                        val value: Any = when {
-                            prop.isJsonPrimitive -> {
-                                val prim = prop.asJsonPrimitive
-                                when {
-                                    prim.isNumber -> prim.asNumber
-                                    prim.isBoolean -> prim.asBoolean
-                                    else -> prim.asString
-                                }
-                            }
-                            else -> prop.toString()
-                        }
-                        filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
-                    }
-                }
-                
-                if (filterConditions.isNotEmpty()) {
-                    val finalFilter = Expression.all(*filterConditions.toTypedArray())
-                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(finalFilter) }
-                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
-                }
-
-                return resultRef
+                return currentRef
             } else {
-                // Limpiar resaltado si no hay nada debajo
-                val emptyFilter = Expression.literal(false)
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+                if (lastSelectedRef.isNotEmpty()) {
+                    clearHighlight(map)
+                    lastSelectedRef = ""
+                }
                 return ""
             }
-        } catch (e: Exception) { 
-            // Log.e(TAG_MAP, "Error realtime update: ${e.message}") 
+        } catch (e: Exception) {
             return ""
         }
     }
 
     /**
-     * Obtiene datos extendidos (Uso, Superficie, Cultivo) cuando el mapa se detiene.
-     * Intenta API primero, luego fallback a datos vectoriales del mapa.
+     * Aplica el filtro de resaltado asegurando compatibilidad de tipos PBF (Long/Double/String)
+     */
+    private fun applyHighlight(map: MapLibreMap, feature: org.maplibre.geojson.Feature) {
+        val filterConditions = mutableListOf<Expression>()
+        
+        SIGPAC_KEYS.forEach { key ->
+            if (feature.hasProperty(key)) {
+                val prop = feature.getProperty(key)
+                if (prop.isJsonPrimitive) {
+                    val prim = prop.asJsonPrimitive
+                    // AJUSTE 3: El PBF puede devolver números como Double. 
+                    // Literal() mantiene el tipo para que Expression.eq no falle.
+                    val value: Any = when {
+                        prim.isNumber -> prim.asNumber
+                        prim.isBoolean -> prim.asBoolean
+                        else -> prim.asString
+                    }
+                    filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
+                }
+            }
+        }
+
+        if (filterConditions.isNotEmpty()) {
+            val finalFilter = Expression.all(*filterConditions.toTypedArray())
+            map.style?.let { style ->
+                (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
+                (style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(finalFilter)
+            }
+        }
+    }
+
+    private fun clearHighlight(map: MapLibreMap) {
+        val emptyFilter = Expression.literal(false)
+        map.style?.let { style ->
+            (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(emptyFilter)
+            (style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(emptyFilter)
+        }
+        lastSelectedRef = ""
+    }
+
+    /**
+     * Helper robusto para construir la referencia Prov:Mun:Agg:Zon:Pol:Par:Rec
+     */
+    private fun extractSigpacRef(feature: org.maplibre.geojson.Feature): String {
+        fun getSafe(key: String): String {
+            if (!feature.hasProperty(key)) return "0"
+            val p = feature.getProperty(key).asJsonPrimitive
+            return when {
+                p.isNumber -> p.asNumber.toLong().toString() // Forzamos a Long para evitar .0
+                else -> p.asString.replace("\"", "")
+            }
+        }
+
+        val prov = getSafe("provincia")
+        val mun = getSafe("municipio")
+        if (prov == "0" || mun == "0") return ""
+
+        return "$prov:$mun:${getSafe("agregado")}:${getSafe("zona")}:${getSafe("poligono")}:${getSafe("parcela")}:${getSafe("recinto")}"
+    }
+
+    /**
+     * Obtiene datos extendidos con estrategia de Fallback (API -> PBF)
      */
     suspend fun fetchExtendedData(map: MapLibreMap): Pair<Map<String, String>?, Map<String, String>?> {
         if (map.cameraPosition.zoom < 13.5) return Pair(null, null)
         
-        try {
-            val center = map.cameraPosition.target ?: return Pair(null, null)
+        val center = map.cameraPosition.target ?: return Pair(null, null)
+        
+        // 1. Intentar API (Prioridad: Datos oficiales actualizados)
+        val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
+        
+        // 2. Fallback a Vector Tiles (Si la API falla o estamos offline)
+        val recintoData = fullData ?: run {
             val screenPoint = map.projection.toScreenLocation(center)
-            val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
-            
-            var recinto: Map<String, String>? = null
-            var cultivo: Map<String, String>? = null
-
-            // 1. Recinto (Completo desde API)
-            val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
-            if (fullData != null) {
-                recinto = fullData
-            } else {
-                // FALLBACK: Extraer datos de las Vector Tiles (si no hay red o falla API)
-                val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
-                if (features.isNotEmpty()) {
-                    val f = features[0]
-                    
-                    fun getSafe(key: String, def: String = ""): String {
-                        if (!f.hasProperty(key)) return def
-                        val p = f.getProperty(key)
-                        return if (p.isJsonPrimitive && p.asJsonPrimitive.isNumber) 
-                            p.asJsonPrimitive.asNumber.toString().replace(".0", "")
-                        else p.toString().replace("\"", "")
+            val features = map.queryRenderedFeatures(RectF(screenPoint.x-5f, screenPoint.y-5f, screenPoint.x+5f, screenPoint.y+5f), LAYER_RECINTO_FILL)
+            if (features.isNotEmpty()) {
+                val f = features[0]
+                mutableMapOf<String, String>().apply {
+                    f.properties()?.entrySet()?.forEach { 
+                        this[it.key] = it.value.toString().replace("\"", "") 
                     }
-
-                    recinto = mapOf(
-                        "provincia" to getSafe("provincia"),
-                        "municipio" to getSafe("municipio"),
-                        "poligono" to getSafe("poligono"),
-                        "parcela" to getSafe("parcela"),
-                        "recinto" to getSafe("recinto"),
-                        "agregado" to getSafe("agregado", "0"),
-                        "zona" to getSafe("zona", "0"),
-                        "superficie" to getSafe("superficie", "0"),
-                        "uso_sigpac" to "Cargando...", // Uso a veces no está en tiles
-                        "incidencias" to ""
-                    )
                 }
+            } else null
+        }
+
+        // 3. Cultivo (Siempre desde PBF ya que suele estar en una capa temática separada)
+        val cultivoData = queryLayerData(map, center, LAYER_CULTIVO_FILL)
+
+        return Pair(recintoData, cultivoData)
+    }
+
+    private fun queryLayerData(map: MapLibreMap, point: LatLng, layerId: String): Map<String, String>? {
+        val screenPoint = map.projection.toScreenLocation(point)
+        val features = map.queryRenderedFeatures(RectF(screenPoint.x-10f, screenPoint.y-10f, screenPoint.x+10f, screenPoint.y+10f), layerId)
+        if (features.isEmpty()) return null
+        
+        val props = features[0].properties() ?: return null
+        return mutableMapOf<String, String>().apply {
+            props.entrySet().forEach { entry ->
+                val key = entry.key
+                var value = entry.value.toString().replace("\"", "")
+                
+                // Traducción dinámica de códigos
+                value = when(key) {
+                    "tipo_aprovecha" -> SigpacCodeManager.getAprovechamientoDescription(value) ?: value
+                    "parc_producto", "cultsecun_producto" -> SigpacCodeManager.getProductoDescription(value) ?: value
+                    else -> value
+                }
+                this[key] = value
             }
-
-            // 2. Cultivo (Vector Tiles)
-            // Intentamos obtener info del cultivo declarado visualizado
-            try {
-                val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
-                if (cultFeatures.isNotEmpty()) {
-                     // Elegir el cultivo más reciente si hay solapamientos (heurística simple por ahora: el primero renderizado)
-                     val bestFeature = cultFeatures[0]
-                     val props = bestFeature.properties()
-                     
-                     if (props != null) {
-                        val mapProps = mutableMapOf<String, String>()
-                        
-                        // Extraer todas las propiedades de forma segura
-                        props.entrySet().forEach { 
-                            mapProps[it.key] = it.value.toString().replace("\"", "") 
-                        }
-                        
-                        // Traducir códigos a descripciones legibles
-                        val rawAprovecha = mapProps["tipo_aprovecha"]
-                        mapProps["tipo_aprovecha"] = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha) ?: rawAprovecha ?: "-"
-                        
-                        val rawProd = mapProps["parc_producto"]
-                        mapProps["parc_producto"] = SigpacCodeManager.getProductoDescription(rawProd) ?: rawProd ?: "-"
-                        
-                        val rawProdSec = mapProps["cultsecun_producto"]
-                        mapProps["cultsecun_producto"] = SigpacCodeManager.getProductoDescription(rawProdSec) ?: rawProdSec ?: "-"
-                        
-                        cultivo = mapProps
-                    }
-                }
-            } catch (e: Exception) { Log.w(TAG_MAP, "Cultivo feature query failed: ${e.message}") }
-
-            return Pair(recinto, cultivo)
-        } catch (e: Exception) { 
-            Log.e(TAG_MAP, "Error querying extended features: ${e.message}") 
-            return Pair(null, null)
         }
     }
 }
