@@ -1,6 +1,8 @@
 
 package com.geosigpac.cirserv.ui.camera
 
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -15,6 +17,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backspace
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
@@ -33,6 +39,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,30 +59,153 @@ enum class OverlayOption(val label: String) {
 }
 
 @Composable
+fun CameraSigpacKeyboard(
+    currentValue: String,
+    onValueChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    val rows = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf(":", "0", "DEL")
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(0.9f))
+            .padding(16.dp)
+            .navigationBarsPadding() // Respetar gestos Android
+    ) {
+        // Cabecera con visor
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("REFERENCIA MANUAL", color = NeonGreen, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Text(
+                    text = if(currentValue.isEmpty()) "Prov:Mun:Pol:Parc:Rec" else currentValue,
+                    color = if(currentValue.isEmpty()) Color.Gray else Color.White,
+                    fontSize = 20.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, null, tint = Color.Gray)
+            }
+        }
+
+        // Grid Numérico
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                row.forEach { key ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(0.1f))
+                            .clickable {
+                                if (key == "DEL") {
+                                    if (currentValue.isNotEmpty()) onValueChange(currentValue.dropLast(1))
+                                } else {
+                                    onValueChange(currentValue + key)
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (key == "DEL") {
+                            Icon(Icons.Default.Backspace, null, tint = Color.White)
+                        } else {
+                            Text(key, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Botones Acción: PEGAR y CONFIRMAR
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clipData = clipboard.primaryClip
+                    if (clipData != null && clipData.itemCount > 0) {
+                        val text = clipData.getItemAt(0).text.toString()
+                        onValueChange(text) // Reemplaza o añade según prefieras, aquí añade si está vacío o reemplaza? Vamos a concatenar si está vacío, o reemplazar? Mejor añadir al final o reemplazar si es un formato largo. Simplemente pegamos raw.
+                    }
+                },
+                modifier = Modifier.weight(1f).height(55.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+            ) {
+                Icon(Icons.Default.ContentPaste, null, tint = Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text("PEGAR", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+
+            Button(
+                onClick = onConfirm,
+                modifier = Modifier.weight(1f).height(55.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = NeonGreen)
+            ) {
+                Icon(Icons.Default.Check, null, tint = Color.Black)
+                Spacer(Modifier.width(8.dp))
+                Text("FIJAR REF", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
 fun InfoBox(
     locationText: String,
     sigpacRef: String?,
     sigpacUso: String?,
     matchedParcelInfo: Any?,
-    showNoDataMessage: Boolean
+    showNoDataMessage: Boolean,
+    onClearManual: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier.background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        Column(horizontalAlignment = Alignment.End) {
-            Text(locationText, color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
-            Spacer(Modifier.height(6.dp))
-            if (sigpacRef != null) {
-                Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
-                Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
-                
-                if (matchedParcelInfo != null) {
-                    Text("EN PROYECTO", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+        Row(verticalAlignment = Alignment.Top) {
+            Column(horizontalAlignment = Alignment.End) {
+                Text(locationText, color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                Spacer(Modifier.height(6.dp))
+                if (sigpacRef != null) {
+                    Text("Ref: $sigpacRef", color = Color(0xFFFFFF00), fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold)
+                    if (onClearManual != null) {
+                        Text("MODO MANUAL", color = Color(0xFFFFAAAA), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    } else {
+                        Text("Uso: ${sigpacUso ?: "N/D"}", color = Color.White, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    
+                    if (matchedParcelInfo != null) {
+                        Text("EN PROYECTO", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    }
+                } else if (showNoDataMessage) {
+                    Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+                } else {
+                    Text("Analizando zona...", color = Color.LightGray, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
                 }
-            } else if (showNoDataMessage) {
-                Text("Sin datos SIGPAC", color = Color(0xFFFFAAAA), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
-            } else {
-                Text("Analizando zona...", color = Color.LightGray, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+            }
+            if (onClearManual != null) {
+                Spacer(Modifier.width(8.dp))
+                IconButton(onClick = onClearManual, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, "Borrar Manual", tint = Color.Red)
+                }
             }
         }
     }

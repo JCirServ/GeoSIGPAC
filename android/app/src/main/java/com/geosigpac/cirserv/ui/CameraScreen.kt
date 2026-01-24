@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -109,6 +110,10 @@ fun CameraScreen(
     var showParcelSheet by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
 
+    // Manual Input State
+    var manualSigpacRef by remember { mutableStateOf<String?>(null) }
+    var showManualInput by remember { mutableStateOf(false) }
+
     // CameraX Objects
     var camera by remember { mutableStateOf<Camera?>(null) }
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
@@ -130,13 +135,16 @@ fun CameraScreen(
     var lastApiTimestamp by remember { mutableStateOf(0L) }
     var isProcessingImage by remember { mutableStateOf(false) }
 
+    // Actualizar referencia activa (Prioridad: Manual > API GPS)
+    val activeRef = manualSigpacRef ?: sigpacRef
+
     // --- MATCHING LOGIC ---
-    val matchedParcelInfo = remember(sigpacRef, expedientes) {
-        if (sigpacRef == null) return@remember null
+    val matchedParcelInfo = remember(activeRef, expedientes) {
+        if (activeRef == null) return@remember null
         var foundExp: NativeExpediente? = null
         val foundParcel = expedientes.flatMap { exp ->
             exp.parcelas.map { p -> 
-                if (p.referencia == sigpacRef) {
+                if (p.referencia == activeRef) {
                     foundExp = exp
                     p 
                 } else null
@@ -251,17 +259,21 @@ fun CameraScreen(
         while (true) {
             val loc = currentLocation
             val now = System.currentTimeMillis()
-            if (loc != null) {
-                val distance = if (lastApiLocation != null) loc.distanceTo(lastApiLocation!!) else Float.MAX_VALUE
-                val timeElapsed = now - lastApiTimestamp
-                if ((lastApiLocation == null || distance > 3.0f || timeElapsed > 5000) && !isLoadingSigpac) {
-                    isLoadingSigpac = true
-                    lastApiLocation = loc; lastApiTimestamp = now
-                    try {
-                        val (ref, uso) = CameraSigpacHelper.fetchRealSigpacData(loc.latitude, loc.longitude)
-                        if (ref != null) { sigpacRef = ref; sigpacUso = uso; showNoDataMessage = false } 
-                        else { sigpacRef = null; sigpacUso = null; delay(2000); if (sigpacRef == null) showNoDataMessage = true }
-                    } catch (e: Exception) { } finally { isLoadingSigpac = false }
+            
+            // Solo buscar datos API si NO estamos en modo manual
+            if (manualSigpacRef == null) {
+                if (loc != null) {
+                    val distance = if (lastApiLocation != null) loc.distanceTo(lastApiLocation!!) else Float.MAX_VALUE
+                    val timeElapsed = now - lastApiTimestamp
+                    if ((lastApiLocation == null || distance > 3.0f || timeElapsed > 5000) && !isLoadingSigpac) {
+                        isLoadingSigpac = true
+                        lastApiLocation = loc; lastApiTimestamp = now
+                        try {
+                            val (ref, uso) = CameraSigpacHelper.fetchRealSigpacData(loc.latitude, loc.longitude)
+                            if (ref != null) { sigpacRef = ref; sigpacUso = uso; showNoDataMessage = false } 
+                            else { sigpacRef = null; sigpacUso = null; delay(2000); if (sigpacRef == null) showNoDataMessage = true }
+                        } catch (e: Exception) { } finally { isLoadingSigpac = false }
+                    }
                 }
             }
             delay(500)
@@ -308,9 +320,9 @@ fun CameraScreen(
                 CameraQuality.LOW -> 60
             }
 
-            // 1. Identificar Proyectos Coincidentes
-            val matchedExpedientes = if (sigpacRef != null) {
-                expedientes.filter { exp -> exp.parcelas.any { it.referencia == sigpacRef } }
+            // 1. Identificar Proyectos Coincidentes (Usando activeRef)
+            val matchedExpedientes = if (activeRef != null) {
+                expedientes.filter { exp -> exp.parcelas.any { it.referencia == activeRef } }
             } else {
                 emptyList()
             }
@@ -318,7 +330,7 @@ fun CameraScreen(
             val projectNames = matchedExpedientes.map { it.titular }
 
             CameraCaptureLogic.takePhoto(
-                context, imageCaptureUseCase, projectNames, sigpacRef, currentLocation,
+                context, imageCaptureUseCase, projectNames, activeRef, currentLocation,
                 cropToSquare = cropToSquare,
                 jpegQuality = jpegQuality,
                 overlayOptions = overlayOptions,
@@ -326,12 +338,12 @@ fun CameraScreen(
                     isProcessingImage = false
                     
                     // 2. Actualizar Estado de los Expedientes afectados
-                    if (matchedExpedientes.isNotEmpty() && sigpacRef != null) {
+                    if (matchedExpedientes.isNotEmpty() && activeRef != null) {
                         val newExpedientes = expedientes.map { exp ->
                             val projectUri = uriMap[exp.titular]
-                            if (projectUri != null && exp.parcelas.any { it.referencia == sigpacRef }) {
+                            if (projectUri != null && exp.parcelas.any { it.referencia == activeRef }) {
                                 exp.copy(parcelas = exp.parcelas.map { p ->
-                                    if (p.referencia == sigpacRef) {
+                                    if (p.referencia == activeRef) {
                                         p.copy(photos = p.photos + projectUri.toString())
                                     } else p
                                 })
@@ -386,32 +398,31 @@ fun CameraScreen(
         if (photoFormat == PhotoFormat.RATIO_1_1) {
             Box(modifier = Modifier.fillMaxSize()) {
                 val color = Color.Black.copy(0.7f)
-                // Barras negras arriba y abajo para simular cuadrado
-                Box(modifier = Modifier.fillMaxWidth().height(100.dp).background(color).align(Alignment.TopCenter)) // Aproximación visual
+                Box(modifier = Modifier.fillMaxWidth().height(100.dp).background(color).align(Alignment.TopCenter))
                 Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(color).align(Alignment.BottomCenter)) 
-                // Nota: Una implementación perfecta usaría Canvas con drawRect calculando el centro, pero esto sirve de guía visual rápida.
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val side = size.width
                     val topOffset = (size.height - side) / 2
-                    // Top
                     drawRect(color, Offset(0f, 0f), androidx.compose.ui.geometry.Size(size.width, topOffset))
-                    // Bottom
                     drawRect(color, Offset(0f, topOffset + side), androidx.compose.ui.geometry.Size(size.width, size.height - (topOffset + side)))
                 }
             }
         }
 
         // --- CONTROLS UI ---
+        val manualClearCallback = if (manualSigpacRef != null) { { manualSigpacRef = null } } else null
+
         if (isLandscape) {
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ControlButton(Icons.Default.Settings, "Config") { showSettingsDialog = true }
                     ControlButton(Icons.Default.List, "Proyectos") { onGoToProjects() }
+                    ControlButton(Icons.Default.Keyboard, "Manual") { showManualInput = true }
                     if (matchedParcelInfo != null) ControlButton(Icons.Default.Info, "Info", alpha = blinkAlpha) { showParcelSheet = true }
                 }
             }
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
-                InfoBox(locationText, sigpacRef, sigpacUso, matchedParcelInfo, showNoDataMessage)
+                InfoBox(locationText, activeRef, sigpacUso, matchedParcelInfo, showNoDataMessage, manualClearCallback)
             }
             Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) {
                 ShutterButton(isProcessingImage) { performCapture() }
@@ -430,11 +441,12 @@ fun CameraScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     ControlButton(Icons.Default.Settings, "Config") { showSettingsDialog = true }
                     ControlButton(Icons.Default.List, "Proyectos") { onGoToProjects() }
+                    ControlButton(Icons.Default.Keyboard, "Manual") { showManualInput = true }
                     if (matchedParcelInfo != null) ControlButton(Icons.Default.Info, "Info", alpha = blinkAlpha) { showParcelSheet = true }
                 }
             }
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) {
-                InfoBox(locationText, sigpacRef, sigpacUso, matchedParcelInfo, showNoDataMessage)
+                InfoBox(locationText, activeRef, sigpacUso, matchedParcelInfo, showNoDataMessage, manualClearCallback)
             }
             Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
                 ZoomControl(currentLinearZoom, false) { camera?.cameraControl?.setLinearZoom(it) }
@@ -464,6 +476,24 @@ fun CameraScreen(
                 onQualityChange = { cameraQuality = it },
                 onOverlayToggle = { opt ->
                     overlayOptions = if (overlayOptions.contains(opt)) overlayOptions - opt else overlayOptions + opt
+                }
+            )
+        }
+
+        // TECLADO MANUAL
+        AnimatedVisibility(
+            visible = showManualInput,
+            enter = slideInVertically { it },
+            exit = slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            CameraSigpacKeyboard(
+                currentValue = manualSigpacRef ?: "",
+                onValueChange = { manualSigpacRef = it },
+                onConfirm = { showManualInput = false },
+                onClose = { 
+                    if (manualSigpacRef.isNullOrEmpty()) manualSigpacRef = null // Reset si estaba vacío
+                    showManualInput = false 
                 }
             )
         }
