@@ -34,6 +34,12 @@ fun loadMapStyle(
 ) {
     val styleBuilder = Style.Builder()
 
+    // 1. CAPA DE FONDO: Evita que el blanco de la app se vea entre las grietas de los tiles
+    styleBuilder.withLayer(
+        org.maplibre.android.style.layers.BackgroundLayer("background_fill")
+            .withProperties(PropertyFactory.backgroundColor(android.graphics.Color.BLACK))
+    )
+
     val tileUrl = if (baseMap == BaseMap.OSM) {
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     } else {
@@ -45,10 +51,19 @@ fun loadMapStyle(
     
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
     styleBuilder.withSource(rasterSource)
-    styleBuilder.withLayer(RasterLayer(LAYER_BASE, SOURCE_BASE))
+
+    // 2. CAPA RÁSTER: Desactivamos antialiasing para que los bordes de los tiles encajen perfectos
+    val baseLayer = RasterLayer(LAYER_BASE, SOURCE_BASE)
+    baseLayer.setProperties(
+        PropertyFactory.rasterAntialiasing(false)
+    )
+    styleBuilder.withLayer(baseLayer)
 
     map.setStyle(styleBuilder) { style ->
         
+        // Configuración global para suavizar la carga y evitar parpadeos
+        map.setPrefetchTiles(true)
+
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
@@ -60,8 +75,9 @@ fun loadMapStyle(
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Yellow.toArgb()),
-                    PropertyFactory.fillOpacity(0.35f)
+                    // Aplicamos el Alpha directamente al color para evitar rejillas oscuras
+                    PropertyFactory.fillColor(Color.Yellow.copy(alpha = 0.35f).toArgb()),
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -76,26 +92,25 @@ fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // CAPA 1: RELLENO (TINT)
-                // Color distinto al borde, semitransparente
+                // CAPA 1: RELLENO (TINT) - Sin fillOpacity para evitar solapamientos visibles
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
-                    PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.15f), // Opacidad suficiente para ver el color pero ver el fondo
-                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb())
+                    PropertyFactory.fillColor(tintColor.copy(alpha = 0.15f).toArgb()),
+                    PropertyFactory.fillOutlineColor(android.graphics.Color.TRANSPARENT),
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(tintLayer)
 
                 // CAPA 2: BORDE (OUTLINE)
-                // Usamos LineLayer para tener control sobre el grosor (lineWidth)
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 val borderLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 borderLayer.setProperties(
                     PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineWidth(2f) // Grosor aumentado
+                    PropertyFactory.lineWidth(2f),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
                 )
                 style.addLayer(borderLayer)
 
@@ -106,8 +121,7 @@ fun loadMapStyle(
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightFill.setFilter(initialFilter)
                 highlightFill.setProperties(
-                    PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.5f), 
+                    PropertyFactory.fillColor(HighlightColor.copy(alpha = 0.5f).toArgb()),
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightFill)
@@ -117,7 +131,7 @@ fun loadMapStyle(
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
                     PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineWidth(4f), // Grosor de resaltado también aumentado ligeramente
+                    PropertyFactory.lineWidth(4f),
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightLine)
