@@ -6,12 +6,17 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color as AndroidColor
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -87,6 +92,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -150,6 +157,9 @@ fun CameraScreen(
     var currentLocation by remember { mutableStateOf<Location?>(null) }
     var lastApiLocation by remember { mutableStateOf<Location?>(null) }
     var lastApiTimestamp by remember { mutableStateOf(0L) }
+    
+    // Estado de procesamiento de imagen (spinner)
+    var isProcessingImage by remember { mutableStateOf(false) }
 
     // --- LÓGICA DE DETECCIÓN DE RECINTO EN PROYECTO ---
     val matchedParcelInfo = remember(sigpacRef, expedientes) {
@@ -206,7 +216,7 @@ fun CameraScreen(
                             ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
                         }
                         if (bitmap != null) {
-                            finalBitmap = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                            finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
                         }
                     }
 
@@ -286,7 +296,7 @@ fun CameraScreen(
             val preview = Preview.Builder().setTargetAspectRatio(aspectRatio).build()
             preview.setSurfaceProvider(previewView.surfaceProvider)
             val imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY) // Calidad para leer texto sobreimpreso
                 .setTargetAspectRatio(aspectRatio)
                 .setFlashMode(flashMode)
                 .build()
@@ -420,10 +430,12 @@ fun CameraScreen(
                 .size(80.dp)
                 .border(4.dp, NeonGreen, CircleShape)
                 .padding(6.dp)
-                .background(NeonGreen, CircleShape)
-                .clickable {
-                    takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, 
+                .background(if(isProcessingImage) Color.Gray else NeonGreen, CircleShape)
+                .clickable(enabled = !isProcessingImage) {
+                    isProcessingImage = true
+                    takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, currentLocation,
                         onImageCaptured = { uri -> 
+                            isProcessingImage = false
                             if (matchedParcelInfo != null) {
                                 val (exp, parc) = matchedParcelInfo
                                 val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
@@ -431,9 +443,19 @@ fun CameraScreen(
                                 onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
                             }
                             onImageCaptured(uri) 
-                        }, onError)
-                }
-        )
+                        }, 
+                        onError = { 
+                            isProcessingImage = false
+                            onError(it)
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            if (isProcessingImage) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
+            }
+        }
     }
 
     // Preview de Foto con Badge y Apertura de Galería
@@ -683,9 +705,9 @@ fun CameraScreen(
                 photos = parc.photos,
                 initialIndex = parc.photos.lastIndex, // Abrir en la última foto
                 onDismiss = { showGallery = false },
-                onDeletePhoto = { photoUri ->
+                onDeletePhoto = { photoUriToDelete ->
                     // 1. Borrar de la lista de la parcela
-                    val updatedPhotos = parc.photos.filter { it != photoUri }
+                    val updatedPhotos = parc.photos.filter { it != photoUriToDelete }
                     val updatedParcela = parc.copy(photos = updatedPhotos)
                     val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
                     onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
@@ -734,21 +756,142 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
     return@withContext Pair(null, null)
 }
 
+/**
+ * Función mejorada: Toma la foto, la procesa para añadir el cajetín de datos (overlay) y
+ * guarda los metadatos EXIF reales en el archivo final.
+ */
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
     projectId: String?,
     sigpacRef: String?,
+    location: Location?,
     onImageCaptured: (Uri) -> Unit,
     onError: (ImageCaptureException) -> Unit
 ) {
     val imageCapture = imageCapture ?: return
+    
+    // 1. Configurar archivo temporal para captura inicial
+    val tempFile = File.createTempFile("temp_capture", ".jpg", context.cacheDir)
+    
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(tempFile).build()
 
     // FIX: Set target rotation based on current display rotation
     val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     val rotation = windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
     imageCapture.targetRotation = rotation
 
+    imageCapture.takePicture(
+        outputOptions,
+        ContextCompat.getMainExecutor(context),
+        object : ImageCapture.OnImageSavedCallback {
+            override fun onError(exc: ImageCaptureException) { 
+                onError(exc) 
+            }
+            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                // Procesamiento en background para no bloquear UI
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val finalUri = processImageWithOverlay(context, tempFile, projectId, sigpacRef, location)
+                        tempFile.delete() // Limpiar temporal
+                        withContext(Dispatchers.Main) {
+                            onImageCaptured(finalUri)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Camera", "Error processing image", e)
+                        withContext(Dispatchers.Main) {
+                            onError(ImageCaptureException(ImageCapture.ERROR_FILE_IO, "Error procesando overlay: ${e.message}", e))
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+/**
+ * Procesa el bitmap: Rota, Añade Overlay de Texto (Cajetín) y Guarda con EXIF.
+ */
+private fun processImageWithOverlay(
+    context: Context,
+    sourceFile: File,
+    projectId: String?,
+    sigpacRef: String?,
+    location: Location?
+): Uri {
+    // 1. Cargar Bitmap corrigiendo rotación
+    val exifOriginal = ExifInterface(sourceFile)
+    val orientation = exifOriginal.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+    
+    val bitmap = BitmapFactory.decodeFile(sourceFile.absolutePath)
+    
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+    }
+    
+    // Creamos bitmap mutable para dibujar
+    val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    val mutableBitmap = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, true)
+    
+    // 2. Dibujar Cajetín (Overlay)
+    val canvas = Canvas(mutableBitmap)
+    val w = mutableBitmap.width
+    val h = mutableBitmap.height
+    
+    // Configuración de fuentes
+    val paintText = Paint().apply {
+        color = AndroidColor.WHITE
+        textSize = h * 0.022f // 2.2% de la altura
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        setShadowLayer(4f, 2f, 2f, AndroidColor.BLACK)
+        isAntiAlias = true
+    }
+    
+    val paintBg = Paint().apply {
+        color = AndroidColor.BLACK
+        alpha = 140 // Semitransparente
+        style = Paint.Style.FILL
+    }
+    
+    // Datos a imprimir
+    val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault())
+    val dateStr = dateFormat.format(Date())
+    
+    val locStr = if (location != null) {
+        "Lat: ${String.format(Locale.US, "%.6f", location.latitude)}  Lng: ${String.format(Locale.US, "%.6f", location.longitude)}"
+    } else {
+        "Sin Ubicación GPS"
+    }
+    
+    val refStr = sigpacRef ?: "REF: PENDIENTE / SIN DATOS"
+    
+    // Dimensiones Cajetín (Abajo a la izquierda o centrado abajo)
+    val lineHeight = paintText.textSize * 1.4f
+    val padding = lineHeight * 0.5f
+    val boxHeight = (lineHeight * 3) + (padding * 2)
+    
+    // Dibujar fondo
+    canvas.drawRect(0f, h - boxHeight, w.toFloat(), h.toFloat(), paintBg)
+    
+    // Dibujar textos
+    val startX = padding
+    var startY = h - boxHeight + padding + lineHeight - (lineHeight * 0.2f)
+    
+    paintText.color = AndroidColor.GREEN // Fecha en verde neon
+    canvas.drawText("FECHA: $dateStr", startX, startY, paintText)
+    
+    startY += lineHeight
+    paintText.color = AndroidColor.WHITE
+    canvas.drawText(locStr, startX, startY, paintText)
+    
+    startY += lineHeight
+    paintText.color = AndroidColor.YELLOW
+    canvas.drawText("SIGPAC: $refStr", startX, startY, paintText)
+    
+    // 3. Guardar imagen final en MediaStore
     val projectFolder = projectId ?: "SIN PROYECTO"
     val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
     val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
@@ -764,25 +907,46 @@ private fun takePhoto(
         }
     }
 
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(
-        context.contentResolver,
-        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-        contentValues
-    ).build()
+    val resolver = context.contentResolver
+    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues) 
+        ?: throw Exception("Failed to create MediaStore entry")
 
-    imageCapture.takePicture(
-        outputOptions,
-        ContextCompat.getMainExecutor(context),
-        object : ImageCapture.OnImageSavedCallback {
-            override fun onError(exc: ImageCaptureException) { onError(exc) }
-            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                val savedUri = output.savedUri ?: Uri.EMPTY
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && savedUri != Uri.EMPTY) {
-                    val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
-                    try { context.contentResolver.update(savedUri, values, null, null) } catch (e: Exception) { e.printStackTrace() }
-                }
-                onImageCaptured(savedUri)
+    resolver.openOutputStream(uri)?.use { out ->
+        mutableBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+    }
+    
+    // 4. Inyectar METADATOS EXIF (GPS) en el archivo final
+    // Es crítico hacerlo después de guardar el bitmap, ya que el bitmap en sí no tiene EXIF
+    if (location != null) {
+        try {
+            // Necesitamos acceder al archivo subyacente o usar FileDescriptor
+            // En API 29+ con Scoped Storage es complejo, usamos openFileDescriptor
+            resolver.openFileDescriptor(uri, "rw")?.use { fd ->
+                val exifFinal = ExifInterface(fd.fileDescriptor)
+                
+                exifFinal.setLatLong(location.latitude, location.longitude)
+                exifFinal.setAltitude(location.altitude)
+                
+                // Copiar fecha si es necesario, aunque el timestamp actual es correcto
+                exifFinal.setAttribute(ExifInterface.TAG_DATETIME, dateFormat.format(Date()))
+                
+                exifFinal.saveAttributes()
             }
+        } catch (e: Exception) {
+            Log.e("Camera", "Failed to write EXIF GPS", e)
         }
-    )
+    }
+
+    // Finalizar proceso (Pendiente -> 0)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        contentValues.clear()
+        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, contentValues, null, null)
+    }
+
+    mutableBitmap.recycle()
+    rotatedBitmap.recycle()
+    bitmap.recycle()
+    
+    return uri
 }
