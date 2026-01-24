@@ -115,7 +115,22 @@ object MapLogic {
             // 2. Cultivo (Vector Tiles)
             val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
             if (cultFeatures.isNotEmpty()) {
-                 val props = cultFeatures[0].properties()
+                 // LÓGICA DE SELECCIÓN POR MAYOR Nº EXPEDIENTE
+                 val bestFeature = cultFeatures.maxByOrNull { feat ->
+                     val p = feat.properties()
+                     val rawExp = p?.get("exp_num")
+                     when {
+                         rawExp == null -> 0L
+                         rawExp.isJsonPrimitive && rawExp.asJsonPrimitive.isNumber -> rawExp.asJsonPrimitive.asLong
+                         rawExp.isJsonPrimitive && rawExp.asJsonPrimitive.isString -> {
+                             // Intentamos limpiar y parsear si viene como string
+                             rawExp.asJsonPrimitive.asString.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L
+                         }
+                         else -> 0L
+                     }
+                 } ?: cultFeatures[0]
+
+                 val props = bestFeature.properties()
                  if (props != null) {
                     val mapProps = mutableMapOf<String, String>()
                     props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
