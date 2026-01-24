@@ -97,6 +97,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import androidx.compose.ui.graphics.TransformOrigin
+import com.geosigpac.cirserv.utils.BatteryOptimizer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
