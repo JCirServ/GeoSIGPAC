@@ -158,9 +158,12 @@ fun NativeMapScreen(
                     // Calcular geometría local (Polígono o Punto KML)
                     val localResult = computeLocalBoundsAndFeature(targetParcel)
                     if (localResult != null) {
-                        // Dibujar y hacer Zoom
+                        // Dibujar y hacer Zoom Suave
                         map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(localResult.feature)
-                        map.animateCamera(CameraUpdateFactory.newLatLngBounds(localResult.bounds, 150), 1000)
+                        
+                        // Padding 300px: Aleja la cámara para ver contexto
+                        // Duration 3500ms: Vuelo lento para cargar tiles
+                        map.animateCamera(CameraUpdateFactory.newLatLngBounds(localResult.bounds, 300), 3500)
                     } else {
                         Toast.makeText(context, "Geometría pendiente de carga", Toast.LENGTH_SHORT).show()
                     }
@@ -200,7 +203,8 @@ fun NativeMapScreen(
             val result = searchParcelLocation(prov, mun, pol, parc, rec)
             if (result != null) {
                 map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(result.feature)
-                map.animateCamera(CameraUpdateFactory.newLatLngBounds(result.bounds, 100), 1500)
+                // Padding 250px y 3000ms para búsqueda remota también
+                map.animateCamera(CameraUpdateFactory.newLatLngBounds(result.bounds, 250), 3000)
                 instantSigpacRef = searchQuery // Abrir ficha
             } else {
                 Toast.makeText(context, "Ubicación no encontrada en SIGPAC", Toast.LENGTH_SHORT).show()
