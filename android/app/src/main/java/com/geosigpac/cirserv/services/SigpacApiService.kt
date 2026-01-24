@@ -169,7 +169,10 @@ object SigpacApiService {
 
         if (prov.isEmpty()) return@withContext Triple(null, null, null)
 
-        val fullRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
+        // FORMATO CORREGIDO: 5 PARTES (Prov:Mun:Pol:Parc:Rec)
+        // Eliminamos Agregado y Zona para compatibilidad con buscador y visualización
+        val fullRef = "$prov:$mun:$pol:$parc:$rec"
+        
         var geometryRaw: String? = null
 
         // GEOMETRÍA: Intentamos obtener la geometría del cultivo que está justo en el punto
