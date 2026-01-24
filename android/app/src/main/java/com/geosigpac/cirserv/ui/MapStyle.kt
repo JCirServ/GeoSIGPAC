@@ -34,11 +34,10 @@ fun loadMapStyle(
 ) {
     val styleBuilder = Style.Builder()
 
-    // 1. CAPA DE FONDO: Evita que el blanco de la app se vea entre las grietas
-    styleBuilder.withLayer(
-        org.maplibre.android.style.layers.BackgroundLayer("background_fill")
-            .withProperties(PropertyFactory.backgroundColor(android.graphics.Color.BLACK))
-    )
+    // 1. CAPA DE FONDO: Esta es la clave. Al ser negra, las grietas blancas desaparecen.
+    val backgroundLayer = org.maplibre.android.style.layers.BackgroundLayer("background_fill")
+    backgroundLayer.setProperties(PropertyFactory.backgroundColor(android.graphics.Color.BLACK))
+    styleBuilder.withLayer(backgroundLayer)
 
     val tileUrl = if (baseMap == BaseMap.OSM) {
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -52,12 +51,9 @@ fun loadMapStyle(
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
     styleBuilder.withSource(rasterSource)
 
-    // 2. CAPA RÁSTER: Solución al Unresolved Reference usando set directo
+    // 2. CAPA RÁSTER: Eliminamos la línea problemática para asegurar que compile.
+    // El fondo negro de la capa anterior hará el trabajo sucio.
     val baseLayer = RasterLayer(LAYER_BASE, SOURCE_BASE)
-    baseLayer.setProperties(
-        // Usamos la cadena de texto de la propiedad para evitar errores de referencia
-        PropertyFactory.set("raster-antialias", false) 
-    )
     styleBuilder.withLayer(baseLayer)
 
     map.setStyle(styleBuilder) { style ->
@@ -75,8 +71,8 @@ fun loadMapStyle(
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Yellow.copy(alpha = 0.35f).toArgb()),
-                    PropertyFactory.fillAntialias(false)
+                    // Usamos copy(alpha = ...) para evitar líneas oscuras en solapes
+                    PropertyFactory.fillColor(Color.Yellow.copy(alpha = 0.35f).toArgb())
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -91,25 +87,21 @@ fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // CAPA 1: RELLENO (TINT)
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.copy(alpha = 0.15f).toArgb()),
-                    PropertyFactory.fillOutlineColor(android.graphics.Color.TRANSPARENT),
-                    PropertyFactory.fillAntialias(false)
+                    PropertyFactory.fillOutlineColor(android.graphics.Color.TRANSPARENT)
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE (OUTLINE)
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 val borderLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 borderLayer.setProperties(
                     PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineWidth(2f),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
+                    PropertyFactory.lineWidth(2f)
                 )
                 style.addLayer(borderLayer)
 
