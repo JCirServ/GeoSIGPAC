@@ -1,7 +1,6 @@
 package com.geosigpac.cirserv.ui.map
 
 import android.graphics.RectF
-import android.util.Log
 import com.geosigpac.cirserv.ui.*
 import com.geosigpac.cirserv.utils.SigpacCodeManager
 import org.maplibre.android.maps.MapLibreMap
@@ -12,17 +11,15 @@ import org.maplibre.android.geometry.LatLng
 
 object MapLogic {
 
-    private const val TAG_MAP = "MapLogic"
-    private var lastSelectedRef = "" // Caché para evitar cálculos redundantes
+    private var lastSelectedRef = "" 
 
     /**
-     * Actualiza la información y el resaltado en tiempo real.
-     * Optimizada para teselas PBF entre niveles 12 y 15.
+     * Actualiza la información y el resaltado.
+     * Referencia simplificada: Prov:Mun:Pol:Par:Rec
      */
     fun updateRealtimeInfo(map: MapLibreMap): String {
         val currentZoom = map.cameraPosition.zoom
         
-        // El nivel 13.5 es el umbral ideal donde los recintos PBF suelen ser consultables
         if (currentZoom < 13.5) {
             if (lastSelectedRef.isNotEmpty()) clearHighlight(map)
             return ""
@@ -32,12 +29,8 @@ object MapLogic {
             val center = map.cameraPosition.target ?: return ""
             val screenPoint = map.projection.toScreenLocation(center)
 
-            // AJUSTE 1: Sensibilidad dinámica según el zoom para evitar fallos de puntería
-            val sensitivity = when {
-                currentZoom < 14.0 -> 12f // Más margen en zooms lejanos
-                currentZoom < 15.5 -> 8f
-                else -> 4f // Puntería fina en zoom alto (overzooming)
-            }
+            // Ajuste de sensibilidad dinámica según zoom
+            val sensitivity = if (currentZoom < 14.5) 10f else 5f
             
             val searchArea = RectF(
                 screenPoint.x - sensitivity, screenPoint.y - sensitivity, 
@@ -48,10 +41,9 @@ object MapLogic {
             
             if (features.isNotEmpty()) {
                 val feature = features[0]
-                
-                // AJUSTE 2: Extracción y comparación con caché
                 val currentRef = extractSigpacRef(feature)
                 
+                // Evitar refrescos de estilo innecesarios
                 if (currentRef != lastSelectedRef) {
                     applyHighlight(map, feature)
                     lastSelectedRef = currentRef
@@ -59,10 +51,7 @@ object MapLogic {
                 
                 return currentRef
             } else {
-                if (lastSelectedRef.isNotEmpty()) {
-                    clearHighlight(map)
-                    lastSelectedRef = ""
-                }
+                if (lastSelectedRef.isNotEmpty()) clearHighlight(map)
                 return ""
             }
         } catch (e: Exception) {
@@ -71,25 +60,41 @@ object MapLogic {
     }
 
     /**
-     * Aplica el filtro de resaltado asegurando compatibilidad de tipos PBF (Long/Double/String)
+     * Extrae solo los 5 códigos esenciales.
      */
+    private fun extractSigpacRef(feature: org.maplibre.geojson.Feature): String {
+        fun getSafe(key: String): String {
+            if (!feature.hasProperty(key)) return ""
+            val p = feature.getProperty(key).asJsonPrimitive
+            return if (p.isNumber) p.asNumber.toLong().toString() else p.asString.replace("\"", "")
+        }
+
+        val prov = getSafe("provincia")
+        val mun = getSafe("municipio")
+        val pol = getSafe("poligono")
+        val parc = getSafe("parcela")
+        val rec = getSafe("recinto")
+
+        // Validamos que los datos críticos existan
+        if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return ""
+
+        // Formato: 28:079:1:25:1
+        return "$prov:$mun:$pol:$parc:$rec"
+    }
+
     private fun applyHighlight(map: MapLibreMap, feature: org.maplibre.geojson.Feature) {
         val filterConditions = mutableListOf<Expression>()
         
+        // Usamos la lista de claves (incluyendo zona/agregado si están en el PBF para que el filtro sea exacto)
         SIGPAC_KEYS.forEach { key ->
             if (feature.hasProperty(key)) {
-                val prop = feature.getProperty(key)
-                if (prop.isJsonPrimitive) {
-                    val prim = prop.asJsonPrimitive
-                    // AJUSTE 3: El PBF puede devolver números como Double. 
-                    // Literal() mantiene el tipo para que Expression.eq no falle.
-                    val value: Any = when {
-                        prim.isNumber -> prim.asNumber
-                        prim.isBoolean -> prim.asBoolean
-                        else -> prim.asString
-                    }
-                    filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
+                val prop = feature.getProperty(key).asJsonPrimitive
+                val value: Any = when {
+                    prop.isNumber -> prop.asNumber
+                    prop.isBoolean -> prop.asBoolean
+                    else -> prop.asString
                 }
+                filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
             }
         }
 
@@ -112,51 +117,29 @@ object MapLogic {
     }
 
     /**
-     * Helper robusto para construir la referencia Prov:Mun:Agg:Zon:Pol:Par:Rec
-     */
-    private fun extractSigpacRef(feature: org.maplibre.geojson.Feature): String {
-        fun getSafe(key: String): String {
-            if (!feature.hasProperty(key)) return "0"
-            val p = feature.getProperty(key).asJsonPrimitive
-            return when {
-                p.isNumber -> p.asNumber.toLong().toString() // Forzamos a Long para evitar .0
-                else -> p.asString.replace("\"", "")
-            }
-        }
-
-        val prov = getSafe("provincia")
-        val mun = getSafe("municipio")
-        if (prov == "0" || mun == "0") return ""
-
-        return "$prov:$mun:${getSafe("agregado")}:${getSafe("zona")}:${getSafe("poligono")}:${getSafe("parcela")}:${getSafe("recinto")}"
-    }
-
-    /**
-     * Obtiene datos extendidos con estrategia de Fallback (API -> PBF)
+     * Fetch de datos extendidos (API -> Fallback PBF)
      */
     suspend fun fetchExtendedData(map: MapLibreMap): Pair<Map<String, String>?, Map<String, String>?> {
         if (map.cameraPosition.zoom < 13.5) return Pair(null, null)
-        
         val center = map.cameraPosition.target ?: return Pair(null, null)
         
-        // 1. Intentar API (Prioridad: Datos oficiales actualizados)
+        // 1. API externa (Ya resuelto por el usuario)
         val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
         
-        // 2. Fallback a Vector Tiles (Si la API falla o estamos offline)
+        // 2. Fallback PBF si la API no devuelve nada
         val recintoData = fullData ?: run {
             val screenPoint = map.projection.toScreenLocation(center)
             val features = map.queryRenderedFeatures(RectF(screenPoint.x-5f, screenPoint.y-5f, screenPoint.x+5f, screenPoint.y+5f), LAYER_RECINTO_FILL)
             if (features.isNotEmpty()) {
-                val f = features[0]
                 mutableMapOf<String, String>().apply {
-                    f.properties()?.entrySet()?.forEach { 
+                    features[0].properties()?.entrySet()?.forEach { 
                         this[it.key] = it.value.toString().replace("\"", "") 
                     }
                 }
             } else null
         }
 
-        // 3. Cultivo (Siempre desde PBF ya que suele estar en una capa temática separada)
+        // 3. Capa de Cultivo Declarado
         val cultivoData = queryLayerData(map, center, LAYER_CULTIVO_FILL)
 
         return Pair(recintoData, cultivoData)
@@ -173,7 +156,6 @@ object MapLogic {
                 val key = entry.key
                 var value = entry.value.toString().replace("\"", "")
                 
-                // Traducción dinámica de códigos
                 value = when(key) {
                     "tipo_aprovecha" -> SigpacCodeManager.getAprovechamientoDescription(value) ?: value
                     "parc_producto", "cultsecun_producto" -> SigpacCodeManager.getProductoDescription(value) ?: value
