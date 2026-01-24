@@ -35,13 +35,13 @@ object CameraCaptureLogic {
     fun takePhoto(
         context: Context,
         imageCapture: ImageCapture?,
-        projectId: String?,
+        projectNames: List<String>, // Cambiado de projectId a lista de nombres
         sigpacRef: String?,
         location: Location?,
         cropToSquare: Boolean,
         jpegQuality: Int,
         overlayOptions: Set<OverlayOption>,
-        onImageCaptured: (Uri) -> Unit,
+        onImageCaptured: (Map<String, Uri>) -> Unit, // Devuelve un mapa Proyecto -> URI
         onError: (ImageCaptureException) -> Unit
     ) {
         val imageCapture = imageCapture ?: return
@@ -63,10 +63,23 @@ object CameraCaptureLogic {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            val finalUri = processImage(context, tempFile, projectId, sigpacRef, location, cropToSquare, jpegQuality, overlayOptions)
+                            // Definir carpetas destino. Si la lista está vacía, usar "SIN PROYECTO"
+                            val targetFolders = if (projectNames.isNotEmpty()) projectNames else listOf("SIN PROYECTO")
+                            
+                            val resultUris = processImage(
+                                context, 
+                                tempFile, 
+                                targetFolders, 
+                                sigpacRef, 
+                                location, 
+                                cropToSquare, 
+                                jpegQuality, 
+                                overlayOptions
+                            )
+                            
                             tempFile.delete()
                             withContext(Dispatchers.Main) {
-                                onImageCaptured(finalUri)
+                                onImageCaptured(resultUris)
                             }
                         } catch (e: Exception) {
                             Log.e("Camera", "Error processing image", e)
@@ -83,14 +96,14 @@ object CameraCaptureLogic {
     private fun processImage(
         context: Context,
         sourceFile: File,
-        projectId: String?,
+        targetFolders: List<String>,
         sigpacRef: String?,
         location: Location?,
         cropToSquare: Boolean,
         jpegQuality: Int,
         overlayOptions: Set<OverlayOption>
-    ): Uri {
-        // 1. Cargar y Corregir Orientación
+    ): Map<String, Uri> {
+        // 1. Cargar y Corregir Orientación (Solo una vez)
         val exifOriginal = ExifInterface(sourceFile.absolutePath)
         val orientation = exifOriginal.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         
@@ -121,109 +134,118 @@ object CameraCaptureLogic {
 
         val mutableBitmap = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, true)
         
-        // 3. Dibujar Overlay Configurable
+        // 3. Dibujar Overlay Configurable (Solo una vez en el bitmap final)
         if (overlayOptions.isNotEmpty()) {
-            drawOverlay(mutableBitmap, location, sigpacRef, projectId, overlayOptions)
+            // Nota: El overlay mostrará el primer proyecto si hay varios, o "SIN PROYECTO"
+            val displayProject = if (targetFolders.contains("SIN PROYECTO")) null else targetFolders.firstOrNull()
+            drawOverlay(mutableBitmap, location, sigpacRef, displayProject, overlayOptions)
         }
-        
-        // 4. Guardar en MediaStore
-        val projectFolder = projectId ?: "SIN PROYECTO"
+
         val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val filename = "${safeSigpacRef}-$timestamp.jpg"
-        val relativePath = "DCIM/GeoSIGPAC/$projectFolder/$safeSigpacRef"
-
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                put(MediaStore.MediaColumns.IS_PENDING, 1)
-            }
-        }
-
-        val resolver = context.contentResolver
-        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues) 
-            ?: throw Exception("Failed to create MediaStore entry")
-
-        resolver.openOutputStream(uri)?.use { out ->
-            mutableBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out)
-        }
         
-        // 5. Inyectar TODOS los metadatos EXIF posibles
-        try {
-            resolver.openFileDescriptor(uri, "rw")?.use { fd ->
-                val exifFinal = ExifInterface(fd.fileDescriptor)
-                val dateFormat = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
-                val now = Date()
+        val resultMap = mutableMapOf<String, Uri>()
+        val resolver = context.contentResolver
 
-                // A. GPS (Mandatorio)
-                if (location != null) {
-                    val lat = location.latitude
-                    val latRef = if (lat > 0) "N" else "S"
-                    exifFinal.setAttribute(ExifInterface.TAG_GPS_LATITUDE, toDMS(lat))
-                    exifFinal.setAttribute(ExifInterface.TAG_GPS_LATITUDE_REF, latRef)
-                    
-                    val lon = location.longitude
-                    val lonRef = if (lon > 0) "E" else "W"
-                    exifFinal.setAttribute(ExifInterface.TAG_GPS_LONGITUDE, toDMS(lon))
-                    exifFinal.setAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF, lonRef)
-                    
-                    val alt = location.altitude
-                    val altRef = if (alt < 0) "1" else "0"
-                    val altNum = Math.abs(alt) * 1000
-                    exifFinal.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${altNum.toInt()}/1000")
-                    exifFinal.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, altRef)
+        // 4. Guardar una copia por cada Proyecto destino
+        for (folderName in targetFolders) {
+            // Estructura: DCIM/GeoSIGPAC/[Nombre Proyecto]/[Ref Sigpac]/[Fichero]
+            val relativePath = "DCIM/GeoSIGPAC/$folderName/$safeSigpacRef"
 
-                    // GPS Date/Time
-                    val gpsDateFmt = SimpleDateFormat("yyyy:MM:dd", Locale.getDefault())
-                    val gpsTimeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                    exifFinal.setAttribute(ExifInterface.TAG_GPS_DATESTAMP, gpsDateFmt.format(now))
-                    exifFinal.setAttribute(ExifInterface.TAG_GPS_TIMESTAMP, gpsTimeFmt.format(now))
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
-
-                // B. Fechas
-                val dateStr = dateFormat.format(now)
-                exifFinal.setAttribute(ExifInterface.TAG_DATETIME, dateStr)
-                exifFinal.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, dateStr)
-                exifFinal.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, dateStr)
-
-                // C. Dispositivo
-                exifFinal.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER)
-                exifFinal.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL)
-                exifFinal.setAttribute(ExifInterface.TAG_SOFTWARE, "GeoSIGPAC App")
-
-                // D. Datos SIGPAC (Trazabilidad)
-                val cleanRef = sigpacRef ?: "N/D"
-                val cleanProj = projectId ?: "N/D"
-                val userComment = "REF:$cleanRef|PROJ:$cleanProj"
-                exifFinal.setAttribute(ExifInterface.TAG_USER_COMMENT, userComment)
-                exifFinal.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, "Inspección SIGPAC Ref: $cleanRef")
-
-                exifFinal.saveAttributes()
             }
-        } catch (e: Exception) {
-            Log.e("Camera", "Failed to write EXIF", e)
-        }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            contentValues.clear()
-            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-            resolver.update(uri, contentValues, null, null)
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues) 
+            
+            if (uri != null) {
+                try {
+                    resolver.openOutputStream(uri)?.use { out ->
+                        mutableBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out)
+                    }
+                    
+                    // 5. Inyectar Metadatos EXIF
+                    resolver.openFileDescriptor(uri, "rw")?.use { fd ->
+                        val exifFinal = ExifInterface(fd.fileDescriptor)
+                        writeExifData(exifFinal, location, sigpacRef, folderName)
+                        exifFinal.saveAttributes()
+                    }
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        contentValues.clear()
+                        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        resolver.update(uri, contentValues, null, null)
+                    }
+                    
+                    resultMap[folderName] = uri
+                } catch (e: Exception) {
+                    Log.e("Camera", "Failed to save for project $folderName", e)
+                }
+            }
         }
 
         mutableBitmap.recycle()
         rotatedBitmap.recycle()
         bitmap.recycle()
         
-        return uri
+        return resultMap
+    }
+
+    private fun writeExifData(exif: ExifInterface, location: Location?, sigpacRef: String?, projectName: String) {
+        val dateFormat = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
+        val now = Date()
+
+        // A. GPS
+        if (location != null) {
+            val lat = location.latitude
+            val latRef = if (lat > 0) "N" else "S"
+            exif.setAttribute(ExifInterface.TAG_GPS_LATITUDE, toDMS(lat))
+            exif.setAttribute(ExifInterface.TAG_GPS_LATITUDE_REF, latRef)
+            
+            val lon = location.longitude
+            val lonRef = if (lon > 0) "E" else "W"
+            exif.setAttribute(ExifInterface.TAG_GPS_LONGITUDE, toDMS(lon))
+            exif.setAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF, lonRef)
+            
+            val alt = location.altitude
+            val altRef = if (alt < 0) "1" else "0"
+            val altNum = Math.abs(alt) * 1000
+            exif.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${altNum.toInt()}/1000")
+            exif.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, altRef)
+
+            val gpsDateFmt = SimpleDateFormat("yyyy:MM:dd", Locale.getDefault())
+            val gpsTimeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            exif.setAttribute(ExifInterface.TAG_GPS_DATESTAMP, gpsDateFmt.format(now))
+            exif.setAttribute(ExifInterface.TAG_GPS_TIMESTAMP, gpsTimeFmt.format(now))
+        }
+
+        // B. Fechas y Dispositivo
+        val dateStr = dateFormat.format(now)
+        exif.setAttribute(ExifInterface.TAG_DATETIME, dateStr)
+        exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, dateStr)
+        exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, dateStr)
+        exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER)
+        exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL)
+        exif.setAttribute(ExifInterface.TAG_SOFTWARE, "GeoSIGPAC App")
+
+        // C. Datos SIGPAC
+        val cleanRef = sigpacRef ?: "N/D"
+        val userComment = "REF:$cleanRef|PROJ:$projectName"
+        exif.setAttribute(ExifInterface.TAG_USER_COMMENT, userComment)
+        exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, "Inspección SIGPAC Ref: $cleanRef Proyecto: $projectName")
     }
 
     private fun drawOverlay(
         bitmap: Bitmap, 
         location: Location?, 
         sigpacRef: String?, 
-        projectId: String?,
+        projectName: String?,
         options: Set<OverlayOption>
     ) {
         val canvas = Canvas(bitmap)
@@ -244,7 +266,6 @@ object CameraCaptureLogic {
             style = Paint.Style.FILL
         }
         
-        // Calcular líneas a dibujar
         val lines = mutableListOf<Pair<String, Int>>()
         
         if (options.contains(OverlayOption.DATE)) {
@@ -266,8 +287,8 @@ object CameraCaptureLogic {
             lines.add("SIGPAC: $refStr" to AndroidColor.YELLOW)
         }
 
-        if (options.contains(OverlayOption.PROJECT) && projectId != null) {
-            lines.add("ID: $projectId" to AndroidColor.CYAN)
+        if (options.contains(OverlayOption.PROJECT) && projectName != null) {
+            lines.add("PROY: $projectName" to AndroidColor.CYAN)
         }
 
         if (lines.isEmpty()) return
@@ -276,7 +297,6 @@ object CameraCaptureLogic {
         val padding = lineHeight * 0.5f
         val boxHeight = (lineHeight * lines.size) + (padding * 2)
         
-        // Calcular el ancho máximo del texto para dimensionar la caja de fondo
         var maxTextWidth = 0f
         lines.forEach { (text, _) ->
             val textWidth = paintText.measureText(text)
@@ -284,10 +304,8 @@ object CameraCaptureLogic {
         }
         val boxWidth = maxTextWidth + (padding * 2)
         
-        // Dibujar Fondo (Limitado al ancho del texto)
         canvas.drawRect(0f, h - boxHeight, boxWidth, h.toFloat(), paintBg)
         
-        // Dibujar Líneas
         val startX = padding
         var startY = h - boxHeight + padding + lineHeight - (lineHeight * 0.2f)
         

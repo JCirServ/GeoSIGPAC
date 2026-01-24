@@ -308,20 +308,43 @@ fun CameraScreen(
                 CameraQuality.LOW -> 60
             }
 
+            // 1. Identificar Proyectos Coincidentes
+            val matchedExpedientes = if (sigpacRef != null) {
+                expedientes.filter { exp -> exp.parcelas.any { it.referencia == sigpacRef } }
+            } else {
+                emptyList()
+            }
+            
+            val projectNames = matchedExpedientes.map { it.titular }
+
             CameraCaptureLogic.takePhoto(
-                context, imageCaptureUseCase, projectId, sigpacRef, currentLocation,
+                context, imageCaptureUseCase, projectNames, sigpacRef, currentLocation,
                 cropToSquare = cropToSquare,
                 jpegQuality = jpegQuality,
                 overlayOptions = overlayOptions,
-                onImageCaptured = { uri -> 
+                onImageCaptured = { uriMap -> 
                     isProcessingImage = false
-                    if (matchedParcelInfo != null) {
-                        val (exp, parc) = matchedParcelInfo
-                        val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
-                        val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
-                        onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                    
+                    // 2. Actualizar Estado de los Expedientes afectados
+                    if (matchedExpedientes.isNotEmpty() && sigpacRef != null) {
+                        val newExpedientes = expedientes.map { exp ->
+                            val projectUri = uriMap[exp.titular]
+                            if (projectUri != null && exp.parcelas.any { it.referencia == sigpacRef }) {
+                                exp.copy(parcelas = exp.parcelas.map { p ->
+                                    if (p.referencia == sigpacRef) {
+                                        p.copy(photos = p.photos + projectUri.toString())
+                                    } else p
+                                })
+                            } else exp
+                        }
+                        onUpdateExpedientes(newExpedientes)
                     }
-                    onImageCaptured(uri) 
+                    
+                    // Notificar UI con una de las URIs (la primera disponible) para preview
+                    val previewUri = uriMap.values.firstOrNull()
+                    if (previewUri != null) {
+                        onImageCaptured(previewUri)
+                    }
                 }, 
                 onError = { isProcessingImage = false; onError(it) }
             )
