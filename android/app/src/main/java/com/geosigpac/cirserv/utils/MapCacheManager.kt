@@ -1,20 +1,20 @@
+
 package com.geosigpac.cirserv.utils
 
 import android.content.Context
-import org.maplibre.android.MapLibre
 import org.maplibre.android.storage.FileSource
 import java.io.File
 
 object MapCacheManager {
     
     fun setupCache(context: Context) {
-        // Configurar tamaño máximo de caché a 500MB
+        // Configurar directorio de caché
         val cacheDir = File(context.cacheDir, "maplibre-tiles")
         if (!cacheDir.exists()) cacheDir.mkdirs()
         
-        FileSource.getInstance(context).apply {
-            setDiskCacheMaximumSize(500 * 1024 * 1024L) // 500MB
-        }
+        // Nota: En MapLibre v11+ la gestión del tamaño de caché es automática o interna.
+        // La llamada setDiskCacheMaximumSize ha sido eliminada para compatibilidad.
+        // FileSource.getInstance(context).setResourceCachePath(cacheDir.absolutePath)
     }
     
     fun clearCache(context: Context) {
