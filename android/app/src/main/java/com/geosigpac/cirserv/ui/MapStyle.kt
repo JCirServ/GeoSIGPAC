@@ -61,7 +61,8 @@ fun loadMapStyle(
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
-                    PropertyFactory.fillOpacity(0.35f)
+                    PropertyFactory.fillOpacity(0.35f),
+                    PropertyFactory.fillAntialias(false) // Previene lineas en cultivos también
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -84,7 +85,8 @@ fun loadMapStyle(
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
                     PropertyFactory.fillOpacity(0.15f), // Opacidad suficiente para ver el color pero ver el fondo
-                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb())
+                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula estática
                 )
                 style.addLayer(tintLayer)
 
@@ -95,7 +97,8 @@ fun loadMapStyle(
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 borderLayer.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(borderColor.toArgb())
+                    PropertyFactory.fillOutlineColor(borderColor.toArgb()),
+                    PropertyFactory.fillAntialias(true) // En bordes finos queremos antialias para que no se vean sierra
                 )
                 style.addLayer(borderLayer)
 
@@ -108,7 +111,8 @@ fun loadMapStyle(
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
                     PropertyFactory.fillOpacity(0.5f), 
-                    PropertyFactory.visibility(Property.VISIBLE)
+                    PropertyFactory.visibility(Property.VISIBLE),
+                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula al resaltar
                 )
                 style.addLayer(highlightFill)
 
