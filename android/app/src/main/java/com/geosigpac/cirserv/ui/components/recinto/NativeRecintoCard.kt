@@ -97,18 +97,21 @@ fun NativeRecintoCard(
         }
     }
 
+    // Capturamos el color surface fuera de remember porque MaterialTheme.colorScheme es @Composable
+    val surfaceColor = MaterialTheme.colorScheme.surface
+
     // El fondo de la tarjeta ahora refleja la severidad del problema
-    val cardBackgroundColor = remember(isFullyCompleted, agroAnalysis, isLoading) {
+    val cardBackgroundColor = remember(isFullyCompleted, agroAnalysis, isLoading, surfaceColor) {
         if (isFullyCompleted) {
             Color(0xFF00FF88).copy(alpha = 0.15f)
         } else if (!isLoading && agroAnalysis != null) {
             when (agroAnalysis.severity) {
                 AnalysisSeverity.CRITICAL -> Color(0xFFFF5252).copy(alpha = 0.15f)
                 AnalysisSeverity.WARNING -> Color(0xFFFF9800).copy(alpha = 0.15f)
-                else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                else -> surfaceColor.copy(alpha = 0.5f)
             }
         } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+            surfaceColor.copy(alpha = 0.5f)
         }
     }
 
