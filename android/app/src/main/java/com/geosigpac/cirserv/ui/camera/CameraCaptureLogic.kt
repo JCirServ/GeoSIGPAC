@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv.ui.camera
 
 import android.content.ContentValues
@@ -20,7 +19,9 @@ import android.view.WindowManager
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -55,7 +56,7 @@ object CameraCaptureLogic {
                     onError(exc) 
                 }
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    CoroutineScope(Dispatchers.IO).launch {
                         try {
                             val finalUri = processImageWithOverlay(context, tempFile, projectId, sigpacRef, location)
                             tempFile.delete()
