@@ -74,24 +74,16 @@ fun NativeProjectManager(
                 while (true) {
                     val currentList = currentExpedientesState.value
                     val exp = currentList.find { it.id == targetExpId } ?: break
+                    val parcelaToHydrate = exp.parcelas.find { !it.isHydrated } 
                     
-                    // Condición de Hidratación:
-                    // 1. No está hidratada (!isHydrated)
-                    // 2. O está "hidratada" pero tiene geometría de Punto Provisional ("type": "Point") que debemos reemplazar por polígono.
-                    val parcelaToHydrate = exp.parcelas.find { 
-                        !it.isHydrated || (it.geometryRaw != null && it.geometryRaw.contains("\"type\": \"Point\"", ignoreCase = true))
-                    }
-                    
-                    if (parcelaToHydrate == null) break // Todo procesado y georreferenciado
+                    if (parcelaToHydrate == null) break // Todo hidratado
                     
                     var updatedParcela = parcelaToHydrate.copy(isHydrated = true)
 
-                    // CASO 1: Geometría Pendiente (Es null o es un Punto Provisional)
-                    // Intentamos recuperar la geometría real y referencia usando coordenadas
-                    val isProvisionalPoint = parcelaToHydrate.geometryRaw?.contains("Point", ignoreCase = true) == true
-                    
-                    if ((parcelaToHydrate.geometryRaw == null || isProvisionalPoint) && parcelaToHydrate.centroidLat != null) {
-                        Log.d("SigpacDebug", "Hydrating Geometry for ${parcelaToHydrate.id} (Is Point: $isProvisionalPoint)")
+                    // CASO 1: Parcela importada como PUNTO (sin geometría, ref pendiente)
+                    // Intentamos recuperar la referencia real usando coordenadas
+                    if (parcelaToHydrate.geometryRaw == null && parcelaToHydrate.centroidLat != null) {
+                        Log.d("SigpacDebug", "Hydrating Point Marker: ${parcelaToHydrate.centroidLat}, ${parcelaToHydrate.centroidLng}")
                         val (realRef, realGeom, realSigpac) = SigpacApiService.recoverParcelaFromPoint(
                             parcelaToHydrate.centroidLat, 
                             parcelaToHydrate.centroidLng!!
@@ -100,32 +92,46 @@ fun NativeProjectManager(
                         if (realRef != null) {
                             updatedParcela = updatedParcela.copy(
                                 referencia = realRef,
-                                geometryRaw = realGeom, // Aquí reemplazamos el Punto por el Polígono
+                                geometryRaw = realGeom,
                                 sigpacInfo = realSigpac
                             )
                         } else {
-                            Log.w("SigpacDebug", "Failed to recover geometry for ${parcelaToHydrate.id}")
-                            // Si falla, marcamos hidratada para no buclear, pero se queda como punto.
-                            // Podríamos añadir un flag 'geometryFailed = true' si fuera necesario.
+                            // SI FALLA LA RECUPERACIÓN (ej: punto fuera de mapa), marcamos como hidratada pero fallida y pasamos a la siguiente
+                            // para evitar bucles o llamadas erróneas a la API
+                            Log.w("SigpacDebug", "Failed to recover reference for point ${parcelaToHydrate.id}. Skipping deep hydration.")
+                            val failedParcela = updatedParcela.copy(
+                                isHydrated = true,
+                                uso = "Ubicación no válida"
+                            )
+                            val updatedList = currentExpedientesState.value.map { e ->
+                                if (e.id == targetExpId) {
+                                    e.copy(parcelas = e.parcelas.map { p -> if (p.id == parcelaToHydrate.id) failedParcela else p })
+                                } else e
+                            }
+                            onUpdateExpedientes(updatedList)
+                            delay(100)
+                            continue // Siguiente parcela
                         }
                     }
 
                     // VALIDACIÓN DE SEGURIDAD:
+                    // Si la referencia no es válida (no contiene ':' o sigue siendo 'PENDIENTE'), NO llamamos a fetchHydration
                     if (!updatedParcela.referencia.contains(":") || updatedParcela.referencia.startsWith("PENDIENTE")) {
-                        // Guardamos estado fallido/parcial y continuamos
+                        Log.w("SigpacDebug", "Skipping deep hydration for invalid reference: ${updatedParcela.referencia}")
+                        val failedParcela = updatedParcela.copy(isHydrated = true)
                         val updatedList = currentExpedientesState.value.map { e ->
                              if (e.id == targetExpId) {
-                                 e.copy(parcelas = e.parcelas.map { p -> if (p.id == parcelaToHydrate.id) updatedParcela else p })
+                                 e.copy(parcelas = e.parcelas.map { p -> if (p.id == parcelaToHydrate.id) failedParcela else p })
                              } else e
                         }
                         onUpdateExpedientes(updatedList)
-                        delay(50)
+                        delay(100)
                         continue
                     }
 
-                    // CASO 2: Hidratación de Datos (Cultivo y Análisis)
-                    // Solo si ya tenemos referencia válida y geometría real
-                    Log.d("SigpacDebug", "Fetching Attributes for: ${updatedParcela.referencia}")
+                    // CASO 2: Hidratación Normal (Datos Cultivo y Análisis IA)
+                    // Solo llegamos aquí si tenemos una referencia válida
+                    Log.d("SigpacDebug", "Fetching Details for: ${updatedParcela.referencia}")
                     
                     val pointCheck = if(updatedParcela.area == 0.0 && updatedParcela.centroidLat != null && updatedParcela.centroidLng != null) {
                         Pair(updatedParcela.centroidLat, updatedParcela.centroidLng)
@@ -145,7 +151,7 @@ fun NativeProjectManager(
                         sigpacInfo = finalSigpac,
                         cultivoInfo = cultivo,
                         informeIA = reportIA,
-                        isHydrated = true // Marcamos completado
+                        isHydrated = true
                     )
 
                     // Commit update
@@ -155,7 +161,7 @@ fun NativeProjectManager(
                         } else e
                     }
                     onUpdateExpedientes(updatedList)
-                    delay(300) 
+                    delay(400) // Delay respetuoso para no saturar
                 }
             } catch (e: Exception) {
                 Log.e("Hydration", "Error hydrating $targetExpId: ${e.message}")
@@ -167,8 +173,7 @@ fun NativeProjectManager(
 
     LaunchedEffect(expedientes) {
         expedientes.forEach { exp ->
-            // Chequeamos si hay algo sin hidratar O si hay puntos provisionales pendientes de conversión
-            if (exp.parcelas.any { !it.isHydrated || (it.geometryRaw?.contains("\"type\": \"Point\"") == true) }) {
+            if (exp.parcelas.any { !it.isHydrated }) {
                 startHydrationSequence(exp.id)
             }
         }

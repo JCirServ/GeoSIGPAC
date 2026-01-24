@@ -28,32 +28,19 @@ object MapLayers {
             if (style.getSource(SOURCE_PROJECTS) == null) {
                 style.addSource(GeoJsonSource(SOURCE_PROJECTS))
                 
-                // 1. Relleno Parcela (Polígonos)
+                // Relleno Parcela
                 style.addLayer(FillLayer(LAYER_PROJECTS_FILL, SOURCE_PROJECTS).apply {
                     setProperties(PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), PropertyFactory.fillOpacity(0.3f))
                     setFilter(Expression.eq(Expression.get("type"), Expression.literal("parcela")))
                 })
                 
-                // 2. Línea Parcela (Polígonos)
+                // Línea Parcela
                 style.addLayer(LineLayer(LAYER_PROJECTS_LINE, SOURCE_PROJECTS).apply {
                     setProperties(PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()), PropertyFactory.lineWidth(1.5f))
                     setFilter(Expression.eq(Expression.get("type"), Expression.literal("parcela")))
                 })
                 
-                // 3. Puntos Pendientes / Provisionales
-                // Se renderizan como círculos grandes del mismo color que el relleno de polígono para indicar "esto será un recinto"
-                style.addLayer(CircleLayer("projects-pending-point", SOURCE_PROJECTS).apply {
-                    setProperties(
-                        PropertyFactory.circleColor(Color(0xFF2196F3).toArgb()), // Mismo azul que el relleno
-                        PropertyFactory.circleOpacity(0.6f),
-                        PropertyFactory.circleRadius(8f),
-                        PropertyFactory.circleStrokeColor(Color(0xFF0D47A1).toArgb()),
-                        PropertyFactory.circleStrokeWidth(2f)
-                    )
-                    setFilter(Expression.eq(Expression.get("type"), Expression.literal("pending_point")))
-                })
-
-                // 4. Centroide (Punto Informativo)
+                // Centroide (Punto)
                 style.addLayer(CircleLayer(LAYER_PROJECTS_CENTROID, SOURCE_PROJECTS).apply {
                     setProperties(
                         PropertyFactory.circleColor(Color(0xFF00FF88).toArgb()),
@@ -78,22 +65,20 @@ object MapLayers {
         
         currentExpedientes.filter { visibleIds.contains(it.id) }.forEach { exp ->
             exp.parcelas.forEach { p ->
-                // 1. Geometría (Polygon/MultiPolygon o Point Provisional)
+                // 1. Geometría (Polygon/MultiPolygon)
                 if (p.geometryRaw != null) {
                     val raw = p.geometryRaw.trim()
                     
-                    // A. GeoJSON Directo (Hidratado o Punto Provisional)
+                    // A. GeoJSON Directo (Hidratado desde API)
                     if (raw.startsWith("{")) {
                         try {
-                            // Detectamos si es un Punto Provisional
-                            val isPoint = raw.contains("\"type\": \"Point\"", ignoreCase = true) || raw.contains("\"type\":\"Point\"", ignoreCase = true)
-                            val type = if (isPoint) "pending_point" else "parcela"
-
+                            // Construimos el Feature JSON completo con propiedades INCRUSTADAS
+                            // Esto evita problemas de mutabilidad o referencias perdidas al usar addStringProperty después
                             val featureJson = """
                                 {
                                     "type": "Feature", 
                                     "properties": {
-                                        "type": "$type",
+                                        "type": "parcela",
                                         "ref": "${p.referencia}"
                                     }, 
                                     "geometry": $raw
@@ -133,16 +118,13 @@ object MapLayers {
                     }
                 }
 
-                // 2. Punto del Centroide oficial (si no es un punto provisional, para no duplicar dots)
+                // 2. Punto del Centroide oficial
                 if (p.centroidLat != null && p.centroidLng != null) {
-                    val isPendingPoint = p.geometryRaw != null && (p.geometryRaw.contains("Point", ignoreCase = true))
-                    if (!isPendingPoint) {
-                        val centerPoint = Point.fromLngLat(p.centroidLng, p.centroidLat)
-                        val feat = Feature.fromGeometry(centerPoint)
-                        feat.addStringProperty("type", "centroid")
-                        feat.addStringProperty("ref", p.referencia)
-                        features.add(feat)
-                    }
+                    val centerPoint = Point.fromLngLat(p.centroidLng, p.centroidLat)
+                    val feat = Feature.fromGeometry(centerPoint)
+                    feat.addStringProperty("type", "centroid")
+                    feat.addStringProperty("ref", p.referencia)
+                    features.add(feat)
                 }
             }
         }

@@ -161,24 +161,22 @@ object KmlParser {
                         val coordsText = coordsTag.item(0).textContent.trim()
                         
                         if (isPointGeometry) {
-                            // Caso PUNTO: Guardamos el GeoJSON del punto como geometría PROVISIONAL
-                            // NativeProjectManager detectará que es un punto y lo reemplazará por el polígono real
+                            // Caso PUNTO: Extraer lat/lng y marcar para búsqueda remota
                             val parts = coordsText.split(",")
                             if (parts.size >= 2) {
                                 val lng = parts[0].toDoubleOrNull() ?: 0.0
                                 val lat = parts[1].toDoubleOrNull() ?: 0.0
                                 centroidLat = lat
                                 centroidLng = lng
+                                coordsRaw = null // Dejamos null para que el ProjectManager sepa que debe buscar la geometría real
                                 
-                                // Generamos GeoJSON Point válido
-                                coordsRaw = """{"type": "Point", "coordinates": [$lng, $lat]}"""
-                                
+                                // Si no tenemos una referencia válida parseada, ponemos una temporal
                                 if (!displayRef.contains(":")) {
                                     displayRef = "PENDIENTE_${i}"
                                 }
                             }
                         } else {
-                            // Caso POLÍGONO
+                            // Caso POLÍGONO: Lógica existente
                             coordsRaw = coordsText
                             val polygonPoints = mutableListOf<Pair<Double, Double>>()
                             val rawCoords = coordsText.split("\\s+".toRegex())
@@ -238,6 +236,9 @@ object KmlParser {
         return parcelas
     }
 
+    /**
+     * Algoritmo Ray Casting: Devuelve true si el punto (testLat, testLng) está dentro del polígono.
+     */
     private fun isPointInPolygon(testLat: Double, testLng: Double, polygon: List<Pair<Double, Double>>): Boolean {
         var inside = false
         var j = polygon.lastIndex
@@ -245,6 +246,8 @@ object KmlParser {
         for (i in polygon.indices) {
             val (latI, lngI) = polygon[i]
             val (latJ, lngJ) = polygon[j]
+            
+            // Verifica intersección del rayo horizontal proyectado hacia la derecha
             if (((latI > testLat) != (latJ > testLat)) &&
                 (testLng < (lngJ - lngI) * (testLat - latI) / (latJ - latI) + lngI)) {
                 inside = !inside
@@ -254,24 +257,38 @@ object KmlParser {
         return inside
     }
 
+    /**
+     * Encuentra un punto garantizado dentro del polígono.
+     * Traza una línea horizontal en refLat y encuentra el punto medio del primer segmento de intersección.
+     */
     private fun getInternalPoint(refLat: Double, polygon: List<Pair<Double, Double>>): Pair<Double, Double> {
         val intersections = mutableListOf<Double>()
         var j = polygon.lastIndex
         
+        // 1. Encontrar todas las intersecciones de longitud en la latitud de referencia
         for (i in polygon.indices) {
             val (latI, lngI) = polygon[i]
             val (latJ, lngJ) = polygon[j]
+            
+            // Si el segmento cruza la latitud de referencia
             if ((latI > refLat) != (latJ > refLat)) {
+                // Calcular longitud de intersección (Interpolación lineal)
                 val intersectLng = (lngJ - lngI) * (refLat - latI) / (latJ - latI) + lngI
                 intersections.add(intersectLng)
             }
             j = i
         }
+        
+        // 2. Ordenar intersecciones de oeste a este
         intersections.sort()
+        
+        // 3. Tomar el punto medio del primer par de intersecciones (Define un segmento "dentro" del polígono)
         if (intersections.size >= 2) {
             val newLng = (intersections[0] + intersections[1]) / 2.0
             return refLat to newLng
         }
+        
+        // Fallback extremo: Si falla la geometría (polígono inválido), devuelve el primer vértice.
         return polygon.firstOrNull() ?: (0.0 to 0.0)
     }
 
