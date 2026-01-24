@@ -34,7 +34,8 @@ fun loadMapStyle(
 ) {
     val styleBuilder = Style.Builder()
 
-    // 1. CAPA DE FONDO: Esta es la clave. Al ser negra, las grietas blancas desaparecen.
+    // 1. CAPA DE FONDO: Crucial para ocultar las grietas blancas.
+    // Al poner un fondo negro, cualquier separación de 1px entre tiles será invisible.
     val backgroundLayer = org.maplibre.android.style.layers.BackgroundLayer("background_fill")
     backgroundLayer.setProperties(PropertyFactory.backgroundColor(android.graphics.Color.BLACK))
     styleBuilder.withLayer(backgroundLayer)
@@ -51,15 +52,14 @@ fun loadMapStyle(
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
     styleBuilder.withSource(rasterSource)
 
-    // 2. CAPA RÁSTER: Eliminamos la línea problemática para asegurar que compile.
-    // El fondo negro de la capa anterior hará el trabajo sucio.
+    // 2. CAPA RÁSTER (BaseMap)
     val baseLayer = RasterLayer(LAYER_BASE, SOURCE_BASE)
     styleBuilder.withLayer(baseLayer)
 
     map.setStyle(styleBuilder) { style ->
         
-        map.setPrefetchTiles(true)
-
+        // Eliminado setPrefetchTiles para evitar errores de compilación en v11.5.1
+        
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
@@ -71,7 +71,7 @@ fun loadMapStyle(
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
-                    // Usamos copy(alpha = ...) para evitar líneas oscuras en solapes
+                    // Aplicar alpha directamente al color para evitar rejillas oscuras
                     PropertyFactory.fillColor(Color.Yellow.copy(alpha = 0.35f).toArgb())
                 )
                 style.addLayer(fillLayer)
@@ -87,15 +87,19 @@ fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
+                // CAPA 1: RELLENO (TINT)
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
+                    // TRUCO: Alpha en color + Antialias false elimina líneas de unión
                     PropertyFactory.fillColor(tintColor.copy(alpha = 0.15f).toArgb()),
-                    PropertyFactory.fillOutlineColor(android.graphics.Color.TRANSPARENT)
+                    PropertyFactory.fillOutlineColor(android.graphics.Color.TRANSPARENT),
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(tintLayer)
 
+                // CAPA 2: BORDE (OUTLINE)
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 val borderLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
@@ -112,8 +116,7 @@ fun loadMapStyle(
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightFill.setFilter(initialFilter)
                 highlightFill.setProperties(
-                    PropertyFactory.fillColor(HighlightColor.copy(alpha = 0.5f).toArgb()),
-                    PropertyFactory.visibility(Property.VISIBLE)
+                    PropertyFactory.fillColor(HighlightColor.copy(alpha = 0.5f).toArgb())
                 )
                 style.addLayer(highlightFill)
 
@@ -122,8 +125,7 @@ fun loadMapStyle(
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
                     PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineWidth(4f),
-                    PropertyFactory.visibility(Property.VISIBLE)
+                    PropertyFactory.lineWidth(4f)
                 )
                 style.addLayer(highlightLine)
                 
