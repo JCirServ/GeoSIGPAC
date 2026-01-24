@@ -13,17 +13,18 @@ import org.maplibre.android.style.layers.LineLayer
 object MapLogic {
 
     fun updateRealtimeInfo(map: MapLibreMap): String {
-        if (map.cameraPosition.zoom < 13) {
-            val emptyFilter = Expression.literal(false)
-            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
-            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+        // Blindaje extra: Si el zoom es bajo, abortar inmediatamente
+        if (map.cameraPosition.zoom < 13.5) {
             return ""
         }
-        val center = map.cameraPosition.target ?: return ""
-        val screenPoint = map.projection.toScreenLocation(center)
-        val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
         
         try {
+            val center = map.cameraPosition.target ?: return ""
+            val screenPoint = map.projection.toScreenLocation(center)
+            val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
+            
+            // Log.v(TAG_MAP, "Querying features at ${center.latitude}, ${center.longitude}")
+
             val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
             if (features.isNotEmpty()) {
                 val feature = features[0]
@@ -72,22 +73,22 @@ object MapLogic {
                 return ""
             }
         } catch (e: Exception) { 
-            Log.e(TAG_MAP, "Error realtime update: ${e.message}") 
+            Log.e(TAG_MAP, "Error realtime update (Caught): ${e.message}") 
             return ""
         }
     }
 
     suspend fun fetchExtendedData(map: MapLibreMap): Pair<Map<String, String>?, Map<String, String>?> {
-        if (map.cameraPosition.zoom < 13) return Pair(null, null)
+        if (map.cameraPosition.zoom < 13.5) return Pair(null, null)
         
-        val center = map.cameraPosition.target ?: return Pair(null, null)
-        val screenPoint = map.projection.toScreenLocation(center)
-        val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
-        
-        var recinto: Map<String, String>? = null
-        var cultivo: Map<String, String>? = null
-
         try {
+            val center = map.cameraPosition.target ?: return Pair(null, null)
+            val screenPoint = map.projection.toScreenLocation(center)
+            val searchArea = RectF(screenPoint.x - 10f, screenPoint.y - 10f, screenPoint.x + 10f, screenPoint.y + 10f)
+            
+            var recinto: Map<String, String>? = null
+            var cultivo: Map<String, String>? = null
+
             // 1. Recinto (Completo desde API)
             val fullData = fetchFullSigpacInfo(center.latitude, center.longitude)
             if (fullData != null) {
@@ -113,46 +114,49 @@ object MapLogic {
             }
 
             // 2. Cultivo (Vector Tiles)
-            val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
-            if (cultFeatures.isNotEmpty()) {
-                 // LÓGICA DE SELECCIÓN POR MAYOR Nº EXPEDIENTE
-                 val bestFeature = cultFeatures.maxByOrNull { feat ->
-                     val p = feat.properties()
-                     val rawExp = p?.get("exp_num")
-                     when {
-                         rawExp == null -> 0L
-                         rawExp.isJsonPrimitive && rawExp.asJsonPrimitive.isNumber -> rawExp.asJsonPrimitive.asLong
-                         rawExp.isJsonPrimitive && rawExp.asJsonPrimitive.isString -> {
-                             // Intentamos limpiar y parsear si viene como string
-                             rawExp.asJsonPrimitive.asString.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L
+            // Se envuelve en try-catch por seguridad extra
+            try {
+                val cultFeatures = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL)
+                if (cultFeatures.isNotEmpty()) {
+                     val bestFeature = cultFeatures.maxByOrNull { feat ->
+                         val p = feat.properties()
+                         val rawExp = p?.get("exp_num")
+                         when {
+                             rawExp == null -> 0L
+                             rawExp.isJsonPrimitive && rawExp.asJsonPrimitive.isNumber -> rawExp.asJsonPrimitive.asLong
+                             rawExp.isJsonPrimitive && rawExp.asJsonPrimitive.isString -> {
+                                 rawExp.asJsonPrimitive.asString.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L
+                             }
+                             else -> 0L
                          }
-                         else -> 0L
-                     }
-                 } ?: cultFeatures[0]
+                     } ?: cultFeatures[0]
 
-                 val props = bestFeature.properties()
-                 if (props != null) {
-                    val mapProps = mutableMapOf<String, String>()
-                    props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
-                    
-                    val rawAprovecha = mapProps["tipo_aprovecha"]
-                    val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
-                    mapProps["tipo_aprovecha"] = translatedAprovecha ?: rawAprovecha ?: "-"
-                    
-                    val rawProd = mapProps["parc_producto"]
-                    val translatedProd = SigpacCodeManager.getProductoDescription(rawProd)
-                    mapProps["parc_producto"] = translatedProd ?: rawProd ?: "-"
-                    
-                    val rawProdSec = mapProps["cultsecun_producto"]
-                    val translatedProdSec = SigpacCodeManager.getProductoDescription(rawProdSec)
-                    mapProps["cultsecun_producto"] = translatedProdSec ?: rawProdSec ?: "-"
-                    
-                    cultivo = mapProps
+                     val props = bestFeature.properties()
+                     if (props != null) {
+                        val mapProps = mutableMapOf<String, String>()
+                        props.entrySet().forEach { mapProps[it.key] = it.value.toString().replace("\"", "") }
+                        
+                        val rawAprovecha = mapProps["tipo_aprovecha"]
+                        val translatedAprovecha = SigpacCodeManager.getAprovechamientoDescription(rawAprovecha)
+                        mapProps["tipo_aprovecha"] = translatedAprovecha ?: rawAprovecha ?: "-"
+                        
+                        val rawProd = mapProps["parc_producto"]
+                        val translatedProd = SigpacCodeManager.getProductoDescription(rawProd)
+                        mapProps["parc_producto"] = translatedProd ?: rawProd ?: "-"
+                        
+                        val rawProdSec = mapProps["cultsecun_producto"]
+                        val translatedProdSec = SigpacCodeManager.getProductoDescription(rawProdSec)
+                        mapProps["cultsecun_producto"] = translatedProdSec ?: rawProdSec ?: "-"
+                        
+                        cultivo = mapProps
+                    }
                 }
-            }
+            } catch (e: Exception) { Log.w(TAG_MAP, "Cultivo feature query failed: ${e.message}") }
+
+            return Pair(recinto, cultivo)
         } catch (e: Exception) { 
             Log.e(TAG_MAP, "Error querying extended features: ${e.message}") 
+            return Pair(null, null)
         }
-        return Pair(recinto, cultivo)
     }
 }

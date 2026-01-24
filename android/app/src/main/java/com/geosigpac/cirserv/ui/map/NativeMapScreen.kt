@@ -116,9 +116,11 @@ fun NativeMapScreen(
         recintoData = null
         cultivoData = null
         instantSigpacRef = ""
-        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(Expression.literal(false)) }
-        mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(Expression.literal(false)) }
-        mapInstance?.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        try {
+            mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(Expression.literal(false)) }
+            mapInstance?.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(Expression.literal(false)) }
+            mapInstance?.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        } catch (e: Exception) { Log.e("MapError", "Error clearing search: ${e.message}") }
     }
 
     // --- FUNCIÓN PERFORM SEARCH ---
@@ -158,12 +160,11 @@ fun NativeMapScreen(
                     // Calcular geometría local (Polígono o Punto KML)
                     val localResult = computeLocalBoundsAndFeature(targetParcel)
                     if (localResult != null) {
-                        // Dibujar y hacer Zoom Suave
-                        map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(localResult.feature)
-                        
-                        // Padding 300px: Aleja la cámara para ver contexto
-                        // Duration 3500ms: Vuelo lento para cargar tiles
-                        map.animateCamera(CameraUpdateFactory.newLatLngBounds(localResult.bounds, 300), 3500)
+                        try {
+                            // Dibujar y hacer Zoom Suave
+                            map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(localResult.feature)
+                            map.animateCamera(CameraUpdateFactory.newLatLngBounds(localResult.bounds, 300), 3500)
+                        } catch (e: Exception) { Log.e("MapError", "Error animating camera: ${e.message}") }
                     } else {
                         Toast.makeText(context, "Geometría pendiente de carga", Toast.LENGTH_SHORT).show()
                     }
@@ -185,27 +186,30 @@ fun NativeMapScreen(
             val prov = parts[0]; val mun = parts[1]; val pol = parts[2]; val parc = parts[3]; val rec = parts.getOrNull(4)
 
             // Filtro visual en capa MVT (Resaltado amarillo)
-            if (map.style != null) {
-                val filterList = mutableListOf<Expression>(
-                    Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
-                    Expression.eq(Expression.toString(Expression.get("municipio")), Expression.literal(mun)),
-                    Expression.eq(Expression.toString(Expression.get("poligono")), Expression.literal(pol)),
-                    Expression.eq(Expression.toString(Expression.get("parcela")), Expression.literal(parc))
-                )
-                if (rec != null) filterList.add(Expression.eq(Expression.toString(Expression.get("recinto")), Expression.literal(rec)))
-                
-                val filter = Expression.all(*filterList.toTypedArray())
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(filter) }
-                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
-            }
+            try {
+                if (map.style != null) {
+                    val filterList = mutableListOf<Expression>(
+                        Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
+                        Expression.eq(Expression.toString(Expression.get("municipio")), Expression.literal(mun)),
+                        Expression.eq(Expression.toString(Expression.get("poligono")), Expression.literal(pol)),
+                        Expression.eq(Expression.toString(Expression.get("parcela")), Expression.literal(parc))
+                    )
+                    if (rec != null) filterList.add(Expression.eq(Expression.toString(Expression.get("recinto")), Expression.literal(rec)))
+                    
+                    val filter = Expression.all(*filterList.toTypedArray())
+                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(filter) }
+                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
+                }
+            } catch (e: Exception) { Log.e("MapError", "Error setting filter: ${e.message}") }
 
             // Búsqueda de Geometría en API
             val result = searchParcelLocation(prov, mun, pol, parc, rec)
             if (result != null) {
-                map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(result.feature)
-                // Padding 250px y 3000ms para búsqueda remota también
-                map.animateCamera(CameraUpdateFactory.newLatLngBounds(result.bounds, 250), 3000)
-                instantSigpacRef = searchQuery // Abrir ficha
+                try {
+                    map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(result.feature)
+                    map.animateCamera(CameraUpdateFactory.newLatLngBounds(result.bounds, 250), 3000)
+                    instantSigpacRef = searchQuery // Abrir ficha
+                } catch (e: Exception) { Log.e("MapError", "Error updating search result: ${e.message}") }
             } else {
                 Toast.makeText(context, "Ubicación no encontrada en SIGPAC", Toast.LENGTH_SHORT).show()
             }
@@ -232,56 +236,81 @@ fun NativeMapScreen(
                     if (searchActive) {
                         searchActive = false
                         // Limpiamos resultados visuales al mover el mapa manualmente
-                        map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-                        val emptyFilter = Expression.literal(false)
-                        map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
-                        map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+                        try {
+                            map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+                            val emptyFilter = Expression.literal(false)
+                            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
+                            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+                        } catch (e: Exception) { Log.e("MapError", "Error clearing visual search: ${e.message}") }
                     }
                 }
             }
 
             // Realtime Info
+            // FIX CRASHEO: Protegemos con Try-Catch y limitamos por Zoom para no saturar al alejar
             map.addOnCameraMoveListener { 
-                if (!searchActive) instantSigpacRef = MapLogic.updateRealtimeInfo(map)
+                if (!searchActive) {
+                    val currentZoom = map.cameraPosition.zoom
+                    // Log.d(TAG_MAP, "Zoom Level: $currentZoom")
+                    
+                    if (currentZoom > 13.5) { // Solo ejecutar lógica pesada si estamos cerca
+                        try {
+                            instantSigpacRef = MapLogic.updateRealtimeInfo(map)
+                        } catch (e: Exception) {
+                            Log.e(TAG_MAP, "CRASH PREVENTED in MoveListener: ${e.message}")
+                        }
+                    } else {
+                         // Si nos alejamos mucho, limpiamos para no dejar resaltados "fantasmas" y ahorrar recursos
+                         if (instantSigpacRef.isNotEmpty()) {
+                             instantSigpacRef = ""
+                             try {
+                                val emptyFilter = Expression.literal(false)
+                                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
+                                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
+                             } catch (e: Exception) {}
+                         }
+                    }
+                }
             }
 
             // Extended Data (Carga de atributos al detenerse)
             map.addOnCameraIdleListener {
                 if (!searchActive) {
-                    apiJob?.cancel()
-                    apiJob = scope.launch {
-                        isLoadingData = true
-                        try {
-                            val (r, c) = MapLogic.fetchExtendedData(map)
-                            if (r != null) {
-                                val baseId = "${r["provincia"]}-${r["municipio"]}-${r["poligono"]}-${r["parcela"]}-${r["recinto"]}"
-                                // FIX: Incluimos la firma del cultivo (sub-recintos) para detectar cambios
-                                // aunque sigamos en el mismo recinto físico.
-                                val cultivoHash = c?.toString() ?: "null"
-                                val uniqueId = "$baseId|$cultivoHash"
+                    // Validar zoom antes de lanzar corrutina
+                    if (map.cameraPosition.zoom > 13.5) {
+                        apiJob?.cancel()
+                        apiJob = scope.launch {
+                            isLoadingData = true
+                            try {
+                                val (r, c) = MapLogic.fetchExtendedData(map)
+                                if (r != null) {
+                                    val baseId = "${r["provincia"]}-${r["municipio"]}-${r["poligono"]}-${r["parcela"]}-${r["recinto"]}"
+                                    val cultivoHash = c?.toString() ?: "null"
+                                    val uniqueId = "$baseId|$cultivoHash"
 
-                                if (uniqueId != lastDataId) {
-                                    lastDataId = uniqueId
-                                    recintoData = r
-                                    cultivoData = c
-                                    instantSigpacRef = baseId.replace("-", ":")
+                                    if (uniqueId != lastDataId) {
+                                        lastDataId = uniqueId
+                                        recintoData = r
+                                        cultivoData = c
+                                        instantSigpacRef = baseId.replace("-", ":")
+                                        Log.d(TAG_MAP, "Data loaded for $uniqueId")
+                                    }
+                                } else {
+                                    lastDataId = null
+                                    recintoData = null
+                                    cultivoData = null
                                 }
-                            } else {
-                                lastDataId = null
-                                recintoData = null
-                                cultivoData = null
+                            } catch (e: Exception) {
+                                Log.e(TAG_MAP, "Error fetching idle data: ${e.message}")
+                            } finally {
+                                isLoadingData = false
                             }
-                        } catch (e: Exception) {
-                            Log.e(TAG_MAP, "Error fetching idle data: ${e.message}")
-                        } finally {
-                            isLoadingData = false
                         }
                     }
                 }
             }
 
             // Cargar Estilo Base
-            // CRITICAL FIX: Solo centramos al usuario si NO hay una búsqueda pendiente (searchTarget)
             val shouldCenterUser = !initialLocationSet && searchTarget.isNullOrEmpty()
             
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser) {
@@ -306,7 +335,6 @@ fun NativeMapScreen(
     // --- TRIGGER BÚSQUEDA EXTERNA (Desde botón Localizar) ---
     LaunchedEffect(searchTarget, mapInstance) {
         if (!searchTarget.isNullOrEmpty() && mapInstance != null) {
-            // Aumentado delay a 800ms para asegurar que la vista está lista
             delay(800) 
             searchQuery = searchTarget
             performSearch()
