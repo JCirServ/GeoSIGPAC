@@ -89,7 +89,7 @@ fun loadMapStyle(
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDES SIMULADOS (GROSOR MEDIANTE OFFSET)
+                // CAPA 2: BORDES SIMULADOS (GROSOR MEDIANTE OFFSET ESCALADO)
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 
                 // 2A. Borde Principal
@@ -102,13 +102,22 @@ fun loadMapStyle(
                 )
                 style.addLayer(borderLayerMain)
 
-                // 2B. Borde Secundario (Simula grosor)
+                // 2B. Borde Secundario (Simula grosor variable con zoom)
                 val borderLayerOffset = FillLayer("${LAYER_RECINTO_LINE}_offset", SOURCE_RECINTO)
                 borderLayerOffset.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 borderLayerOffset.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(borderColor.copy(alpha = 0.6f).toArgb()),
-                    PropertyFactory.fillTranslate(arrayOf(1f, 1f)), // Desplazamiento de 1px
+                    PropertyFactory.fillTranslate(
+                        Expression.interpolate(
+                            Expression.exponential(1.5f),
+                            Expression.zoom(),
+                            Expression.stop(10, arrayOf(0.3f, 0.3f)),
+                            Expression.stop(13, arrayOf(0.7f, 0.7f)),
+                            Expression.stop(16, arrayOf(1.5f, 1.5f)),
+                            Expression.stop(19, arrayOf(3f, 3f))
+                        )
+                    ),
                     PropertyFactory.fillAntialias(true)
                 )
                 style.addLayer(borderLayerOffset)
@@ -141,14 +150,23 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightLineMain)
 
-                // Resaltado Borde Secundario (Simula grosor)
+                // Resaltado Borde Secundario (Simula grosor variable con zoom)
                 val highlightLineOffset = FillLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_offset", SOURCE_RECINTO)
                 highlightLineOffset.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLineOffset.setFilter(initialFilter)
                 highlightLineOffset.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(HighlightColor.copy(alpha = 0.6f).toArgb()),
-                    PropertyFactory.fillTranslate(arrayOf(1f, 1f)),
+                    PropertyFactory.fillTranslate(
+                        Expression.interpolate(
+                            Expression.exponential(1.5f),
+                            Expression.zoom(),
+                            Expression.stop(10, arrayOf(0.3f, 0.3f)),
+                            Expression.stop(13, arrayOf(0.7f, 0.7f)),
+                            Expression.stop(16, arrayOf(1.5f, 1.5f)),
+                            Expression.stop(19, arrayOf(3f, 3f))
+                        )
+                    ),
                     PropertyFactory.visibility(Property.VISIBLE),
                     PropertyFactory.fillAntialias(true)
                 )
