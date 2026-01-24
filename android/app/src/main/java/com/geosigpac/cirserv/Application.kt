@@ -1,23 +1,22 @@
-// Crea: Application.kt
 package com.geosigpac.cirserv
 
 import android.app.Application
-import org.acra.ACRA
+import android.content.Context
 import org.acra.config.dialog
 import org.acra.config.mailSender
 import org.acra.data.StringFormat
+import org.acra.ktx.initAcra // Asegúrate de tener esta dependencia
 
 class GeoSigpacApplication : Application() {
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
-        
-        ACRA.init(this) {
-            buildConfigClass = BuildConfig::class.java
+
+        // Usamos initAcra para habilitar el DSL de Kotlin correctamente
+        initAcra {
             reportFormat = StringFormat.JSON
             
             mailSender {
                 mailTo = "tu@email.com"
-                subject = "GeoSIGPAC Crash Report"
                 reportAsFile = true
             }
             
