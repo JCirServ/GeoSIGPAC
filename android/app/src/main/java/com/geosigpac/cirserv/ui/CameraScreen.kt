@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.geosigpac.cirserv.model.NativeExpediente
+import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.ui.camera.*
 import com.geosigpac.cirserv.ui.components.recinto.NativeRecintoCard
 import com.geosigpac.cirserv.utils.CameraSettings
@@ -67,6 +68,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 @Composable
@@ -140,22 +143,63 @@ fun CameraScreen(
     var lastApiTimestamp by remember { mutableStateOf(0L) }
     var isProcessingImage by remember { mutableStateOf(false) }
 
-    // Actualizar referencia activa (Prioridad: Manual > API GPS)
-    val activeRef = manualSigpacRef ?: sigpacRef
+    // Estado para coincidencia geométrica (Ray Casting)
+    var geoMatchedParcel by remember { mutableStateOf<Pair<NativeExpediente, NativeParcela>?>(null) }
+
+    // Lógica de Ray Casting en tiempo real
+    LaunchedEffect(currentLocation, expedientes) {
+        if (currentLocation == null) return@LaunchedEffect
+        
+        withContext(Dispatchers.Default) {
+            val lat = currentLocation!!.latitude
+            val lng = currentLocation!!.longitude
+            var match: Pair<NativeExpediente, NativeParcela>? = null
+
+            // Priorizamos la búsqueda en los expedientes
+            // Buscamos si el punto está DENTRO de la geometría definida
+            for (exp in expedientes) {
+                for (p in exp.parcelas) {
+                    if (isLocationInsideParcel(lat, lng, p)) {
+                        match = Pair(exp, p)
+                        break
+                    }
+                }
+                if (match != null) break
+            }
+            geoMatchedParcel = match
+        }
+    }
+
+    // Actualizar referencia activa (Prioridad: Manual > Geometría > API GPS)
+    val activeRef = manualSigpacRef ?: geoMatchedParcel?.second?.referencia ?: sigpacRef
 
     // --- MATCHING LOGIC ---
-    val matchedParcelInfo = remember(activeRef, expedientes) {
-        if (activeRef == null) return@remember null
-        var foundExp: NativeExpediente? = null
-        val foundParcel = expedientes.flatMap { exp ->
-            exp.parcelas.map { p -> 
-                if (p.referencia == activeRef) {
-                    foundExp = exp
-                    p 
-                } else null
-            }
-        }.filterNotNull().firstOrNull()
-        if (foundParcel != null && foundExp != null) Pair(foundExp!!, foundParcel) else null
+    // Determinamos qué parcela mostrar en la ficha y usar para guardar fotos
+    val matchedParcelInfo = remember(manualSigpacRef, geoMatchedParcel, sigpacRef, expedientes) {
+        // 1. Manual tiene prioridad absoluta
+        if (manualSigpacRef != null) {
+            // Intentamos buscar si esa ref manual existe en nuestros proyectos
+            var foundExp: NativeExpediente? = null
+            val foundParcel = expedientes.flatMap { exp ->
+                exp.parcelas.map { p -> if (p.referencia == manualSigpacRef) { foundExp = exp; p } else null }
+            }.filterNotNull().firstOrNull()
+            
+            if (foundParcel != null && foundExp != null) Pair(foundExp!!, foundParcel) else null
+        } 
+        // 2. Coincidencia Geométrica (Ray Casting - "Dentro del recinto")
+        else if (geoMatchedParcel != null) {
+            geoMatchedParcel
+        }
+        // 3. Coincidencia por API (Fallback si estamos fuera de geometría pero la API dice que es esa ref)
+        else if (sigpacRef != null) {
+            var foundExp: NativeExpediente? = null
+            val foundParcel = expedientes.flatMap { exp ->
+                exp.parcelas.map { p -> if (p.referencia == sigpacRef) { foundExp = exp; p } else null }
+            }.filterNotNull().firstOrNull()
+            if (foundParcel != null && foundExp != null) Pair(foundExp!!, foundParcel) else null
+        } else {
+            null
+        }
     }
 
     // --- PREVIEW BITMAP ---
@@ -270,7 +314,8 @@ fun CameraScreen(
                 if (loc != null) {
                     val distance = if (lastApiLocation != null) loc.distanceTo(lastApiLocation!!) else Float.MAX_VALUE
                     val timeElapsed = now - lastApiTimestamp
-                    if ((lastApiLocation == null || distance > 3.0f || timeElapsed > 5000) && !isLoadingSigpac) {
+                    // Si nos movemos o pasa tiempo, refrescamos la referencia API (fallback)
+                    if ((lastApiLocation == null || distance > 5.0f || timeElapsed > 5000) && !isLoadingSigpac) {
                         isLoadingSigpac = true
                         lastApiLocation = loc; lastApiTimestamp = now
                         try {
@@ -281,7 +326,7 @@ fun CameraScreen(
                     }
                 }
             }
-            delay(500)
+            delay(1000)
         }
     }
 
@@ -298,7 +343,8 @@ fun CameraScreen(
         }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, listener)
+                // Actualización más rápida para el Ray Casting fluido
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
             } catch (e: Exception) { locationText = "Error GPS" }
         }
         onDispose {
@@ -325,9 +371,12 @@ fun CameraScreen(
                 CameraQuality.LOW -> 60
             }
 
-            // 1. Identificar Proyectos Coincidentes (Usando activeRef)
-            val matchedExpedientes = if (activeRef != null) {
-                expedientes.filter { exp -> exp.parcelas.any { it.referencia == activeRef } }
+            // 1. Identificar Proyectos Coincidentes
+            // Usamos matchedParcelInfo directamente si existe (Prioridad Geométrica), si no activeRef
+            val targetRef = matchedParcelInfo?.second?.referencia ?: activeRef
+
+            val matchedExpedientes = if (targetRef != null) {
+                expedientes.filter { exp -> exp.parcelas.any { it.referencia == targetRef } }
             } else {
                 emptyList()
             }
@@ -335,7 +384,7 @@ fun CameraScreen(
             val projectNames = matchedExpedientes.map { it.titular }
 
             CameraCaptureLogic.takePhoto(
-                context, imageCaptureUseCase, projectNames, activeRef, currentLocation,
+                context, imageCaptureUseCase, projectNames, targetRef, currentLocation,
                 cropToSquare = cropToSquare,
                 jpegQuality = jpegQuality,
                 overlayOptions = overlayOptions,
@@ -343,12 +392,12 @@ fun CameraScreen(
                     isProcessingImage = false
                     
                     // 2. Actualizar Estado de los Expedientes afectados
-                    if (matchedExpedientes.isNotEmpty() && activeRef != null) {
+                    if (matchedExpedientes.isNotEmpty() && targetRef != null) {
                         val newExpedientes = expedientes.map { exp ->
                             val projectUri = uriMap[exp.titular]
-                            if (projectUri != null && exp.parcelas.any { it.referencia == activeRef }) {
+                            if (projectUri != null && exp.parcelas.any { it.referencia == targetRef }) {
                                 exp.copy(parcelas = exp.parcelas.map { p ->
-                                    if (p.referencia == activeRef) {
+                                    if (p.referencia == targetRef) {
                                         p.copy(photos = p.photos + projectUri.toString())
                                     } else p
                                 })
@@ -579,4 +628,84 @@ fun CameraScreen(
             })
         }
     }
+}
+
+/**
+ * Función auxiliar para verificar si una ubicación (lat, lng) está dentro de la geometría de una parcela.
+ * Soporta geometría RAW KML (texto lat,lng) y GeoJSON (json string) procedente de hidratación.
+ */
+private fun isLocationInsideParcel(lat: Double, lng: Double, parcela: NativeParcela): Boolean {
+    val geomRaw = parcela.geometryRaw
+    if (geomRaw.isNullOrEmpty()) return false
+
+    try {
+        // CASO A: GeoJSON (Hidratada)
+        if (geomRaw.trim().startsWith("{")) {
+            val jsonObject = JSONObject(geomRaw)
+            val type = jsonObject.optString("type")
+            val coordinates = jsonObject.getJSONArray("coordinates")
+
+            if (type.equals("Polygon", ignoreCase = true)) {
+                if (coordinates.length() > 0) {
+                    val ring = parseJsonRing(coordinates.getJSONArray(0))
+                    return isPointInPolygon(lat, lng, ring)
+                }
+            } else if (type.equals("MultiPolygon", ignoreCase = true)) {
+                for (i in 0 until coordinates.length()) {
+                    val poly = coordinates.getJSONArray(i)
+                    if (poly.length() > 0) {
+                        val ring = parseJsonRing(poly.getJSONArray(0))
+                        if (isPointInPolygon(lat, lng, ring)) return true
+                    }
+                }
+            }
+            return false
+        }
+        // CASO B: KML Raw Coordinates String ("lng,lat lng,lat ...")
+        else {
+            val points = mutableListOf<Pair<Double, Double>>()
+            val coordPairs = geomRaw.trim().split("\\s+".toRegex())
+            
+            for (pair in coordPairs) {
+                val coords = pair.split(",")
+                if (coords.size >= 2) {
+                    val pLng = coords[0].toDoubleOrNull()
+                    val pLat = coords[1].toDoubleOrNull()
+                    if (pLng != null && pLat != null) {
+                        points.add(pLat to pLng)
+                    }
+                }
+            }
+            
+            return if (points.size >= 3) isPointInPolygon(lat, lng, points) else false
+        }
+    } catch (e: Exception) {
+        return false
+    }
+}
+
+private fun parseJsonRing(jsonRing: JSONArray): List<Pair<Double, Double>> {
+    val list = mutableListOf<Pair<Double, Double>>()
+    for (i in 0 until jsonRing.length()) {
+        val pt = jsonRing.getJSONArray(i)
+        val pLng = pt.getDouble(0)
+        val pLat = pt.getDouble(1)
+        list.add(pLat to pLng)
+    }
+    return list
+}
+
+private fun isPointInPolygon(lat: Double, lng: Double, polygon: List<Pair<Double, Double>>): Boolean {
+    var inside = false
+    var j = polygon.lastIndex
+    for (i in polygon.indices) {
+        val (latI, lngI) = polygon[i]
+        val (latJ, lngJ) = polygon[j]
+        if (((latI > lat) != (latJ > lat)) &&
+            (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
+            inside = !inside
+        }
+        j = i
+    }
+    return inside
 }
