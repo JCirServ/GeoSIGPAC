@@ -22,6 +22,21 @@ import org.maplibre.geojson.Point
 import org.maplibre.geojson.Polygon
 
 object MapLayers {
+    
+    fun cleanupUnusedResources(map: MapLibreMap) {
+        map.style?.apply {
+            // Limpiar fuentes no visibles
+            if (!showRecinto) {
+                removeLayer(LAYER_RECINTO_FILL)
+                removeLayer(LAYER_RECINTO_LINE)
+                removeSource(SOURCE_RECINTO)
+            }
+            if (!showCultivo) {
+                removeLayer(LAYER_CULTIVO_FILL)
+                removeSource(SOURCE_CULTIVO)
+            }
+        }
+    }   
 
     fun setupProjectLayers(map: MapLibreMap) {
         map.getStyle { style ->

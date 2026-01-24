@@ -1,6 +1,8 @@
 
 package com.geosigpac.cirserv.ui
 
+import id.zelory.compressor.Compressor
+import id.zelory.compressor.constraint.*
 import android.Manifest
 import android.content.ContentValues
 import android.content.Context
@@ -185,15 +187,29 @@ fun CameraScreen(
     val currentPhotoCount = remember(matchedParcelInfo, photoCount) {
         if (matchedParcelInfo != null) matchedParcelInfo.second.photos.size else photoCount
     }
-
     LaunchedEffect(targetPreviewUri) {
         targetPreviewUri?.let { uri ->
             withContext(Dispatchers.IO) {
                 try {
                     val inputStream = context.contentResolver.openInputStream(uri)
-                    val bitmap = BitmapFactory.decodeStream(inputStream)
+                
+                    // MEJORA: Calcular tamaño antes de decodificar
+                    val options = BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    BitmapFactory.decodeStream(inputStream, null, options)
                     inputStream?.close()
-
+                
+                    // Calcular factor de escala (para thumbnail 100x100dp)
+                    val targetSize = 200 // pixels
+                    options.inSampleSize = calculateInSampleSize(options, targetSize, targetSize)
+                    options.inJustDecodeBounds = false
+                
+                    // Decodificar con escala reducida
+                    val scaledStream = context.contentResolver.openInputStream(uri)
+                    val bitmap = BitmapFactory.decodeStream(scaledStream, null, options)
+                    scaledStream?.close()
+        
                     // Rotar Bitmap según EXIF para que el botón de preview se vea correcto
                     var finalBitmap = bitmap
                     context.contentResolver.openInputStream(uri)?.use { exifInput ->
@@ -215,9 +231,20 @@ fun CameraScreen(
                     e.printStackTrace()
                 }
             }
-        } ?: run {
-            capturedBitmap = null
         }
+    }
+
+    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+        val (height, width) = options.run { outHeight to outWidth }
+        var inSampleSize = 1
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight = height / 2
+            val halfWidth = width / 2
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
     }
 
     // Animación de Parpadeo
@@ -327,6 +354,10 @@ fun CameraScreen(
 
     DisposableEffect(Unit) {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        
+        BatteryOptimizer.acquireWakeLock(context, "GeoSIGPAC:Camera")
+        val updateInterval = BatteryOptimizer.getOptimalGPSInterval(context)
+ 
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
@@ -338,14 +369,17 @@ fun CameraScreen(
         }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, listener)
-                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 5f, listener)
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER, 
+                    updateInterval, // USAR INTERVALO DINÁMICO
+                    5f, 
+                    listener
+                )
             } catch (e: Exception) { locationText = "Error GPS" }
         }
         onDispose {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                locationManager.removeUpdates(listener)
-            }
+            locationManager.removeUpdates(listener)
+            BatteryOptimizer.releaseWakeLock() // AÑADIR
         }
     }
 
@@ -734,6 +768,24 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
     return@withContext Pair(null, null)
 }
 
+private suspend fun compressPhoto(context: Context, uri: Uri): File = withContext(Dispatchers.IO) {
+    // Convertir URI a File temporal
+    val inputStream = context.contentResolver.openInputStream(uri)
+    val tempFile = File(context.cacheDir, "temp_photo_${System.currentTimeMillis()}.jpg")
+    tempFile.outputStream().use { output ->
+        inputStream?.copyTo(output)
+    }
+    inputStream?.close()
+    
+    // Comprimir
+    Compressor.compress(context, tempFile) {
+        quality(80) // 80% calidad (suficiente para evidencia)
+        resolution(1920, 1080) // Full HD máximo
+        format(Bitmap.CompressFormat.JPEG)
+        size(2_000_000) // Máximo 2MB
+    }
+}
+
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
@@ -777,6 +829,19 @@ private fun takePhoto(
             override fun onError(exc: ImageCaptureException) { onError(exc) }
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 val savedUri = output.savedUri ?: Uri.EMPTY
+
+                scope.launch {
+                    try {
+                        val compressed = compressPhoto(context, savedUri)
+                        // Opcional: Reemplazar el original
+                        // context.contentResolver.openOutputStream(savedUri)?.use { out ->
+                        //     compressed.inputStream().copyTo(out)
+                        // }
+                    } catch (e: Exception) {
+                        Log.e("PhotoCompression", "Error: ${e.message}")
+                    }
+                }
+                
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && savedUri != Uri.EMPTY) {
                     val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
                     try { context.contentResolver.update(savedUri, values, null, null) } catch (e: Exception) { e.printStackTrace() }

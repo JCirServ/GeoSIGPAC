@@ -22,7 +22,11 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            shrinkResources true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            ndk {
+                abiFilters 'armeabi-v7a', 'arm64-v8a' // Solo ARM, 99% dispositivos
+            }
         }
     }
     
@@ -72,4 +76,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+
+    implementation("ch.acra:acra-mail:5.11.3")
+    implementation("ch.acra:acra-dialog:5.11.3")
 }
