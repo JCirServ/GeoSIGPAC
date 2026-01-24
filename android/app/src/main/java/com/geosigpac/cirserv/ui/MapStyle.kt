@@ -34,7 +34,7 @@ fun loadMapStyle(
 ) {
     val styleBuilder = Style.Builder()
 
-    // 1. CAPA DE FONDO: Evita que el blanco de la app se vea entre las grietas de los tiles
+    // 1. CAPA DE FONDO: Evita que el blanco de la app se vea entre las grietas
     styleBuilder.withLayer(
         org.maplibre.android.style.layers.BackgroundLayer("background_fill")
             .withProperties(PropertyFactory.backgroundColor(android.graphics.Color.BLACK))
@@ -52,16 +52,16 @@ fun loadMapStyle(
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
     styleBuilder.withSource(rasterSource)
 
-    // 2. CAPA RÁSTER: Desactivamos antialiasing para que los bordes de los tiles encajen perfectos
+    // 2. CAPA RÁSTER: Solución al Unresolved Reference usando set directo
     val baseLayer = RasterLayer(LAYER_BASE, SOURCE_BASE)
     baseLayer.setProperties(
-        PropertyFactory.rasterAntialiasing(false)
+        // Usamos la cadena de texto de la propiedad para evitar errores de referencia
+        PropertyFactory.set("raster-antialias", false) 
     )
     styleBuilder.withLayer(baseLayer)
 
     map.setStyle(styleBuilder) { style ->
         
-        // Configuración global para suavizar la carga y evitar parpadeos
         map.setPrefetchTiles(true)
 
         if (showCultivo) {
@@ -75,7 +75,6 @@ fun loadMapStyle(
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
-                    // Aplicamos el Alpha directamente al color para evitar rejillas oscuras
                     PropertyFactory.fillColor(Color.Yellow.copy(alpha = 0.35f).toArgb()),
                     PropertyFactory.fillAntialias(false)
                 )
@@ -92,7 +91,7 @@ fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // CAPA 1: RELLENO (TINT) - Sin fillOpacity para evitar solapamientos visibles
+                // CAPA 1: RELLENO (TINT)
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
@@ -114,7 +113,7 @@ fun loadMapStyle(
                 )
                 style.addLayer(borderLayer)
 
-                // CAPAS DE RESALTADO (SELECCIÓN)
+                // CAPAS DE RESALTADO
                 val initialFilter = Expression.literal(false)
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
