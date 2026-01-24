@@ -250,21 +250,24 @@ fun NativeMapScreen(
                 }
             }
 
-            // Realtime Info
-            // FIX CRASHEO: Protegemos con Try-Catch y limitamos por Zoom para no saturar al alejar
+            // Realtime Info - Actualización fluida durante movimiento
             map.addOnCameraMoveListener { 
                 if (!searchActive) {
                     val currentZoom = map.cameraPosition.zoom
-                    // Log.d(TAG_MAP, "Zoom Level: $currentZoom")
                     
-                    if (currentZoom > 13.5) { // Solo ejecutar lógica pesada si estamos cerca
+                    if (currentZoom > 13.5) { 
                         try {
-                            instantSigpacRef = MapLogic.updateRealtimeInfo(map)
+                            val newRef = MapLogic.updateRealtimeInfo(map)
+                            // SOLO actualizamos si hay dato válido. Si newRef es "" (hueco/carga),
+                            // mantenemos el anterior para evitar parpadeo a negro mientras nos movemos.
+                            if (newRef.isNotEmpty()) {
+                                instantSigpacRef = newRef
+                            }
                         } catch (e: Exception) {
                             Log.e(TAG_MAP, "CRASH PREVENTED in MoveListener: ${e.message}")
                         }
                     } else {
-                         // Si nos alejamos mucho, limpiamos para no dejar resaltados "fantasmas" y ahorrar recursos
+                         // Si nos alejamos mucho, sí limpiamos explícitamente
                          if (instantSigpacRef.isNotEmpty()) {
                              instantSigpacRef = ""
                              try {
@@ -280,7 +283,6 @@ fun NativeMapScreen(
             // Extended Data (Carga de atributos al detenerse)
             map.addOnCameraIdleListener {
                 // Actualizar centro del mapa para botones externos (Google Maps)
-                // FIX: Usar llamada segura para evitar NullPointerException si target es nulo
                 val target = map.cameraPosition.target
                 if (target != null) {
                     currentMapCenterLat = target.latitude
@@ -288,7 +290,6 @@ fun NativeMapScreen(
                 }
 
                 if (!searchActive) {
-                    // Validar zoom antes de lanzar corrutina
                     if (map.cameraPosition.zoom > 13.5) {
                         apiJob?.cancel()
                         apiJob = scope.launch {
@@ -308,9 +309,11 @@ fun NativeMapScreen(
                                         Log.d(TAG_MAP, "Data loaded for $uniqueId")
                                     }
                                 } else {
+                                    // Si paramos y REALMENTE no hay datos (mar, zona sin datos), limpiamos.
                                     lastDataId = null
                                     recintoData = null
                                     cultivoData = null
+                                    instantSigpacRef = "" 
                                 }
                             } catch (e: Exception) {
                                 Log.e(TAG_MAP, "Error fetching idle data: ${e.message}")
