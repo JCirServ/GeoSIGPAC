@@ -49,7 +49,6 @@ object SigpacApiService {
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
-        // 3. CENTROIDE: DESACTIVADO (Usamos KML local)
         val centroid: Pair<Double, Double>? = null
 
         val sigpac = fetchUrl(recintoUrl)?.let { parseSigpacDataJson(it) }
@@ -83,7 +82,6 @@ object SigpacApiService {
                     }
 
                     // B. Prioridad: Coincidencia por ÁREA (Para polígonos KML)
-                    // Si hay varios cultivos en un recinto, buscamos el que tenga un área similar a la dibujada en KML
                     if (bestFeature == null && targetAreaHa != null && targetAreaHa > 0) {
                         val toleranceSteps = listOf(0.005, 0.01, 0.05, 0.10) // Tolerancia en Ha
                         
@@ -139,49 +137,88 @@ object SigpacApiService {
 
     suspend fun recoverParcelaFromPoint(lat: Double, lng: Double): Triple<String?, String?, SigpacData?> = withContext(Dispatchers.IO) {
         // 1. OBTENER REFERENCIA Y DATOS (recinfobypoint)
+        // OJO: Orden es (SRS, Longitud, Latitud) para EPSG:4258
         val identifyUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
         val idResponse = fetchUrl(identifyUrl) ?: return@withContext Triple(null, null, null)
 
         var prov = ""; var mun = ""; var pol = ""; var parc = ""; var rec = ""; var agg = "0"; var zon = "0"
         var sigpacData: SigpacData? = null
+        var geometryRaw: String? = null
 
         try {
             val jsonArray = JSONArray(idResponse)
             if (jsonArray.length() > 0) {
-                val obj = jsonArray.getJSONObject(0)
-                prov = obj.optString("provincia"); mun = obj.optString("municipio")
-                agg = obj.optString("agregado", "0"); zon = obj.optString("zona", "0")
-                pol = obj.optString("poligono"); parc = obj.optString("parcela"); rec = obj.optString("recinto")
+                val item = jsonArray.getJSONObject(0)
+                
+                // Helper para buscar propiedad en raíz (formato plano) o dentro de 'properties' (GeoJSON)
+                fun getProp(key: String): String {
+                    if (item.has(key)) return item.getString(key) // getString fuerza conversión string/number
+                    val props = item.optJSONObject("properties")
+                    if (props != null && props.has(key)) return props.getString(key)
+                    return ""
+                }
+                
+                fun getDoubleProp(key: String): Double {
+                    if (item.has(key)) return item.optDouble(key)
+                    val props = item.optJSONObject("properties")
+                    if (props != null && props.has(key)) return props.optDouble(key)
+                    return 0.0
+                }
+                
+                fun getIntProp(key: String): Int {
+                    if (item.has(key)) return item.optInt(key)
+                    val props = item.optJSONObject("properties")
+                    if (props != null && props.has(key)) return props.optInt(key)
+                    return 0
+                }
 
-                val translatedUso = SigpacCodeManager.getUsoDescription(obj.optString("uso_sigpac"))
-                val translatedRegion = SigpacCodeManager.getRegionDescription(obj.optString("region"))
+                prov = getProp("provincia"); mun = getProp("municipio")
+                agg = getProp("agregado"); if(agg.isEmpty()) agg = "0"
+                zon = getProp("zona"); if(zon.isEmpty()) zon = "0"
+                pol = getProp("poligono"); parc = getProp("parcela"); rec = getProp("recinto")
+
+                val translatedUso = SigpacCodeManager.getUsoDescription(getProp("uso_sigpac"))
+                val translatedRegion = SigpacCodeManager.getRegionDescription(getProp("region"))
                 
                 sigpacData = SigpacData(
-                    superficie = obj.optDouble("superficie"),
-                    pendienteMedia = obj.optDouble("pendiente_media"),
-                    coefRegadio = obj.optDouble("coef_regadio"),
-                    admisibilidad = obj.optDouble("coef_admisibilidad_pastos"),
+                    superficie = getDoubleProp("superficie"),
+                    pendienteMedia = getDoubleProp("pendiente_media"),
+                    coefRegadio = getDoubleProp("coef_regadio"),
+                    admisibilidad = getDoubleProp("coef_admisibilidad_pastos"),
                     usoSigpac = translatedUso,
                     region = translatedRegion,
-                    altitud = obj.optInt("altitud")
+                    altitud = getIntProp("altitud")
                 )
-            }
-        } catch (e: Exception) { return@withContext Triple(null, null, null) }
 
-        if (prov.isEmpty()) return@withContext Triple(null, null, null)
+                // 1.1 EXTRAER GEOMETRÍA WKT (Si existe, nos ahorramos la segunda llamada)
+                val wkt = getProp("wkt")
+                if (wkt.isNotEmpty()) {
+                    geometryRaw = wktToGeoJson(wkt)
+                }
+            }
+        } catch (e: Exception) { 
+            Log.e(TAG, "Error parsing recinfobypoint: ${e.message}")
+            return@withContext Triple(null, null, null) 
+        }
+
+        // Si no encontramos los códigos básicos, no podemos continuar
+        if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext Triple(null, null, null)
 
         val fullRef = "$prov:$mun:$pol:$parc:$rec"
-        var geometryRaw: String? = null
 
-        // 2. OBTENER GEOMETRÍA DEL RECINTO (recinfoparc) - PRIORIDAD 1 para visualización Azul
-        // Esto garantiza que pintamos el recinto completo, que es lo que el usuario quiere ver en azul.
+        // Si ya tenemos geometría via WKT, retornamos inmediatamente (Ruta Rápida)
+        if (geometryRaw != null) {
+            return@withContext Triple(fullRef, geometryRaw, sigpacData)
+        }
+
+        // 2. OBTENER GEOMETRÍA DEL RECINTO (recinfoparc) - FALLBACK si no había WKT
         val recUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
         val recJson = fetchUrl(recUrl)
         if (recJson != null) {
             geometryRaw = extractGeometryFromGeoJson(recJson)
         }
 
-        // 3. FALLBACK: GEOMETRÍA DE CULTIVO (Si falla la del recinto)
+        // 3. FALLBACK FINAL: GEOMETRÍA DE CULTIVO
         if (geometryRaw == null) {
             val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
             val cultivoJson = fetchUrl(ogcUrl)
@@ -197,6 +234,38 @@ object SigpacApiService {
         }
 
         return@withContext Triple(fullRef, geometryRaw, sigpacData)
+    }
+
+    /**
+     * Convierte WKT (POLYGON((x y, x y...))) a GeoJSON String.
+     * Soporta solo POLYGON simple por ahora, que es el estándar de recinfobypoint.
+     */
+    private fun wktToGeoJson(wkt: String): String? {
+        try {
+            if (!wkt.startsWith("POLYGON")) return null
+            
+            // Extraer coordenadas: ((x y, x y, ...))
+            val innerContent = wkt.substringAfter("POLYGON").trim()
+                .removePrefix("(").removeSuffix(")")
+                .removePrefix("(").removeSuffix(")") 
+            
+            val points = innerContent.split(",")
+            val jsonCoords = StringBuilder("[[")
+            
+            points.forEachIndexed { index, pointRaw ->
+                val coords = pointRaw.trim().split("\\s+".toRegex())
+                if (coords.size >= 2) {
+                    if (index > 0) jsonCoords.append(",")
+                    jsonCoords.append("[${coords[0]},${coords[1]}]")
+                }
+            }
+            jsonCoords.append("]]")
+            
+            return """{"type": "Polygon", "coordinates": $jsonCoords}"""
+        } catch (e: Exception) {
+            Log.e(TAG, "Error converting WKT to GeoJSON: ${e.message}")
+            return null
+        }
     }
 
     private fun parseSigpacDataJson(jsonStr: String): SigpacData? {
