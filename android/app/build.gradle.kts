@@ -21,9 +21,14 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            shrinkResources = true
+            // 1. Debe ser true para que el shrinker de recursos funcione
+            isMinifyEnabled = true 
+        
+            // 2. En Kotlin DSL se usa el prefijo 'is'
+            isShrinkResources = true 
+        
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        
             ndk {
                 abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
             }
