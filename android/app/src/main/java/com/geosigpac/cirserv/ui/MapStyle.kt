@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
@@ -14,6 +13,7 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.BackgroundLayer
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -33,6 +33,12 @@ fun loadMapStyle(
     onLocationEnabled: () -> Unit
 ) {
     val styleBuilder = Style.Builder()
+
+    // 1. FONDO NEGRO: Evita que las costuras entre tiles se vean blancas
+    styleBuilder.withLayer(
+        BackgroundLayer("background_fill")
+            .withProperties(PropertyFactory.backgroundColor(android.graphics.Color.BLACK))
+    )
 
     val tileUrl = if (baseMap == BaseMap.OSM) {
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -62,7 +68,7 @@ fun loadMapStyle(
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
-                    PropertyFactory.fillAntialias(false) // Previene lineas en cultivos también
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -73,58 +79,58 @@ fun loadMapStyle(
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
                 tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
+                style.addSource(VectorSource(SOURCE_RECINTO, tileSetRecinto))
 
-                val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
-                style.addSource(recintoSource)
-
-                // CAPA 1: RELLENO (TINT)
-                // Color distinto al borde, semitransparente
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
+                val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
+
+                // --- CAPA 1: RELLENO ---
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.15f), // Opacidad suficiente para ver el color pero ver el fondo
+                    PropertyFactory.fillOpacity(0.15f),
                     PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula estática
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE (OUTLINE)
-                // Borde de otro color, sólido. Usamos FillLayer para líneas nítidas sin grid.
-                val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
+                // --- CAPA 2: BORDE NORMAL (Fino para no fallar) ---
                 val borderLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 borderLayer.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(borderColor.toArgb()),
-                    PropertyFactory.fillAntialias(true) // En bordes finos queremos antialias para que no se vean sierra
+                    PropertyFactory.fillAntialias(true)
                 )
                 style.addLayer(borderLayer)
 
-                // CAPAS DE RESALTADO (SELECCIÓN)
+                // --- CAPAS DE RESALTADO (SELECCIÓN) ---
                 val initialFilter = Expression.literal(false)
 
+                // 1. Relleno de selección (FillLayer sin antialias = sin rayas)
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightFill.setFilter(initialFilter)
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.5f), 
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula al resaltar
+                    PropertyFactory.fillOpacity(0.5f),
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(highlightFill)
 
-                // Cambio solicitado: Usar FillLayer para el borde del resaltado (igual que el borde normal)
-                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                // 2. Borde de selección GRUESO (Usamos LineLayer pero con TRUCO)
+                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(true)
+                    PropertyFactory.lineColor(HighlightColor.toArgb()),
+                    // El lineJoin ROUND conecta las costuras de los tiles evitando las rayas blancas
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    // Aquí ya puedes poner el grosor que quieras (ej: 4f o 6f)
+                    PropertyFactory.lineWidth(4.5f), 
+                    PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightLine)
                 
@@ -140,18 +146,15 @@ fun loadMapStyle(
 @SuppressLint("MissingPermission")
 fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): Boolean {
     if (map == null || map.style == null) return false
-
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
         try {
             val locationComponent = map.locationComponent
             val options = LocationComponentActivationOptions.builder(context, map.style!!)
                 .useDefaultLocationEngine(true)
                 .build()
-            
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
             locationComponent.renderMode = RenderMode.COMPASS
-
             if (shouldCenter) {
                 locationComponent.cameraMode = CameraMode.TRACKING
                 locationComponent.zoomWhileTracking(USER_TRACKING_ZOOM)
@@ -164,7 +167,6 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
     return false
 }
 
-// Extension function helper
 fun Color.toArgb(): Int {
     return android.graphics.Color.argb(
         (alpha * 255).toInt(),
