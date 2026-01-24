@@ -131,19 +131,38 @@ fun NativeMapScreen(
         scope.launch {
             val map = mapInstance ?: return@launch
             
-            // 1. BÚSQUEDA LOCAL
+            // 1. BÚSQUEDA LOCAL (Desde botón "Localizar en Mapa")
             if (searchQuery.startsWith("LOC:")) {
                 val localId = searchQuery.substring(4)
                 val targetParcel = expedientes.flatMap { it.parcelas }.find { it.id == localId }
                 
                 if (targetParcel != null) {
+                    // UX Improvement: Reemplazamos el ID interno por la Referencia legible en la barra
+                    searchQuery = targetParcel.referencia
+                    instantSigpacRef = targetParcel.referencia // Abre la ficha de información
+
+                    // Usar datos locales (SigpacInfo) si existen para rellenar la ficha inmediatamente
+                    if (targetParcel.sigpacInfo != null) {
+                        recintoData = mapOf(
+                            "provincia" to (targetParcel.referencia.split(":")[0]),
+                            "municipio" to (targetParcel.referencia.split(":")[1]),
+                            "uso_sigpac" to (targetParcel.sigpacInfo.usoSigpac ?: ""),
+                            "superficie" to (targetParcel.sigpacInfo.superficie.toString()),
+                            "pendiente_media" to (targetParcel.sigpacInfo.pendienteMedia.toString()),
+                            "altitud" to (targetParcel.sigpacInfo.altitud.toString()),
+                            "coef_regadio" to (targetParcel.sigpacInfo.coefRegadio.toString()),
+                            "incidencias" to (targetParcel.sigpacInfo.incidencias ?: "")
+                        )
+                    }
+
+                    // Calcular geometría local (Polígono o Punto KML)
                     val localResult = computeLocalBoundsAndFeature(targetParcel)
                     if (localResult != null) {
+                        // Dibujar y hacer Zoom
                         map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(localResult.feature)
-                        map.animateCamera(CameraUpdateFactory.newLatLngBounds(localResult.bounds, 100), 1000)
-                        instantSigpacRef = targetParcel.referencia
+                        map.animateCamera(CameraUpdateFactory.newLatLngBounds(localResult.bounds, 150), 1000)
                     } else {
-                        Toast.makeText(context, "Geometría KML inválida", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Geometría pendiente de carga", Toast.LENGTH_SHORT).show()
                     }
                 } else {
                     Toast.makeText(context, "Parcela no encontrada localmente", Toast.LENGTH_SHORT).show()
@@ -152,7 +171,7 @@ fun NativeMapScreen(
                 return@launch
             }
             
-            // 2. BÚSQUEDA REMOTA (API)
+            // 2. BÚSQUEDA REMOTA (Texto escrito manual: Prov:Mun...)
             val parts = searchQuery.split(":").map { it.trim() }
             if (parts.size < 4) {
                 Toast.makeText(context, "Formato: Prov:Mun:Pol:Parc[:Rec]", Toast.LENGTH_LONG).show()
@@ -162,7 +181,7 @@ fun NativeMapScreen(
 
             val prov = parts[0]; val mun = parts[1]; val pol = parts[2]; val parc = parts[3]; val rec = parts.getOrNull(4)
 
-            // Filtro visual en capa MVT
+            // Filtro visual en capa MVT (Resaltado amarillo)
             if (map.style != null) {
                 val filterList = mutableListOf<Expression>(
                     Expression.eq(Expression.toString(Expression.get("provincia")), Expression.literal(prov)),
@@ -177,11 +196,12 @@ fun NativeMapScreen(
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(filter) }
             }
 
-            // Búsqueda de Geometría
+            // Búsqueda de Geometría en API
             val result = searchParcelLocation(prov, mun, pol, parc, rec)
             if (result != null) {
                 map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(result.feature)
                 map.animateCamera(CameraUpdateFactory.newLatLngBounds(result.bounds, 100), 1500)
+                instantSigpacRef = searchQuery // Abrir ficha
             } else {
                 Toast.makeText(context, "Ubicación no encontrada en SIGPAC", Toast.LENGTH_SHORT).show()
             }
@@ -207,6 +227,7 @@ fun NativeMapScreen(
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
                     if (searchActive) {
                         searchActive = false
+                        // Limpiamos resultados visuales al mover el mapa manualmente
                         map.style?.getSourceAs<GeoJsonSource>(SOURCE_SEARCH_RESULT)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
                         val emptyFilter = Expression.literal(false)
                         map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
@@ -220,7 +241,7 @@ fun NativeMapScreen(
                 if (!searchActive) instantSigpacRef = MapLogic.updateRealtimeInfo(map)
             }
 
-            // Extended Data (CORREGIDO: Usando scope.launch en lugar de bloqueo)
+            // Extended Data (Carga de atributos al detenerse)
             map.addOnCameraIdleListener {
                 if (!searchActive) {
                     apiJob?.cancel()
@@ -270,10 +291,11 @@ fun NativeMapScreen(
         }
     }
 
-    // --- TRIGGER BÚSQUEDA EXTERNA ---
+    // --- TRIGGER BÚSQUEDA EXTERNA (Desde botón Localizar) ---
     LaunchedEffect(searchTarget, mapInstance) {
         if (!searchTarget.isNullOrEmpty() && mapInstance != null) {
-            delay(800)
+            // Pequeño delay para asegurar que la vista está lista si acabamos de cambiar de tab
+            delay(500) 
             searchQuery = searchTarget
             performSearch()
         }
