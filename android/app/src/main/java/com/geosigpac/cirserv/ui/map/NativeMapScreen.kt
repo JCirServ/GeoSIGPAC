@@ -16,8 +16,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.geosigpac.cirserv.model.NativeExpediente
+import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.ui.BaseMap
 import com.geosigpac.cirserv.ui.DEFAULT_ZOOM
+import com.geosigpac.cirserv.ui.FullScreenPhotoGallery
 import com.geosigpac.cirserv.ui.LAYER_RECINTO_HIGHLIGHT_FILL
 import com.geosigpac.cirserv.ui.LAYER_RECINTO_HIGHLIGHT_LINE
 import com.geosigpac.cirserv.ui.SOURCE_SEARCH_RESULT
@@ -50,7 +52,8 @@ fun NativeMapScreen(
     searchTarget: String?,
     followUserTrigger: Long = 0L, 
     onNavigateToProjects: () -> Unit,
-    onOpenCamera: () -> Unit
+    onOpenCamera: () -> Unit,
+    onUpdateExpedientes: (List<NativeExpediente>) -> Unit // Nuevo callback para borrado de fotos
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -81,6 +84,10 @@ fun NativeMapScreen(
     // Coordenadas actuales del centro (para Google Maps)
     var currentMapCenterLat by remember { mutableDoubleStateOf(0.0) }
     var currentMapCenterLng by remember { mutableDoubleStateOf(0.0) }
+
+    // --- ESTADO GALERÍA (Desde Marcador Mapa) ---
+    var selectedParcelForGallery by remember { mutableStateOf<NativeParcela?>(null) }
+    var selectedExpForGallery by remember { mutableStateOf<NativeExpediente?>(null) }
 
     // Inicializar Singleton MapLibre
     remember { MapLibre.getInstance(context) }
@@ -234,6 +241,30 @@ fun NativeMapScreen(
                 map.cameraPosition = CameraPosition.Builder().target(LatLng(VALENCIA_LAT, VALENCIA_LNG)).zoom(DEFAULT_ZOOM).build()
             }
 
+            // Click Listener para Marcadores de FOTOS
+            map.addOnMapClickListener { point ->
+                val screenPoint = map.projection.toScreenLocation(point)
+                val features = map.queryRenderedFeatures(screenPoint, LAYER_PHOTOS)
+                
+                if (features.isNotEmpty()) {
+                    val feature = features[0]
+                    if (feature.hasProperty("parcelId") && feature.hasProperty("expId")) {
+                        val parcelId = feature.getStringProperty("parcelId")
+                        val expId = feature.getStringProperty("expId")
+                        
+                        val exp = expedientes.find { it.id == expId }
+                        val parcel = exp?.parcelas?.find { it.id == parcelId }
+                        
+                        if (exp != null && parcel != null && parcel.photos.isNotEmpty()) {
+                            selectedExpForGallery = exp
+                            selectedParcelForGallery = parcel
+                            return@addOnMapClickListener true
+                        }
+                    }
+                }
+                false
+            }
+
             // Listener de Movimiento (Reset búsqueda si usuario mueve mapa)
             map.addOnCameraMoveStartedListener { reason ->
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
@@ -332,8 +363,8 @@ fun NativeMapScreen(
                 initialLocationSet = true
             }
             
-            // Configurar Capas de Proyectos
-            MapLayers.setupProjectLayers(map)
+            // Configurar Capas de Proyectos (Ahora con Context para generar icono)
+            MapLayers.setupProjectLayers(context, map)
             scope.launch { MapLayers.updateProjectsLayer(map, expedientes, visibleProjectIds) }
         })
     }
@@ -368,7 +399,7 @@ fun NativeMapScreen(
     LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
         mapInstance?.let { map ->
             loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser = false) { }
-            MapLayers.setupProjectLayers(map)
+            MapLayers.setupProjectLayers(context, map)
             scope.launch { MapLayers.updateProjectsLayer(map, expedientes, visibleProjectIds) }
         }
     }
@@ -403,5 +434,38 @@ fun NativeMapScreen(
             onOpenCamera = onOpenCamera,
             onCenterLocation = { enableLocation(mapInstance, context, shouldCenter = true) }
         )
+        
+        // --- GALERÍA FOTOGRÁFICA SUPERPUESTA ---
+        if (selectedParcelForGallery != null && selectedExpForGallery != null) {
+            FullScreenPhotoGallery(
+                photos = selectedParcelForGallery!!.photos,
+                initialIndex = 0,
+                onDismiss = { selectedParcelForGallery = null },
+                onDeletePhoto = { uriToDelete ->
+                    val targetExp = selectedExpForGallery!!
+                    val targetParcel = selectedParcelForGallery!!
+                    
+                    val updatedPhotos = targetParcel.photos.filter { it != uriToDelete }
+                    val updatedParcel = targetParcel.copy(photos = updatedPhotos)
+                    
+                    // Actualizar el expediente completo
+                    val updatedExp = targetExp.copy(
+                        parcelas = targetExp.parcelas.map { if (it.id == updatedParcel.id) updatedParcel else it }
+                    )
+                    
+                    // Actualizar Lista Global -> Esto disparará el LaunchedEffect(expedientes) -> updateProjectsLayer
+                    val updatedList = expedientes.map { if (it.id == updatedExp.id) updatedExp else it }
+                    onUpdateExpedientes(updatedList)
+                    
+                    // Actualizar estado local para que la galería se refresque o cierre
+                    if (updatedPhotos.isEmpty()) {
+                        selectedParcelForGallery = null // Cierra galería si no quedan fotos
+                    } else {
+                        selectedParcelForGallery = updatedParcel // Mantiene galería abierta con lista nueva
+                        selectedExpForGallery = updatedExp
+                    }
+                }
+            )
+        }
     }
 }

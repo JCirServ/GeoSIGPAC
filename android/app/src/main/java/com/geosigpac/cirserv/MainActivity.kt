@@ -192,7 +192,8 @@ fun GeoSigpacApp() {
                         searchTarget = mapSearchTarget,
                         followUserTrigger = followUserTrigger,
                         onNavigateToProjects = { selectedTab = 1 },
-                        onOpenCamera = { isCameraOpen = true }
+                        onOpenCamera = { isCameraOpen = true },
+                        onUpdateExpedientes = { newList -> expedientes = newList.toList() }
                     )
                 }
             }
