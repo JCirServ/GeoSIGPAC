@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,7 +52,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.geosigpac.cirserv.model.NativeExpediente
@@ -113,6 +117,7 @@ fun CameraScreen(
     // Manual Input State
     var manualSigpacRef by remember { mutableStateOf<String?>(null) }
     var showManualInput by remember { mutableStateOf(false) }
+    var showManualCaptureConfirmation by remember { mutableStateOf(false) }
 
     // CameraX Objects
     var camera by remember { mutableStateOf<Camera?>(null) }
@@ -363,6 +368,15 @@ fun CameraScreen(
         }
     }
 
+    // Logic Trigger Wrapper
+    val onShutterTrigger: () -> Unit = {
+        if (manualSigpacRef != null) {
+            showManualCaptureConfirmation = true
+        } else {
+            performCapture()
+        }
+    }
+
     // --- UI COMPOSITION ---
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
@@ -425,7 +439,7 @@ fun CameraScreen(
                 InfoBox(locationText, activeRef, sigpacUso, matchedParcelInfo, showNoDataMessage, manualClearCallback)
             }
             Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) {
-                ShutterButton(isProcessingImage) { performCapture() }
+                ShutterButton(isProcessingImage) { onShutterTrigger() }
             }
             Row(modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) {
                 SquareButton(Icons.Default.Image, "Preview", currentPhotoCount, capturedBitmap) {
@@ -456,7 +470,7 @@ fun CameraScreen(
                     SquareButton(Icons.Default.Image, "Preview", currentPhotoCount, capturedBitmap) {
                          if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) showGallery = true else onClose()
                     }
-                    ShutterButton(isProcessingImage) { performCapture() }
+                    ShutterButton(isProcessingImage) { onShutterTrigger() }
                     SquareButton(MapIconVector, "Map") { onGoToMap() }
                 }
             }
@@ -476,6 +490,39 @@ fun CameraScreen(
                 onQualityChange = { cameraQuality = it },
                 onOverlayToggle = { opt ->
                     overlayOptions = if (overlayOptions.contains(opt)) overlayOptions - opt else overlayOptions + opt
+                }
+            )
+        }
+
+        // CONFIRMACIÓN MODO MANUAL
+        if (showManualCaptureConfirmation) {
+            AlertDialog(
+                containerColor = Color.Black.copy(0.9f),
+                titleContentColor = NeonGreen,
+                textContentColor = Color.White,
+                onDismissRequest = { showManualCaptureConfirmation = false },
+                icon = { Icon(Icons.Default.Warning, null, tint = Color.Yellow) },
+                title = { Text("Referencia Manual Activa") },
+                text = {
+                    Column {
+                        Text("Estás usando una referencia fija ignorando el GPS:")
+                        Spacer(Modifier.height(8.dp))
+                        Text(manualSigpacRef ?: "", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.Yellow, fontFamily = FontFamily.Monospace)
+                        Spacer(Modifier.height(8.dp))
+                        Text("¿Deseas guardar la foto asociada a esta referencia?")
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonGreen),
+                        onClick = {
+                            showManualCaptureConfirmation = false
+                            performCapture()
+                        }
+                    ) { Text("Confirmar", color = Color.Black) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showManualCaptureConfirmation = false }) { Text("Cancelar", color = Color.Gray) }
                 }
             )
         }
