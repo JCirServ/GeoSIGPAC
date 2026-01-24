@@ -98,6 +98,12 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import androidx.compose.ui.graphics.TransformOrigin
 import com.geosigpac.cirserv.utils.BatteryOptimizer
+import android.graphics.Bitmap         // <--- Para el error de bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import java.io.File                    // <--- El que añadimos antes
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope // <--- Para el tipo de dato scope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
