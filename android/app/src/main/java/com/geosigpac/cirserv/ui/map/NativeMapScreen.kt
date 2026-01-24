@@ -276,7 +276,11 @@ fun NativeMapScreen(
             }
 
             // Cargar Estilo Base
-            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, !initialLocationSet) {
+            // CRITICAL FIX: Solo centramos al usuario si NO hay una búsqueda pendiente (searchTarget)
+            // Esto evita que el mapa vuele al usuario antes de volar al recinto, rompiendo la búsqueda.
+            val shouldCenterUser = !initialLocationSet && searchTarget.isNullOrEmpty()
+            
+            loadMapStyle(map, currentBaseMap, showRecinto, showCultivo, context, shouldCenterUser) {
                 initialLocationSet = true
             }
             
