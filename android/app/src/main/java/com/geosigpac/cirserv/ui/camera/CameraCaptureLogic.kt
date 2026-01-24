@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv.ui.camera
 
 import android.content.ContentValues
@@ -28,6 +27,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
 object CameraCaptureLogic {
 
@@ -36,7 +36,9 @@ object CameraCaptureLogic {
         imageCapture: ImageCapture?,
         projectId: String?,
         sigpacRef: String?,
-        location: Location?, // Si es null, no se guarda GPS (respetando config)
+        location: Location?,
+        cropToSquare: Boolean,
+        overlayOptions: Set<OverlayOption>,
         onImageCaptured: (Uri) -> Unit,
         onError: (ImageCaptureException) -> Unit
     ) {
@@ -59,7 +61,7 @@ object CameraCaptureLogic {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            val finalUri = processImageWithOverlay(context, tempFile, projectId, sigpacRef, location)
+                            val finalUri = processImage(context, tempFile, projectId, sigpacRef, location, cropToSquare, overlayOptions)
                             tempFile.delete()
                             withContext(Dispatchers.Main) {
                                 onImageCaptured(finalUri)
@@ -76,14 +78,16 @@ object CameraCaptureLogic {
         )
     }
 
-    private fun processImageWithOverlay(
+    private fun processImage(
         context: Context,
         sourceFile: File,
         projectId: String?,
         sigpacRef: String?,
-        location: Location?
+        location: Location?,
+        cropToSquare: Boolean,
+        overlayOptions: Set<OverlayOption>
     ): Uri {
-        // 1. Cargar y Rotar
+        // 1. Cargar y Corregir Orientación
         val exifOriginal = ExifInterface(sourceFile.absolutePath)
         val orientation = exifOriginal.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         
@@ -95,13 +99,31 @@ object CameraCaptureLogic {
             ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
         }
         
-        val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        var rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        
+        // 2. Recorte 1:1 (Si aplica)
+        if (cropToSquare) {
+            val w = rotatedBitmap.width
+            val h = rotatedBitmap.height
+            val side = Math.min(w, h)
+            val xOffset = (w - side) / 2
+            val yOffset = (h - side) / 2
+            
+            val squared = Bitmap.createBitmap(rotatedBitmap, xOffset, yOffset, side, side)
+            if (rotatedBitmap != squared) {
+                rotatedBitmap.recycle()
+                rotatedBitmap = squared
+            }
+        }
+
         val mutableBitmap = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, true)
         
-        // 2. Dibujar Overlay
-        drawOverlay(mutableBitmap, location, sigpacRef)
+        // 3. Dibujar Overlay Configurable
+        if (overlayOptions.isNotEmpty()) {
+            drawOverlay(mutableBitmap, location, sigpacRef, projectId, overlayOptions)
+        }
         
-        // 3. Guardar en MediaStore
+        // 4. Guardar en MediaStore
         val projectFolder = projectId ?: "SIN PROYECTO"
         val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
@@ -125,13 +147,15 @@ object CameraCaptureLogic {
             mutableBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
         }
         
-        // 4. Inyectar EXIF GPS (Solo si location != null)
-        if (location != null) {
-            try {
-                resolver.openFileDescriptor(uri, "rw")?.use { fd ->
-                    val exifFinal = ExifInterface(fd.fileDescriptor)
-                    val dateFormat = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
-                    
+        // 5. Inyectar TODOS los metadatos EXIF posibles
+        try {
+            resolver.openFileDescriptor(uri, "rw")?.use { fd ->
+                val exifFinal = ExifInterface(fd.fileDescriptor)
+                val dateFormat = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
+                val now = Date()
+
+                // A. GPS (Mandatorio)
+                if (location != null) {
                     val lat = location.latitude
                     val latRef = if (lat > 0) "N" else "S"
                     exifFinal.setAttribute(ExifInterface.TAG_GPS_LATITUDE, toDMS(lat))
@@ -147,13 +171,36 @@ object CameraCaptureLogic {
                     val altNum = Math.abs(alt) * 1000
                     exifFinal.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${altNum.toInt()}/1000")
                     exifFinal.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, altRef)
-                    
-                    exifFinal.setAttribute(ExifInterface.TAG_DATETIME, dateFormat.format(Date()))
-                    exifFinal.saveAttributes()
+
+                    // GPS Date/Time
+                    val gpsDateFmt = SimpleDateFormat("yyyy:MM:dd", Locale.getDefault())
+                    val gpsTimeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                    exifFinal.setAttribute(ExifInterface.TAG_GPS_DATESTAMP, gpsDateFmt.format(now))
+                    exifFinal.setAttribute(ExifInterface.TAG_GPS_TIMESTAMP, gpsTimeFmt.format(now))
                 }
-            } catch (e: Exception) {
-                Log.e("Camera", "Failed to write EXIF GPS", e)
+
+                // B. Fechas
+                val dateStr = dateFormat.format(now)
+                exifFinal.setAttribute(ExifInterface.TAG_DATETIME, dateStr)
+                exifFinal.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, dateStr)
+                exifFinal.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, dateStr)
+
+                // C. Dispositivo
+                exifFinal.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER)
+                exifFinal.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL)
+                exifFinal.setAttribute(ExifInterface.TAG_SOFTWARE, "GeoSIGPAC App")
+
+                // D. Datos SIGPAC (Trazabilidad)
+                val cleanRef = sigpacRef ?: "N/D"
+                val cleanProj = projectId ?: "N/D"
+                val userComment = "REF:$cleanRef|PROJ:$cleanProj"
+                exifFinal.setAttribute(ExifInterface.TAG_USER_COMMENT, userComment)
+                exifFinal.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, "Inspección SIGPAC Ref: $cleanRef")
+
+                exifFinal.saveAttributes()
             }
+        } catch (e: Exception) {
+            Log.e("Camera", "Failed to write EXIF", e)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -169,7 +216,13 @@ object CameraCaptureLogic {
         return uri
     }
 
-    private fun drawOverlay(bitmap: Bitmap, location: Location?, sigpacRef: String?) {
+    private fun drawOverlay(
+        bitmap: Bitmap, 
+        location: Location?, 
+        sigpacRef: String?, 
+        projectId: String?,
+        options: Set<OverlayOption>
+    ) {
         val canvas = Canvas(bitmap)
         val w = bitmap.width
         val h = bitmap.height
@@ -188,34 +241,58 @@ object CameraCaptureLogic {
             style = Paint.Style.FILL
         }
         
-        val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault())
-        val dateStr = dateFormat.format(Date())
-        val locStr = if (location != null) {
-            "Lat: ${String.format(Locale.US, "%.6f", location.latitude)}  Lng: ${String.format(Locale.US, "%.6f", location.longitude)}"
-        } else {
-            "Sin Ubicación GPS"
-        }
-        val refStr = sigpacRef ?: "REF: PENDIENTE / SIN DATOS"
+        // Calcular líneas a dibujar
+        val lines = mutableListOf<Pair<String, Int>>()
         
+        if (options.contains(OverlayOption.DATE)) {
+            val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date())
+            lines.add("FECHA: $dateStr" to AndroidColor.GREEN)
+        }
+        
+        if (options.contains(OverlayOption.COORDS)) {
+            val locStr = if (location != null) {
+                "LAT: ${String.format(Locale.US, "%.6f", location.latitude)}  LNG: ${String.format(Locale.US, "%.6f", location.longitude)}"
+            } else {
+                "GPS: SIN SEÑAL"
+            }
+            lines.add(locStr to AndroidColor.WHITE)
+        }
+        
+        if (options.contains(OverlayOption.REF)) {
+            val refStr = sigpacRef ?: "REF: PENDIENTE / SIN DATOS"
+            lines.add("SIGPAC: $refStr" to AndroidColor.YELLOW)
+        }
+
+        if (options.contains(OverlayOption.PROJECT) && projectId != null) {
+            lines.add("ID: $projectId" to AndroidColor.CYAN)
+        }
+
+        if (lines.isEmpty()) return
+
         val lineHeight = paintText.textSize * 1.4f
         val padding = lineHeight * 0.5f
-        val boxHeight = (lineHeight * 3) + (padding * 2)
+        val boxHeight = (lineHeight * lines.size) + (padding * 2)
         
-        canvas.drawRect(0f, h - boxHeight, w.toFloat(), h.toFloat(), paintBg)
+        // Calcular el ancho máximo del texto para dimensionar la caja de fondo
+        var maxTextWidth = 0f
+        lines.forEach { (text, _) ->
+            val textWidth = paintText.measureText(text)
+            if (textWidth > maxTextWidth) maxTextWidth = textWidth
+        }
+        val boxWidth = maxTextWidth + (padding * 2)
         
+        // Dibujar Fondo (Limitado al ancho del texto)
+        canvas.drawRect(0f, h - boxHeight, boxWidth, h.toFloat(), paintBg)
+        
+        // Dibujar Líneas
         val startX = padding
         var startY = h - boxHeight + padding + lineHeight - (lineHeight * 0.2f)
         
-        paintText.color = AndroidColor.GREEN
-        canvas.drawText("FECHA: $dateStr", startX, startY, paintText)
-        
-        startY += lineHeight
-        paintText.color = AndroidColor.WHITE
-        canvas.drawText(locStr, startX, startY, paintText)
-        
-        startY += lineHeight
-        paintText.color = AndroidColor.YELLOW
-        canvas.drawText("SIGPAC: $refStr", startX, startY, paintText)
+        lines.forEach { (text, color) ->
+            paintText.color = color
+            canvas.drawText(text, startX, startY, paintText)
+            startY += lineHeight
+        }
     }
 
     private fun toDMS(coordinate: Double): String {

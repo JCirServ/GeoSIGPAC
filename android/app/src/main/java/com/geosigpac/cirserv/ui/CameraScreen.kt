@@ -80,15 +80,13 @@ fun CameraScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     
-    // --- ESTADOS DE CONFIGURACIÓN ---
-    var aspectRatio by remember { mutableIntStateOf(AspectRatio.RATIO_4_3) }
+    // --- CONFIGURACIÓN ---
+    var photoFormat by remember { mutableStateOf(PhotoFormat.RATIO_4_3) }
     // 0:Auto, 1:On, 2:Off, 3:Torch
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) } 
-    var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
     var gridMode by remember { mutableStateOf(GridMode.OFF) }
-    var timerMode by remember { mutableStateOf(TimerMode.OFF) }
-    var cameraQuality by remember { mutableStateOf(CameraQuality.HIGH) }
-    var gpsEnabled by remember { mutableStateOf(true) }
+    var cameraQuality by remember { mutableStateOf(CameraQuality.MAX) }
+    var overlayOptions by remember { mutableStateOf(setOf(OverlayOption.DATE, OverlayOption.COORDS, OverlayOption.REF, OverlayOption.PROJECT)) }
     
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showParcelSheet by remember { mutableStateOf(false) }
@@ -101,7 +99,6 @@ fun CameraScreen(
     var currentLinearZoom by remember { mutableFloatStateOf(0f) }
 
     // Logic State
-    var timerCountdown by remember { mutableIntStateOf(0) }
     var focusRingPosition by remember { mutableStateOf<Offset?>(null) }
     var showFocusRing by remember { mutableStateOf(false) }
 
@@ -150,18 +147,19 @@ fun CameraScreen(
                     val bitmap = BitmapFactory.decodeStream(inputStream)
                     inputStream?.close()
                     var finalBitmap = bitmap
+                    // Rotar miniatura si es necesario
                     context.contentResolver.openInputStream(uri)?.use { exifInput ->
-                        val exif = ExifInterface(exifInput)
-                        val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-                        val matrix = Matrix()
-                        when (orientation) {
-                            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-                            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-                            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-                        }
-                        if (bitmap != null) {
-                            finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-                        }
+                         val exif = ExifInterface(exifInput)
+                         val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                         val matrix = Matrix()
+                         when (orientation) {
+                             ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                             ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                             ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                         }
+                         if (bitmap != null) {
+                             finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                         }
                     }
                     capturedBitmap = finalBitmap?.asImageBitmap()
                 } catch (e: Exception) { e.printStackTrace() }
@@ -184,59 +182,51 @@ fun CameraScreen(
         }
     }
 
-    // --- CAMERA BINDING (Re-bind on settings change) ---
-    LaunchedEffect(aspectRatio, flashMode, lensFacing, cameraQuality) {
+    // --- CAMERA BINDING ---
+    LaunchedEffect(photoFormat, flashMode, cameraQuality) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
             cameraProvider.unbindAll()
 
+            // Determinar Aspect Ratio nativo para CameraX
+            val cameraXRatio = when(photoFormat) {
+                PhotoFormat.RATIO_16_9, PhotoFormat.FULL_SCREEN -> AspectRatio.RATIO_16_9
+                else -> AspectRatio.RATIO_4_3 // 1:1 se captura como 4:3 y se recorta después
+            }
+
             // Preview
-            val preview = Preview.Builder()
-                .setTargetAspectRatio(aspectRatio)
-                .build()
+            val preview = Preview.Builder().setTargetAspectRatio(cameraXRatio).build()
             preview.setSurfaceProvider(previewView.surfaceProvider)
 
             // Capture
-            val imageCaptureBuilder = ImageCapture.Builder()
-                .setTargetAspectRatio(aspectRatio)
+            val imageCaptureBuilder = ImageCapture.Builder().setTargetAspectRatio(cameraXRatio)
 
-            // Quality
-            // Nota: CameraX prefiere setCaptureMode a setTargetResolution para compatibilidad general
             when(cameraQuality) {
                 CameraQuality.MAX -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                CameraQuality.HIGH -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY) // Similar
+                CameraQuality.HIGH -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                 CameraQuality.BALANCED -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             }
 
-            // Flash Logic for Capture (Torch is handled separately via CameraControl)
-            // Si el usuario elige "Linterna" (3), configuramos captura en OFF para evitar doble flash, 
-            // ya que activaremos la linterna manualmente.
             val captureFlashMode = if (flashMode == 3) ImageCapture.FLASH_MODE_OFF else flashMode
             imageCaptureBuilder.setFlashMode(captureFlashMode)
 
             val imageCapture = imageCaptureBuilder.build()
-
-            // Selector
-            val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             try {
                 val cam = cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
                 camera = cam
                 imageCaptureUseCase = imageCapture
                 
-                // Torch Activation Logic
-                if (flashMode == 3) {
-                    cam.cameraControl.enableTorch(true)
-                } else {
-                    cam.cameraControl.enableTorch(false)
-                }
+                // Torch
+                if (flashMode == 3) cam.cameraControl.enableTorch(true) else cam.cameraControl.enableTorch(false)
 
             } catch (exc: Exception) { Log.e("CameraScreen", "Binding failed", exc) }
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // --- SIGPAC & GPS LOOP ---
+    // --- GPS & SIGPAC LOOP ---
     LaunchedEffect(Unit) {
         while (true) {
             val loc = currentLocation
@@ -281,24 +271,19 @@ fun CameraScreen(
         }
     }
     
-    // --- CAPTURE FUNCTION WRAPPER (Handles Timer) ---
+    // --- CAPTURE FUNCTION ---
     fun performCapture() {
         if (isProcessingImage) return
         
         scope.launch {
-            if (timerMode != TimerMode.OFF) {
-                for (i in timerMode.seconds downTo 1) {
-                    timerCountdown = i
-                    delay(1000)
-                }
-                timerCountdown = 0
-            }
-            
             isProcessingImage = true
-            // Solo pasamos ubicación si GPS está activado
-            val locToSave = if (gpsEnabled) currentLocation else null
             
-            CameraCaptureLogic.takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, locToSave,
+            val cropToSquare = (photoFormat == PhotoFormat.RATIO_1_1)
+            
+            CameraCaptureLogic.takePhoto(
+                context, imageCaptureUseCase, projectId, sigpacRef, currentLocation,
+                cropToSquare = cropToSquare,
+                overlayOptions = overlayOptions,
                 onImageCaptured = { uri -> 
                     isProcessingImage = false
                     if (matchedParcelInfo != null) {
@@ -339,19 +324,32 @@ fun CameraScreen(
     ) {
         AndroidView(modifier = Modifier.fillMaxSize(), factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); scaleType = PreviewView.ScaleType.FILL_CENTER } })
         
-        // Overlays
         if (showFocusRing && focusRingPosition != null) {
             Box(modifier = Modifier.offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.x.toDp() - 25.dp }, y = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.y.toDp() - 25.dp }).size(50.dp).border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape))
         }
 
         GridOverlay(gridMode)
         
-        if (timerCountdown > 0) {
-            TimerCountDown(timerCountdown)
+        // MASK para 1:1 si está seleccionado
+        if (photoFormat == PhotoFormat.RATIO_1_1) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                val color = Color.Black.copy(0.7f)
+                // Barras negras arriba y abajo para simular cuadrado
+                Box(modifier = Modifier.fillMaxWidth().height(100.dp).background(color).align(Alignment.TopCenter)) // Aproximación visual
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(color).align(Alignment.BottomCenter)) 
+                // Nota: Una implementación perfecta usaría Canvas con drawRect calculando el centro, pero esto sirve de guía visual rápida.
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val side = size.width
+                    val topOffset = (size.height - side) / 2
+                    // Top
+                    drawRect(color, Offset(0f, 0f), androidx.compose.ui.geometry.Size(size.width, topOffset))
+                    // Bottom
+                    drawRect(color, Offset(0f, topOffset + side), androidx.compose.ui.geometry.Size(size.width, size.height - (topOffset + side)))
+                }
+            }
         }
 
         // --- CONTROLS UI ---
-        // (Simplificado: Solo mostramos la estructura básica adaptada, delegando al componente SettingsDialog la complejidad)
         if (isLandscape) {
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -400,24 +398,21 @@ fun CameraScreen(
             }
         }
         
-        // --- SETTINGS DIALOG (Massively Updated) ---
         if (showSettingsDialog) {
             SettingsDialog(
-                aspectRatio = aspectRatio,
+                currentFormat = photoFormat,
                 flashMode = flashMode,
-                lensFacing = lensFacing,
                 gridMode = gridMode,
-                timerMode = timerMode,
                 quality = cameraQuality,
-                gpsEnabled = gpsEnabled,
+                selectedOverlays = overlayOptions,
                 onDismiss = { showSettingsDialog = false },
-                onRatioChange = { aspectRatio = it },
+                onFormatChange = { photoFormat = it },
                 onFlashChange = { flashMode = it },
-                onLensChange = { lensFacing = it },
                 onGridChange = { gridMode = it },
-                onTimerChange = { timerMode = it },
                 onQualityChange = { cameraQuality = it },
-                onGpsChange = { gpsEnabled = it }
+                onOverlayToggle = { opt ->
+                    overlayOptions = if (overlayOptions.contains(opt)) overlayOptions - opt else overlayOptions + opt
+                }
             )
         }
         

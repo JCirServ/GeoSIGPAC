@@ -42,8 +42,14 @@ val NeonGreen = Color(0xFF00FF88)
 
 // ENUMS DE CONFIGURACIÓN
 enum class GridMode { OFF, RULE_OF_THIRDS, GOLDEN_RATIO, GRID_4X4 }
-enum class TimerMode(val seconds: Int) { OFF(0), S3(3), S10(10) }
-enum class CameraQuality { MAX, HIGH, BALANCED } // MAX (UHD), HIGH (FHD), BALANCED (HD)
+enum class CameraQuality { MAX, HIGH, BALANCED }
+enum class PhotoFormat { RATIO_4_3, RATIO_16_9, RATIO_1_1, FULL_SCREEN }
+enum class OverlayOption(val label: String) {
+    DATE("Fecha y Hora"),
+    COORDS("Coordenadas GPS"),
+    REF("Ref. SIGPAC"),
+    PROJECT("Info Proyecto")
+}
 
 @Composable
 fun InfoBox(
@@ -144,19 +150,6 @@ fun ShutterButton(
 }
 
 @Composable
-fun TimerCountDown(seconds: Int) {
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.3f)), contentAlignment = Alignment.Center) {
-        Text(
-            text = "$seconds",
-            color = Color.White,
-            fontSize = 120.sp,
-            fontWeight = FontWeight.Black,
-            style = MaterialTheme.typography.displayLarge
-        )
-    }
-}
-
-@Composable
 fun ControlButton(
     icon: ImageVector,
     desc: String,
@@ -231,7 +224,6 @@ fun GridOverlay(mode: GridMode) {
                 drawLine(color, Offset(0f, 3*h/4), Offset(w, 3*h/4), stroke)
             }
             GridMode.GOLDEN_RATIO -> {
-                // Phi ≈ 1.618. Secciones: 1 - 0.618 = 0.382
                 val g1 = 0.382f
                 val g2 = 0.618f
                 drawLine(color, Offset(w*g1, 0f), Offset(w*g1, h), stroke)
@@ -246,100 +238,67 @@ fun GridOverlay(mode: GridMode) {
 
 @Composable
 fun SettingsDialog(
-    aspectRatio: Int,
-    flashMode: Int, // 0: Auto, 1: On, 2: Off. Usaremos un valor extra para linterna (Torch) -> 3
-    lensFacing: Int, // CameraSelector.LENS_FACING_BACK = 1
+    currentFormat: PhotoFormat,
+    flashMode: Int,
     gridMode: GridMode,
-    timerMode: TimerMode,
     quality: CameraQuality,
-    gpsEnabled: Boolean,
+    selectedOverlays: Set<OverlayOption>,
     onDismiss: () -> Unit,
-    onRatioChange: (Int) -> Unit,
+    onFormatChange: (PhotoFormat) -> Unit,
     onFlashChange: (Int) -> Unit,
-    onLensChange: (Int) -> Unit,
     onGridChange: (GridMode) -> Unit,
-    onTimerChange: (TimerMode) -> Unit,
     onQualityChange: (CameraQuality) -> Unit,
-    onGpsChange: (Boolean) -> Unit
+    onOverlayToggle: (OverlayOption) -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Ajustes de Cámara") },
+        title = { Text("Configuración Profesional") },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 400.dp)
+                    .heightIn(max = 500.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. LENTE
-                Text("Lente", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
+                // 1. FORMATO
+                Text("Formato de Captura", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = lensFacing == CameraSelector.LENS_FACING_BACK, onClick = { onLensChange(CameraSelector.LENS_FACING_BACK) }, label = { Text("Trasera") })
-                    FilterChip(selected = lensFacing == CameraSelector.LENS_FACING_FRONT, onClick = { onLensChange(CameraSelector.LENS_FACING_FRONT) }, label = { Text("Frontal") })
-                }
-                
-                Divider(color = Color.White.copy(0.1f))
-
-                // 2. FLASH / LINTERNA
-                Text("Flash / Iluminación", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    // Flash Modes (ImageCapture)
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_AUTO, onClick = { onFlashChange(ImageCapture.FLASH_MODE_AUTO) }); Text("Auto", fontSize = 12.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_ON, onClick = { onFlashChange(ImageCapture.FLASH_MODE_ON) }); Text("On", fontSize = 12.sp)
-                        }
-                    }
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_OFF, onClick = { onFlashChange(ImageCapture.FLASH_MODE_OFF) }); Text("Off", fontSize = 12.sp)
-                        }
-                        // Torch Mode (Custom logic in screen)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Usamos valor 3 para representar "Torch" en la UI, aunque CameraX usa lógica separada
-                            RadioButton(selected = flashMode == 3, onClick = { onFlashChange(3) }); Text("Linterna", fontSize = 12.sp)
-                        }
-                    }
-                }
-
-                Divider(color = Color.White.copy(0.1f))
-
-                // 3. RESOLUCIÓN / RATIO
-                Text("Formato", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = aspectRatio == AspectRatio.RATIO_4_3, onClick = { onRatioChange(AspectRatio.RATIO_4_3) }, label = { Text("4:3") })
-                    FilterChip(selected = aspectRatio == AspectRatio.RATIO_16_9, onClick = { onRatioChange(AspectRatio.RATIO_16_9) }, label = { Text("16:9") })
-                    // 1:1 es un crop visual sobre 4:3 generalmente, simplifiquemos a soporte nativo
+                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_4_3, onClick = { onFormatChange(PhotoFormat.RATIO_4_3) }, label = { Text("4:3") })
+                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_16_9, onClick = { onFormatChange(PhotoFormat.RATIO_16_9) }, label = { Text("16:9") })
+                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_1_1, onClick = { onFormatChange(PhotoFormat.RATIO_1_1) }, label = { Text("1:1") })
                 }
                 
                 Text("Calidad", style = MaterialTheme.typography.labelSmall)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = quality == CameraQuality.MAX, onClick = { onQualityChange(CameraQuality.MAX) }, label = { Text("Máx") })
+                    FilterChip(selected = quality == CameraQuality.MAX, onClick = { onQualityChange(CameraQuality.MAX) }, label = { Text("Máxima") })
                     FilterChip(selected = quality == CameraQuality.HIGH, onClick = { onQualityChange(CameraQuality.HIGH) }, label = { Text("Alta") })
-                    FilterChip(selected = quality == CameraQuality.BALANCED, onClick = { onQualityChange(CameraQuality.BALANCED) }, label = { Text("SD") })
                 }
 
                 Divider(color = Color.White.copy(0.1f))
 
-                // 4. HERRAMIENTAS
-                Text("Asistentes", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
-                
-                Text("Temporizador", style = MaterialTheme.typography.labelSmall)
+                // 2. FLASH / LINTERNA
+                Text("Iluminación", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TimerMode.values().forEach { mode ->
-                        FilterChip(selected = timerMode == mode, onClick = { onTimerChange(mode) }, label = { Text(if(mode == TimerMode.OFF) "No" else "${mode.seconds}s") })
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_AUTO, onClick = { onFlashChange(ImageCapture.FLASH_MODE_AUTO) }); Text("Auto", fontSize = 12.sp)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = flashMode == ImageCapture.FLASH_MODE_OFF, onClick = { onFlashChange(ImageCapture.FLASH_MODE_OFF) }); Text("Off", fontSize = 12.sp)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = flashMode == 3, onClick = { onFlashChange(3) }); Text("Antorcha", fontSize = 12.sp)
                     }
                 }
 
-                Text("Cuadrícula", style = MaterialTheme.typography.labelSmall)
+                Divider(color = Color.White.copy(0.1f))
+
+                // 3. COMPOSICIÓN
+                Text("Guías de Composición", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column {
-                         Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = gridMode == GridMode.OFF, onClick = { onGridChange(GridMode.OFF) }); Text("No", fontSize = 12.sp) }
-                         Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = gridMode == GridMode.RULE_OF_THIRDS, onClick = { onGridChange(GridMode.RULE_OF_THIRDS) }); Text("3x3", fontSize = 12.sp) }
+                         Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = gridMode == GridMode.OFF, onClick = { onGridChange(GridMode.OFF) }); Text("Ninguna", fontSize = 12.sp) }
+                         Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = gridMode == GridMode.RULE_OF_THIRDS, onClick = { onGridChange(GridMode.RULE_OF_THIRDS) }); Text("Tercios", fontSize = 12.sp) }
                     }
                     Column {
                          Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = gridMode == GridMode.GRID_4X4, onClick = { onGridChange(GridMode.GRID_4X4) }); Text("4x4", fontSize = 12.sp) }
@@ -349,14 +308,19 @@ fun SettingsDialog(
                 
                 Divider(color = Color.White.copy(0.1f))
 
-                // 5. GPS
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onGpsChange(!gpsEnabled) }) {
-                    Checkbox(checked = gpsEnabled, onCheckedChange = onGpsChange)
-                    Column {
-                        Text("Geoetiquetado GPS", fontWeight = FontWeight.Bold)
-                        Text("Guardar coordenadas en EXIF", fontSize = 11.sp, color = Color.Gray)
+                // 4. DATOS EN FOTO (OVERLAY)
+                Text("Datos sobreimpresionados", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
+                OverlayOption.values().forEach { option ->
+                    val isSelected = selectedOverlays.contains(option)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(40.dp).clickable { onOverlayToggle(option) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(checked = isSelected, onCheckedChange = { onOverlayToggle(option) })
+                        Text(option.label, fontSize = 14.sp)
                     }
                 }
+                Text("Nota: Los metadatos EXIF completos siempre se guardarán.", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(start = 12.dp))
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } }
