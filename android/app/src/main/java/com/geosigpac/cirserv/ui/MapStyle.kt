@@ -24,8 +24,8 @@ import org.maplibre.android.style.sources.TileSet
 import org.maplibre.android.style.sources.VectorSource
 
 /**
- * Carga el estilo del mapa corrigiendo errores de renderizado (líneas de tiles)
- * e implementando grosores de línea dinámicos según el nivel de zoom.
+ * Carga el estilo del mapa y corrige las líneas de unión de los tiles.
+ * Aplica grosor dinámico a los recintos según el nivel de zoom.
  */
 fun loadMapStyle(
     map: MapLibreMap,
@@ -38,8 +38,8 @@ fun loadMapStyle(
 ) {
     val styleBuilder = Style.Builder()
 
-    // 1. CAPA DE FONDO: Evita que el fondo blanco de la App se vea en las costuras de los tiles.
-    // Al ser negra, las grietas milimétricas del mapa base se vuelven invisibles.
+    // 1. CAPA DE FONDO: Cambiamos el fondo blanco por defecto a NEGRO.
+    // Esto hace que las rendijas milimétricas entre tiles de satélite sean invisibles.
     styleBuilder.withLayer(
         BackgroundLayer("background_fill")
             .withProperties(PropertyFactory.backgroundColor(android.graphics.Color.BLACK))
@@ -56,16 +56,11 @@ fun loadMapStyle(
     
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
     styleBuilder.withSource(rasterSource)
-
-    // 2. CAPA RÁSTER BASE
     styleBuilder.withLayer(RasterLayer(LAYER_BASE, SOURCE_BASE))
 
     map.setStyle(styleBuilder) { style ->
         
-        // Mejora la fluidez cargando tiles adyacentes antes de visualizarlos
-        // Nota: Si da error en tu versión, puedes comentarla, pero ayuda a reducir parpadeos.
-        try { map.setPrefetchTiles(true) } catch (e: Exception) {}
-
+        // Capa de Cultivo
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
@@ -75,7 +70,7 @@ fun loadMapStyle(
                 style.addLayer(FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO).apply {
                     sourceLayer = SOURCE_LAYER_ID_CULTIVO
                     setProperties(
-                        // Alpha integrado en el color para evitar rejillas oscuras en los bordes de tiles
+                        // Usar alpha en el color evita que se sumen opacidades en los bordes
                         PropertyFactory.fillColor(Color.Yellow.copy(alpha = 0.35f).toArgb()),
                         PropertyFactory.fillAntialias(false)
                     )
@@ -83,13 +78,15 @@ fun loadMapStyle(
             } catch (e: Exception) { e.printStackTrace() }
         }
 
+        // Capa de Recinto
         if (showRecinto) {
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 style.addSource(VectorSource(SOURCE_RECINTO, TileSet("pbf", recintoUrl)))
 
-                // CAPA RELLENO RECINTOS: Solución definitiva a las rayas naranjas de las capturas
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
+
+                // RELLENO: Solución a las rayas naranjas horizontales/verticales
                 style.addLayer(FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO).apply {
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
                     setProperties(
@@ -99,7 +96,7 @@ fun loadMapStyle(
                     )
                 })
 
-                // CAPA LÍNEAS RECINTOS: Grosor dinámico con Zoom
+                // BORDES: Grosor variable según Zoom
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 style.addLayer(LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO).apply {
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
@@ -107,24 +104,22 @@ fun loadMapStyle(
                         PropertyFactory.lineColor(borderColor.toArgb()),
                         PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                         PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                        // Interpolación: El ancho crece suavemente según te acercas
+                        // Interpolación: aumenta el grosor al acercarte
                         PropertyFactory.lineWidth(
                             interpolate(
                                 linear(), zoom(),
-                                stop(12, 0.8f),  // Zoom lejano: líneas finas
+                                stop(12, 0.7f),  // Muy lejos: línea fina
                                 stop(15, 1.8f),  // Zoom medio
-                                stop(18, 3.5f)   // Zoom cercano: líneas gruesas para ver límites claros
+                                stop(18, 3.5f)   // Zoom cerca: línea gruesa
                             )
                         )
                     )
                 })
 
-                // CAPAS DE RESALTADO (SELECCIÓN)
-                val initialFilter = literal(false)
-
+                // RESALTADO (Selección)
                 style.addLayer(FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO).apply {
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
-                    setFilter(initialFilter)
+                    setFilter(literal(false))
                     setProperties(
                         PropertyFactory.fillColor(HighlightColor.copy(alpha = 0.45f).toArgb()),
                         PropertyFactory.fillAntialias(false)
@@ -133,10 +128,9 @@ fun loadMapStyle(
 
                 style.addLayer(LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO).apply {
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
-                    setFilter(initialFilter)
+                    setFilter(literal(false))
                     setProperties(
                         PropertyFactory.lineColor(HighlightColor.toArgb()),
-                        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                         PropertyFactory.lineWidth(
                             interpolate(
                                 linear(), zoom(),
@@ -183,10 +177,6 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
     return false
 }
 
-/**
- * Convierte un color de Compose (Color) a un ARGB de Android (Int)
- * asegurando que el canal Alpha se mantenga correctamente.
- */
 fun Color.toArgb(): Int {
     return android.graphics.Color.argb(
         (alpha * 255).toInt(),
