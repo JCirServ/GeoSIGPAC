@@ -234,19 +234,6 @@ fun CameraScreen(
         }
     }
 
-    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
-        val (height, width) = options.run { outHeight to outWidth }
-        var inSampleSize = 1
-        if (height > reqHeight || width > reqWidth) {
-            val halfHeight = height / 2
-            val halfWidth = width / 2
-            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
-                inSampleSize *= 2
-            }
-        }
-        return inSampleSize
-    }
-
     // Animación de Parpadeo
     val infiniteTransition = rememberInfiniteTransition()
     val blinkAlpha by infiniteTransition.animateFloat(
@@ -784,6 +771,19 @@ private suspend fun compressPhoto(context: Context, uri: Uri): File = withContex
         format(Bitmap.CompressFormat.JPEG)
         size(2_000_000) // Máximo 2MB
     }
+}
+
+private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+    val (height, width) = options.run { outHeight to outWidth }
+    var inSampleSize = 1
+    if (height > reqHeight || width > reqWidth) {
+        val halfHeight = height / 2
+        val halfWidth = width / 2
+        while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+            inSampleSize *= 2
+        }
+    }
+    return inSampleSize
 }
 
 private fun takePhoto(
