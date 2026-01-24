@@ -280,9 +280,12 @@ fun NativeMapScreen(
             // Extended Data (Carga de atributos al detenerse)
             map.addOnCameraIdleListener {
                 // Actualizar centro del mapa para botones externos (Google Maps)
+                // FIX: Usar llamada segura para evitar NullPointerException si target es nulo
                 val target = map.cameraPosition.target
-                currentMapCenterLat = target.latitude
-                currentMapCenterLng = target.longitude
+                if (target != null) {
+                    currentMapCenterLat = target.latitude
+                    currentMapCenterLng = target.longitude
+                }
 
                 if (!searchActive) {
                     // Validar zoom antes de lanzar corrutina
