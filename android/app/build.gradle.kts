@@ -61,6 +61,9 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     
+    // Exif
+    implementation(libs.androidx.exifinterface)
+    
     // Google AI (Gemini) Nativo
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
     
