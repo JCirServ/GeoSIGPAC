@@ -25,16 +25,16 @@ object MapLogic {
         try {
             val center = map.cameraPosition.target ?: return ""
             val screenPoint = map.projection.toScreenLocation(center)
-            // Aumentamos el área de toque (+/- 20px) para facilitar la detección al mover rápido
-            val searchArea = RectF(screenPoint.x - 20f, screenPoint.y - 20f, screenPoint.x + 20f, screenPoint.y + 20f)
+            // Aumentamos el área de toque (+/- 30px) para facilitar aún más la detección al mover rápido
+            val searchArea = RectF(screenPoint.x - 30f, screenPoint.y - 30f, screenPoint.x + 30f, screenPoint.y + 30f)
             
             val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
             if (features.isNotEmpty()) {
                 val feature = features[0]
                 
                 // Helper para extracción segura de propiedades (Maneja Strings y Numbers)
-                fun getSafeProp(key: String, default: String = "0"): String {
-                    if (!feature.hasProperty(key)) return default
+                fun getSafeProp(key: String): String {
+                    if (!feature.hasProperty(key)) return "0"
                     val prop = feature.getProperty(key)
                     return when {
                         prop.isJsonPrimitive -> {
@@ -49,16 +49,18 @@ object MapLogic {
                     }
                 }
 
-                val prov = getSafeProp("provincia", "")
-                val mun = getSafeProp("municipio", "")
-                val agg = getSafeProp("agregado", "0")
-                val zon = getSafeProp("zona", "0")
-                val pol = getSafeProp("poligono", "0")
-                val parc = getSafeProp("parcela", "0")
-                val rec = getSafeProp("recinto", "0")
+                // Extracción robusta: Usamos "0" por defecto para evitar cadenas vacías que rompan la lógica
+                val prov = getSafeProp("provincia")
+                val mun = getSafeProp("municipio")
+                val agg = getSafeProp("agregado")
+                val zon = getSafeProp("zona")
+                val pol = getSafeProp("poligono")
+                val parc = getSafeProp("parcela")
+                val rec = getSafeProp("recinto")
                 
                 var resultRef = ""
-                if (prov.isNotEmpty() && mun.isNotEmpty()) {
+                // Validamos que al menos provincia y municipio existan para formar una ref válida
+                if (prov != "0" && mun != "0") {
                     resultRef = "$prov:$mun:$agg:$zon:$pol:$parc:$rec"
                 }
                 
