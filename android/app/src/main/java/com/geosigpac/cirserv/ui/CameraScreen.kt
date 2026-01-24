@@ -156,7 +156,8 @@ fun CameraScreen(
             var match: Pair<NativeExpediente, NativeParcela>? = null
 
             // Priorizamos la búsqueda en los expedientes
-            // Buscamos si el punto está DENTRO de la geometría definida
+            // Buscamos si el punto está DENTRO de la geometría definida (KML o Hidratada)
+            // Esto incluye puntos que han sido hidratados a polígonos (geometryRaw != null)
             for (exp in expedientes) {
                 for (p in exp.parcelas) {
                     if (isLocationInsideParcel(lat, lng, p)) {
@@ -186,7 +187,7 @@ fun CameraScreen(
             
             if (foundParcel != null && foundExp != null) Pair(foundExp!!, foundParcel) else null
         } 
-        // 2. Coincidencia Geométrica (Ray Casting - "Dentro del recinto")
+        // 2. Coincidencia Geométrica (Ray Casting - "Dentro del recinto AZUL")
         else if (geoMatchedParcel != null) {
             geoMatchedParcel
         }
@@ -546,14 +547,25 @@ fun CameraScreen(
 
         // --- CONTROLS UI ---
         val manualClearCallback = if (manualSigpacRef != null) { { manualSigpacRef = null } } else null
-
+        
         if (isLandscape) {
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ControlButton(Icons.Default.Settings, "Config") { showSettingsDialog = true }
                     ControlButton(Icons.Default.List, "Proyectos") { onGoToProjects() }
                     ControlButton(Icons.Default.Keyboard, "Manual") { showManualInput = true }
-                    if (matchedParcelInfo != null) ControlButton(Icons.Default.Info, "Info", alpha = blinkAlpha) { showParcelSheet = true }
+                    if (matchedParcelInfo != null) {
+                        // VISUAL LOGIC: Parpadeo Verde SOLO si estamos geométricamente DENTRO
+                        // Si solo hay coincidencia por referencia (API o Manual), se muestra fijo y blanco.
+                        val isInsideGeometry = geoMatchedParcel != null
+                        
+                        ControlButton(
+                            Icons.Default.Info, 
+                            "Info", 
+                            tint = if (isInsideGeometry) NeonGreen else Color.White, 
+                            alpha = if (isInsideGeometry) blinkAlpha else 1f
+                        ) { showParcelSheet = true }
+                    }
                 }
             }
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
@@ -577,7 +589,18 @@ fun CameraScreen(
                     ControlButton(Icons.Default.Settings, "Config") { showSettingsDialog = true }
                     ControlButton(Icons.Default.List, "Proyectos") { onGoToProjects() }
                     ControlButton(Icons.Default.Keyboard, "Manual") { showManualInput = true }
-                    if (matchedParcelInfo != null) ControlButton(Icons.Default.Info, "Info", alpha = blinkAlpha) { showParcelSheet = true }
+                    if (matchedParcelInfo != null) {
+                        // VISUAL LOGIC: Parpadeo Verde SOLO si estamos geométricamente DENTRO
+                        // Si solo hay coincidencia por referencia (API o Manual), se muestra fijo y blanco.
+                        val isInsideGeometry = geoMatchedParcel != null
+                        
+                        ControlButton(
+                            Icons.Default.Info, 
+                            "Info", 
+                            tint = if (isInsideGeometry) NeonGreen else Color.White, 
+                            alpha = if (isInsideGeometry) blinkAlpha else 1f
+                        ) { showParcelSheet = true }
+                    }
                 }
             }
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 16.dp)) {
