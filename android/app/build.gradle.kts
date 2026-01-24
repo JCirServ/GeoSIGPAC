@@ -86,4 +86,5 @@ dependencies {
     implementation("ch.acra:acra-dialog:5.11.3")
 
     implementation("id.zelory:compressor:3.0.1")
+    implementation "com.google.guava:guava:31.1-android"
 }
