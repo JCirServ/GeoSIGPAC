@@ -322,7 +322,11 @@ fun ProjectDetailsScreen(
 ) {
     var isGroupedByExpediente by remember { mutableStateOf(false) }
     val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
-    val sortedParcelas = remember(exp.parcelas) { exp.parcelas.sortedBy { it.referencia } }
+    
+    // ORDENACIÓN ALFABÉTICA CASE-INSENSITIVE
+    val sortedParcelas = remember(exp.parcelas) { 
+        exp.parcelas.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.referencia }) 
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
