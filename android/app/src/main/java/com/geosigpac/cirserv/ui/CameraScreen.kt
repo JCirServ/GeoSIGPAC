@@ -80,25 +80,32 @@ fun CameraScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     
-    // --- ESTADOS ---
+    // --- ESTADOS DE CONFIGURACIÓN ---
     var aspectRatio by remember { mutableIntStateOf(AspectRatio.RATIO_4_3) }
-    var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) }
-    var showGrid by remember { mutableStateOf(false) }
+    // 0:Auto, 1:On, 2:Off, 3:Torch
+    var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) } 
+    var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
+    var gridMode by remember { mutableStateOf(GridMode.OFF) }
+    var timerMode by remember { mutableStateOf(TimerMode.OFF) }
+    var cameraQuality by remember { mutableStateOf(CameraQuality.HIGH) }
+    var gpsEnabled by remember { mutableStateOf(true) }
+    
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showParcelSheet by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
 
-    // CameraX
+    // CameraX Objects
     var camera by remember { mutableStateOf<Camera?>(null) }
     var imageCaptureUseCase by remember { mutableStateOf<ImageCapture?>(null) }
     val previewView = remember { PreviewView(context) }
     var currentLinearZoom by remember { mutableFloatStateOf(0f) }
 
-    // Tap to focus
+    // Logic State
+    var timerCountdown by remember { mutableIntStateOf(0) }
     var focusRingPosition by remember { mutableStateOf<Offset?>(null) }
     var showFocusRing by remember { mutableStateOf(false) }
 
-    // Data & Logic
+    // Data State
     var locationText by remember { mutableStateOf("Obteniendo ubicación...") }
     var sigpacRef by remember { mutableStateOf<String?>(null) }
     var sigpacUso by remember { mutableStateOf<String?>(null) }
@@ -109,7 +116,7 @@ fun CameraScreen(
     var lastApiTimestamp by remember { mutableStateOf(0L) }
     var isProcessingImage by remember { mutableStateOf(false) }
 
-    // Matching Logic
+    // --- MATCHING LOGIC ---
     val matchedParcelInfo = remember(sigpacRef, expedientes) {
         if (sigpacRef == null) return@remember null
         var foundExp: NativeExpediente? = null
@@ -124,7 +131,7 @@ fun CameraScreen(
         if (foundParcel != null && foundExp != null) Pair(foundExp!!, foundParcel) else null
     }
 
-    // Preview Bitmap Logic
+    // --- PREVIEW BITMAP ---
     var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     val targetPreviewUri = remember(matchedParcelInfo, lastCapturedUri) {
         if (matchedParcelInfo != null && matchedParcelInfo.second.photos.isNotEmpty()) {
@@ -135,7 +142,6 @@ fun CameraScreen(
         if (matchedParcelInfo != null) matchedParcelInfo.second.photos.size else photoCount
     }
 
-    // Load Preview Bitmap
     LaunchedEffect(targetPreviewUri) {
         targetPreviewUri?.let { uri ->
             withContext(Dispatchers.IO) {
@@ -163,7 +169,7 @@ fun CameraScreen(
         } ?: run { capturedBitmap = null }
     }
 
-    // Animación Parpadeo
+    // Blink Animation
     val infiniteTransition = rememberInfiniteTransition()
     val blinkAlpha by infiniteTransition.animateFloat(
         initialValue = 0.2f, targetValue = 1f,
@@ -171,33 +177,66 @@ fun CameraScreen(
         label = "Blink"
     )
 
-    // Camera Binding
+    // Zoom Observer
     LaunchedEffect(camera) {
         camera?.cameraInfo?.zoomState?.observe(lifecycleOwner) { state ->
             currentLinearZoom = state.linearZoom
         }
     }
 
-    LaunchedEffect(aspectRatio, flashMode) {
+    // --- CAMERA BINDING (Re-bind on settings change) ---
+    LaunchedEffect(aspectRatio, flashMode, lensFacing, cameraQuality) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
             cameraProvider.unbindAll()
-            val preview = Preview.Builder().setTargetAspectRatio(aspectRatio).build()
-            preview.setSurfaceProvider(previewView.surfaceProvider)
-            val imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+
+            // Preview
+            val preview = Preview.Builder()
                 .setTargetAspectRatio(aspectRatio)
-                .setFlashMode(flashMode)
                 .build()
+            preview.setSurfaceProvider(previewView.surfaceProvider)
+
+            // Capture
+            val imageCaptureBuilder = ImageCapture.Builder()
+                .setTargetAspectRatio(aspectRatio)
+
+            // Quality
+            // Nota: CameraX prefiere setCaptureMode a setTargetResolution para compatibilidad general
+            when(cameraQuality) {
+                CameraQuality.MAX -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                CameraQuality.HIGH -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY) // Similar
+                CameraQuality.BALANCED -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            }
+
+            // Flash Logic for Capture (Torch is handled separately via CameraControl)
+            // Si el usuario elige "Linterna" (3), configuramos captura en OFF para evitar doble flash, 
+            // ya que activaremos la linterna manualmente.
+            val captureFlashMode = if (flashMode == 3) ImageCapture.FLASH_MODE_OFF else flashMode
+            imageCaptureBuilder.setFlashMode(captureFlashMode)
+
+            val imageCapture = imageCaptureBuilder.build()
+
+            // Selector
+            val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+
             try {
-                camera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                val cam = cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
+                camera = cam
                 imageCaptureUseCase = imageCapture
+                
+                // Torch Activation Logic
+                if (flashMode == 3) {
+                    cam.cameraControl.enableTorch(true)
+                } else {
+                    cam.cameraControl.enableTorch(false)
+                }
+
             } catch (exc: Exception) { Log.e("CameraScreen", "Binding failed", exc) }
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // Location & Sigpac Loop
+    // --- SIGPAC & GPS LOOP ---
     LaunchedEffect(Unit) {
         while (true) {
             val loc = currentLocation
@@ -233,7 +272,6 @@ fun CameraScreen(
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, listener)
-                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 5f, listener)
             } catch (e: Exception) { locationText = "Error GPS" }
         }
         onDispose {
@@ -242,8 +280,41 @@ fun CameraScreen(
             }
         }
     }
+    
+    // --- CAPTURE FUNCTION WRAPPER (Handles Timer) ---
+    fun performCapture() {
+        if (isProcessingImage) return
+        
+        scope.launch {
+            if (timerMode != TimerMode.OFF) {
+                for (i in timerMode.seconds downTo 1) {
+                    timerCountdown = i
+                    delay(1000)
+                }
+                timerCountdown = 0
+            }
+            
+            isProcessingImage = true
+            // Solo pasamos ubicación si GPS está activado
+            val locToSave = if (gpsEnabled) currentLocation else null
+            
+            CameraCaptureLogic.takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, locToSave,
+                onImageCaptured = { uri -> 
+                    isProcessingImage = false
+                    if (matchedParcelInfo != null) {
+                        val (exp, parc) = matchedParcelInfo
+                        val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
+                        val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                        onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
+                    }
+                    onImageCaptured(uri) 
+                }, 
+                onError = { isProcessingImage = false; onError(it) }
+            )
+        }
+    }
 
-    // --- UI LAYOUT ---
+    // --- UI COMPOSITION ---
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
             .pointerInput(Unit) {
@@ -268,13 +339,19 @@ fun CameraScreen(
     ) {
         AndroidView(modifier = Modifier.fillMaxSize(), factory = { previewView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); scaleType = PreviewView.ScaleType.FILL_CENTER } })
         
+        // Overlays
         if (showFocusRing && focusRingPosition != null) {
             Box(modifier = Modifier.offset(x = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.x.toDp() - 25.dp }, y = with(androidx.compose.ui.platform.LocalDensity.current) { focusRingPosition!!.y.toDp() - 25.dp }).size(50.dp).border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape))
         }
 
-        if (showGrid) GridOverlay()
+        GridOverlay(gridMode)
+        
+        if (timerCountdown > 0) {
+            TimerCountDown(timerCountdown)
+        }
 
-        // CONTROLS
+        // --- CONTROLS UI ---
+        // (Simplificado: Solo mostramos la estructura básica adaptada, delegando al componente SettingsDialog la complejidad)
         if (isLandscape) {
             Box(modifier = Modifier.align(Alignment.TopStart).padding(24.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -287,22 +364,7 @@ fun CameraScreen(
                 InfoBox(locationText, sigpacRef, sigpacUso, matchedParcelInfo, showNoDataMessage)
             }
             Box(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 32.dp)) {
-                ShutterButton(isProcessingImage) {
-                    isProcessingImage = true
-                    CameraCaptureLogic.takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, currentLocation,
-                        onImageCaptured = { uri -> 
-                            isProcessingImage = false
-                            if (matchedParcelInfo != null) {
-                                val (exp, parc) = matchedParcelInfo
-                                val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
-                                val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
-                                onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
-                            }
-                            onImageCaptured(uri) 
-                        }, 
-                        onError = { isProcessingImage = false; onError(it) }
-                    )
-                }
+                ShutterButton(isProcessingImage) { performCapture() }
             }
             Row(modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) {
                 SquareButton(Icons.Default.Image, "Preview", currentPhotoCount, capturedBitmap) {
@@ -332,30 +394,31 @@ fun CameraScreen(
                     SquareButton(Icons.Default.Image, "Preview", currentPhotoCount, capturedBitmap) {
                          if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) showGallery = true else onClose()
                     }
-                    ShutterButton(isProcessingImage) {
-                        isProcessingImage = true
-                        CameraCaptureLogic.takePhoto(context, imageCaptureUseCase, projectId, sigpacRef, currentLocation,
-                            onImageCaptured = { uri -> 
-                                isProcessingImage = false
-                                if (matchedParcelInfo != null) {
-                                    val (exp, parc) = matchedParcelInfo
-                                    val updatedParcela = parc.copy(photos = parc.photos + uri.toString())
-                                    val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
-                                    onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
-                                }
-                                onImageCaptured(uri) 
-                            }, 
-                            onError = { isProcessingImage = false; onError(it) }
-                        )
-                    }
+                    ShutterButton(isProcessingImage) { performCapture() }
                     SquareButton(MapIconVector, "Map") { onGoToMap() }
                 }
             }
         }
         
-        // --- DIALOGS & OVERLAYS ---
+        // --- SETTINGS DIALOG (Massively Updated) ---
         if (showSettingsDialog) {
-            SettingsDialog(aspectRatio, flashMode, showGrid, { showSettingsDialog = false }, { aspectRatio = it }, { flashMode = it }, { showGrid = it })
+            SettingsDialog(
+                aspectRatio = aspectRatio,
+                flashMode = flashMode,
+                lensFacing = lensFacing,
+                gridMode = gridMode,
+                timerMode = timerMode,
+                quality = cameraQuality,
+                gpsEnabled = gpsEnabled,
+                onDismiss = { showSettingsDialog = false },
+                onRatioChange = { aspectRatio = it },
+                onFlashChange = { flashMode = it },
+                onLensChange = { lensFacing = it },
+                onGridChange = { gridMode = it },
+                onTimerChange = { timerMode = it },
+                onQualityChange = { cameraQuality = it },
+                onGpsChange = { gpsEnabled = it }
+            )
         }
         
         if (showParcelSheet) {

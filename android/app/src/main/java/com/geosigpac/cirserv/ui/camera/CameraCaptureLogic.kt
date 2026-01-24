@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui.camera
 
 import android.content.ContentValues
@@ -35,7 +36,7 @@ object CameraCaptureLogic {
         imageCapture: ImageCapture?,
         projectId: String?,
         sigpacRef: String?,
-        location: Location?,
+        location: Location?, // Si es null, no se guarda GPS (respetando config)
         onImageCaptured: (Uri) -> Unit,
         onError: (ImageCaptureException) -> Unit
     ) {
@@ -124,7 +125,7 @@ object CameraCaptureLogic {
             mutableBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
         }
         
-        // 4. Inyectar EXIF GPS
+        // 4. Inyectar EXIF GPS (Solo si location != null)
         if (location != null) {
             try {
                 resolver.openFileDescriptor(uri, "rw")?.use { fd ->
