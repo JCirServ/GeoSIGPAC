@@ -22,7 +22,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            shrinkResources true
+            shrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             ndk {
                 abiFilters 'armeabi-v7a', 'arm64-v8a' // Solo ARM, 99% dispositivos
