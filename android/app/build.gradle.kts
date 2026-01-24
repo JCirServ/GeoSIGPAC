@@ -84,4 +84,6 @@ dependencies {
 
     implementation("ch.acra:acra-mail:5.11.3")
     implementation("ch.acra:acra-dialog:5.11.3")
+
+    implementation("id.zelory:compressor:3.0.1")
 }
