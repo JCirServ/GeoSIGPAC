@@ -302,8 +302,8 @@ fun NativeMapScreen(
     // --- TRIGGER BÚSQUEDA EXTERNA (Desde botón Localizar) ---
     LaunchedEffect(searchTarget, mapInstance) {
         if (!searchTarget.isNullOrEmpty() && mapInstance != null) {
-            // Pequeño delay para asegurar que la vista está lista si acabamos de cambiar de tab
-            delay(500) 
+            // Aumentado delay a 800ms para asegurar que la vista está lista
+            delay(800) 
             searchQuery = searchTarget
             performSearch()
         }

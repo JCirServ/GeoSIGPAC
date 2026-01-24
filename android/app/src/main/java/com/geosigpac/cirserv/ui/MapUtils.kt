@@ -74,20 +74,6 @@ val FillColorPNOA   = Color(0xFF00B0FF) // Azul Eléctrico
 val BorderColorOSM  = Color(0xFF263238) // Gris Pizarra Oscuro (Blue Gray 900)
 val FillColorOSM    = Color(0xFFFF6D00) // Naranja Vivo
 
-/* OPCIÓN B: ESTILO CÍTRICO (Descomentar para probar)
-val BorderColorPNOA = Color(0xFFFFFF00) // Amarillo
-val FillColorPNOA   = Color(0xFF76FF03) // Verde Lima
-val BorderColorOSM  = Color(0xFF1B5E20) // Verde Bosque
-val FillColorOSM    = Color(0xFFFFD600) // Amarillo Solar
-*/
-
-/* OPCIÓN C: ESTILO CYBER (Descomentar para probar)
-val BorderColorPNOA = Color(0xFF00E5FF) // Cian
-val FillColorPNOA   = Color(0xFFD500F9) // Magenta
-val BorderColorOSM  = Color(0xFF4A148C) // Morado Oscuro
-val FillColorOSM    = Color(0xFFFF4081) // Rosa
-*/
-
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
     PNOA("Ortofoto PNOA")
@@ -105,95 +91,98 @@ data class ParcelSearchResult(
  * sin necesidad de llamadas a API externa.
  */
 fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
-    if (parcela.geometryRaw.isNullOrEmpty()) return null
+    // 1. INTENTO: Geometría Completa (Polígono)
+    if (!parcela.geometryRaw.isNullOrEmpty()) {
+        try {
+            // Caso A: GeoJSON (Recinto hidratado desde API)
+            if (parcela.geometryRaw.trim().startsWith("{")) {
+                // Workaround: Envolvemos la geometría cruda en un objeto Feature para poder usar Feature.fromJson
+                val rawGeom = parcela.geometryRaw.trim()
+                val featureJson = """{"type": "Feature", "properties": {}, "geometry": $rawGeom}"""
+                val feature = Feature.fromJson(featureJson)
 
-    return try {
-        // Caso A: GeoJSON (Recinto hidratado desde API)
-        if (parcela.geometryRaw.trim().startsWith("{")) {
-            // Workaround: Envolvemos la geometría cruda en un objeto Feature para poder usar Feature.fromJson
-            val rawGeom = parcela.geometryRaw.trim()
-            val featureJson = """{"type": "Feature", "properties": {}, "geometry": $rawGeom}"""
-            val feature = Feature.fromJson(featureJson)
+                // Calculamos bounds simples iterando coordenadas del JSON raw
+                val root = JSONObject(parcela.geometryRaw)
+                val coords = root.optJSONArray("coordinates")
+                
+                var minLat = Double.MAX_VALUE; var maxLat = -Double.MAX_VALUE
+                var minLng = Double.MAX_VALUE; var maxLng = -Double.MAX_VALUE
 
-            // Calculamos bounds simples iterando coordenadas del JSON raw
-            val root = JSONObject(parcela.geometryRaw)
-            val coords = root.optJSONArray("coordinates")
-            
+                fun traverse(arr: JSONArray) {
+                    if (arr.length() == 0) return
+                    val first = arr.get(0)
+                    if (first is Number) {
+                        val lng = arr.getDouble(0)
+                        val lat = arr.getDouble(1)
+                        if (lat < minLat) minLat = lat
+                        if (lat > maxLat) maxLat = lat
+                        if (lng < minLng) minLng = lng
+                        if (lng > maxLng) maxLng = lng
+                    } else if (first is JSONArray) {
+                        for (i in 0 until arr.length()) traverse(arr.getJSONArray(i))
+                    }
+                }
+                if (coords != null) traverse(coords)
+
+                if (minLat != Double.MAX_VALUE) {
+                    val latPadding = (maxLat - minLat) * 0.20
+                    val lngPadding = (maxLng - minLng) * 0.20
+                    val bounds = LatLngBounds.from(maxLat + latPadding, maxLng + lngPadding, minLat - latPadding, minLng - lngPadding)
+                    return ParcelSearchResult(bounds, feature)
+                }
+            }
+
+            // Caso B: KML String legacy (Pares lat,lng separados por espacios)
+            val points = mutableListOf<Point>()
             var minLat = Double.MAX_VALUE; var maxLat = -Double.MAX_VALUE
             var minLng = Double.MAX_VALUE; var maxLng = -Double.MAX_VALUE
 
-            fun traverse(arr: JSONArray) {
-                if (arr.length() == 0) return
-                val first = arr.get(0)
-                if (first is Number) {
-                    val lng = arr.getDouble(0)
-                    val lat = arr.getDouble(1)
-                    if (lat < minLat) minLat = lat
-                    if (lat > maxLat) maxLat = lat
-                    if (lng < minLng) minLng = lng
-                    if (lng > maxLng) maxLng = lng
-                } else if (first is JSONArray) {
-                    for (i in 0 until arr.length()) traverse(arr.getJSONArray(i))
+            val coordPairs = parcela.geometryRaw.trim().split("\\s+".toRegex())
+            coordPairs.forEach { pair ->
+                val coords = pair.split(",")
+                if (coords.size >= 2) {
+                    val lng = coords[0].toDoubleOrNull()
+                    val lat = coords[1].toDoubleOrNull()
+                    if (lng != null && lat != null) {
+                        points.add(Point.fromLngLat(lng, lat))
+                        if (lat < minLat) minLat = lat
+                        if (lat > maxLat) maxLat = lat
+                        if (lng < minLng) minLng = lng
+                        if (lng > maxLng) maxLng = lng
+                    }
                 }
             }
-            if (coords != null) traverse(coords)
 
-            if (minLat == Double.MAX_VALUE) return null
+            if (points.isNotEmpty()) {
+                val latPadding = (maxLat - minLat) * 0.20
+                val lngPadding = (maxLng - minLng) * 0.20
+                val bounds = LatLngBounds.from(maxLat + latPadding, maxLng + lngPadding, minLat - latPadding, minLng - lngPadding)
 
-            val latPadding = (maxLat - minLat) * 0.20
-            val lngPadding = (maxLng - minLng) * 0.20
-            
-            val bounds = LatLngBounds.from(maxLat + latPadding, maxLng + lngPadding, minLat - latPadding, minLng - lngPadding)
-            return ParcelSearchResult(bounds, feature)
-        }
-
-        // Caso B: KML String legacy (Pares lat,lng separados por espacios)
-        val points = mutableListOf<Point>()
-        var minLat = Double.MAX_VALUE
-        var maxLat = -Double.MAX_VALUE
-        var minLng = Double.MAX_VALUE
-        var maxLng = -Double.MAX_VALUE
-
-        val coordPairs = parcela.geometryRaw.trim().split("\\s+".toRegex())
-        
-        coordPairs.forEach { pair ->
-            val coords = pair.split(",")
-            if (coords.size >= 2) {
-                val lng = coords[0].toDoubleOrNull()
-                val lat = coords[1].toDoubleOrNull()
-                if (lng != null && lat != null) {
-                    points.add(Point.fromLngLat(lng, lat))
-                    if (lat < minLat) minLat = lat
-                    if (lat > maxLat) maxLat = lat
-                    if (lng < minLng) minLng = lng
-                    if (lng > maxLng) maxLng = lng
-                }
+                if (points.first() != points.last()) { points.add(points.first()) }
+                val polygon = Polygon.fromLngLats(listOf(points))
+                val feature = Feature.fromGeometry(polygon)
+                return ParcelSearchResult(bounds, feature)
             }
+        } catch (e: Exception) {
+            Log.e("MapUtils", "Error parsing local geometry: ${e.message}")
         }
-
-        if (points.isEmpty()) return null
-
-        val latPadding = (maxLat - minLat) * 0.20
-        val lngPadding = (maxLng - minLng) * 0.20
-        
-        val bounds = LatLngBounds.from(
-            maxLat + latPadding,
-            maxLng + lngPadding,
-            minLat - latPadding,
-            minLng - lngPadding
-        )
-
-        if (points.first() != points.last()) {
-            points.add(points.first())
-        }
-        val polygon = Polygon.fromLngLats(listOf(points))
-        val feature = Feature.fromGeometry(polygon)
-        
-        ParcelSearchResult(bounds, feature)
-    } catch (e: Exception) {
-        Log.e("MapUtils", "Error parsing local geometry: ${e.message}")
-        null
     }
+
+    // 2. INTENTO: Fallback a Centroide (Punto)
+    // Si falla la geometría o no existe, usamos el centroide para volar al punto
+    if (parcela.centroidLat != null && parcela.centroidLng != null) {
+        val lat = parcela.centroidLat
+        val lng = parcela.centroidLng
+        val pointFeature = Feature.fromGeometry(Point.fromLngLat(lng, lat))
+        
+        // Creamos un Bounds artificial pequeño alrededor del punto (aprox 200m)
+        val delta = 0.002
+        val bounds = LatLngBounds.from(lat + delta, lng + delta, lat - delta, lng - delta)
+        
+        return ParcelSearchResult(bounds, pointFeature)
+    }
+
+    return null
 }
 
 /**
