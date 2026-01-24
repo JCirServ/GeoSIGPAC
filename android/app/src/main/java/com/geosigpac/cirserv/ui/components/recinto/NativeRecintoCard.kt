@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.geosigpac.cirserv.model.NativeParcela
+import com.geosigpac.cirserv.utils.AnalysisSeverity
 import com.geosigpac.cirserv.utils.SigpacCodeManager
 import com.geosigpac.cirserv.ui.FullScreenPhotoGallery
 
@@ -70,16 +71,17 @@ fun NativeRecintoCard(
         }
     }
 
-    // --- ESTILOS DINÁMICOS ---
+    // --- ESTILOS DINÁMICOS BASADOS EN SEVERIDAD ---
     val statusColor = remember(agroAnalysis, isLoading, isFullyCompleted, photosEnough) {
         when {
             isLoading -> Color.Gray
             !photosEnough -> Color(0xFF62D2FF)
             isFullyCompleted -> Color(0xFF62D2FF)
             agroAnalysis == null -> Color.Gray
-            !agroAnalysis.isCompatible -> Color(0xFFFF5252)
-            agroAnalysis.explanation.contains("AVISO", ignoreCase = true) || agroAnalysis.explanation.contains("Nota", ignoreCase = true) -> Color(0xFFFF9800)
-            else -> Color(0xFF00FF88)
+            // Usamos la nueva Enum de Severidad
+            agroAnalysis.severity == AnalysisSeverity.CRITICAL -> Color(0xFFFF5252) // ROJO
+            agroAnalysis.severity == AnalysisSeverity.WARNING -> Color(0xFFFF9800) // NARANJA
+            else -> Color(0xFF00FF88) // VERDE
         }
     }
 
@@ -89,16 +91,25 @@ fun NativeRecintoCard(
             !photosEnough -> Icons.Default.CameraAlt
             isFullyCompleted -> Icons.Default.Verified
             agroAnalysis == null -> null
-            !agroAnalysis.isCompatible -> Icons.Default.Error
-            agroAnalysis.explanation.contains("AVISO", ignoreCase = true) -> Icons.Default.Warning
+            agroAnalysis.severity == AnalysisSeverity.CRITICAL -> Icons.Default.Error
+            agroAnalysis.severity == AnalysisSeverity.WARNING -> Icons.Default.Warning
             else -> null
         }
     }
 
-    val cardBackgroundColor = if (isFullyCompleted) {
-        Color(0xFF00FF88).copy(alpha = 0.15f)
-    } else {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+    // El fondo de la tarjeta ahora refleja la severidad del problema
+    val cardBackgroundColor = remember(isFullyCompleted, agroAnalysis, isLoading) {
+        if (isFullyCompleted) {
+            Color(0xFF00FF88).copy(alpha = 0.15f)
+        } else if (!isLoading && agroAnalysis != null) {
+            when (agroAnalysis.severity) {
+                AnalysisSeverity.CRITICAL -> Color(0xFFFF5252).copy(alpha = 0.15f)
+                AnalysisSeverity.WARNING -> Color(0xFFFF9800).copy(alpha = 0.15f)
+                else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+            }
+        } else {
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+        }
     }
 
     // --- GALERÍA FULLSCREEN ---
@@ -119,7 +130,7 @@ fun NativeRecintoCard(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = cardBackgroundColor),
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(if(isFullyCompleted) 2.dp else 1.dp, statusColor.copy(alpha = if(parcela.isHydrated) 0.8f else 0.1f))
+        border = BorderStroke(if(isFullyCompleted || agroAnalysis?.severity == AnalysisSeverity.CRITICAL) 2.dp else 1.dp, statusColor.copy(alpha = if(parcela.isHydrated) 0.8f else 0.1f))
     ) {
         Column {
             // 1. Header

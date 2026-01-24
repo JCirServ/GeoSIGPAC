@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.utils
 
 import android.content.Context
@@ -10,8 +11,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
+enum class AnalysisSeverity {
+    OK,
+    WARNING,
+    CRITICAL
+}
+
 data class AgroAnalysisResult(
-    val isCompatible: Boolean,
+    val severity: AnalysisSeverity,
+    val isCompatible: Boolean, // Mantenido por compatibilidad, equivale a severity != CRITICAL
     val explanation: String,
     val requirements: List<FieldGuideEntry>
 )
@@ -430,43 +438,51 @@ object SigpacCodeManager {
         coefRegadio: Double?,
         pendienteMedia: Double?
     ): AgroAnalysisResult {
-        // 1. Compatibilidad Cultivo vs Uso SIGPAC
+        var severity = AnalysisSeverity.OK
+        val explanationBuilder = StringBuilder()
+
+        // 1. Compatibilidad Cultivo vs Uso SIGPAC (CRITICAL if false)
         val compatibility = checkCompatibility(productoCode, productoDesc, sigpacUso)
+        if (!compatibility.first) {
+            severity = AnalysisSeverity.CRITICAL
+            explanationBuilder.append(compatibility.second)
+        }
         
         // 2. Compatibilidad Riego
         val irrigationCheck = checkIrrigationConsistency(sistExp, coefRegadio)
+        if (irrigationCheck.second != null) {
+            // Si hay mensaje, determina severidad
+            if (irrigationCheck.first) { 
+                // Es "compatible" pero con advertencia (Orange)
+                if (severity != AnalysisSeverity.CRITICAL) severity = AnalysisSeverity.WARNING
+            } else {
+                // Incompatible (Red)
+                severity = AnalysisSeverity.CRITICAL
+            }
+            if (explanationBuilder.isNotEmpty()) explanationBuilder.append("\n")
+            explanationBuilder.append(irrigationCheck.second)
+        }
 
-        // 3. Requisitos
+        // 3. Requisitos (Info only, usually)
         val requirements = getFieldRequirements(ayudasRaw, pdrRaw)
         
-        // 4. Pendiente
+        // 4. Pendiente (WARNING)
         val normalizedSigpac = sigpacUso?.trim()?.split(" ")?.get(0)?.uppercase()
         val isPastos = listOf("PS", "PR", "PA").contains(normalizedSigpac)
-        val isCompatible = compatibility.first
         
-        val slopeCheck = if (pendienteMedia != null && pendienteMedia > 10.0) {
+        if (pendienteMedia != null && pendienteMedia > 10.0) {
             // Si es pastos y es compatible, no aplica pendiente (no se labra)
-            if (isPastos && isCompatible) null 
-            else "AVISO PENDIENTE: Valor elevado (${pendienteMedia}%). Verificar laboreo a favor de pendiente."
-        } else null
-
-        val finalIsCompatible = compatibility.first && irrigationCheck.first
-        
-        val sb = StringBuilder()
-        if (compatibility.second.isNotEmpty()) sb.append(compatibility.second)
-        
-        if (irrigationCheck.second != null) {
-            if (sb.isNotEmpty()) sb.append("\n")
-            sb.append(irrigationCheck.second)
-        }
-        if (slopeCheck != null) {
-            if (sb.isNotEmpty()) sb.append("\n")
-            sb.append(slopeCheck)
+            if (!isPastos || !compatibility.first) {
+                if (severity == AnalysisSeverity.OK) severity = AnalysisSeverity.WARNING
+                if (explanationBuilder.isNotEmpty()) explanationBuilder.append("\n")
+                explanationBuilder.append("AVISO PENDIENTE: Valor elevado (${pendienteMedia}%). Verificar laboreo.")
+            }
         }
 
         return AgroAnalysisResult(
-            isCompatible = finalIsCompatible,
-            explanation = sb.toString(),
+            severity = severity,
+            isCompatible = (severity != AnalysisSeverity.CRITICAL),
+            explanation = explanationBuilder.toString(),
             requirements = requirements
         )
     }
