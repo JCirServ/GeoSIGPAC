@@ -78,75 +78,33 @@ fun loadMapStyle(
                 style.addSource(recintoSource)
 
                 // CAPA 1: RELLENO (TINT)
+                // Color distinto al borde, semitransparente
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.15f),
+                    PropertyFactory.fillOpacity(0.15f), // Opacidad suficiente para ver el color pero ver el fondo
                     PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula estática
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDES SIMULADOS (GROSOR EXTREMO MEDIANTE MULTI-OFFSET ESCALADO)
+                // CAPA 2: BORDE (OUTLINE)
+                // Borde de otro color, sólido. Usamos FillLayer para líneas nítidas sin grid.
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
-                
-                // 2A. Borde Principal
-                val borderLayer1 = FillLayer("${LAYER_RECINTO_LINE}_main", SOURCE_RECINTO)
-                borderLayer1.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderLayer1.setProperties(
+                val borderLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderLayer.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(borderColor.toArgb()),
-                    PropertyFactory.fillAntialias(true)
+                    PropertyFactory.fillAntialias(true) // En bordes finos queremos antialias para que no se vean sierra
                 )
-                style.addLayer(borderLayer1)
-
-                // 2B. Borde Secundario (Offset 1)
-                val borderLayer2 = FillLayer("${LAYER_RECINTO_LINE}_offset1", SOURCE_RECINTO)
-                borderLayer2.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderLayer2.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(borderColor.copy(alpha = 0.8f).toArgb()),
-                    PropertyFactory.fillTranslate(
-                        Expression.interpolate(
-                            Expression.exponential(1.8f),
-                            Expression.zoom(),
-                            Expression.stop(8, arrayOf(0.5f, 0.5f)),
-                            Expression.stop(12, arrayOf(2f, 2f)),
-                            Expression.stop(15, arrayOf(5f, 5f)),
-                            Expression.stop(18, arrayOf(10f, 10f))
-                        )
-                    ),
-                    PropertyFactory.fillAntialias(true)
-                )
-                style.addLayer(borderLayer2)
-
-                // 2C. Borde Terciario (Offset 2 - Grosor Extra)
-                val borderLayer3 = FillLayer("${LAYER_RECINTO_LINE}_offset2", SOURCE_RECINTO)
-                borderLayer3.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderLayer3.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(borderColor.copy(alpha = 0.5f).toArgb()),
-                    PropertyFactory.fillTranslate(
-                        Expression.interpolate(
-                            Expression.exponential(1.8f),
-                            Expression.zoom(),
-                            Expression.stop(8, arrayOf(1f, 1f)),
-                            Expression.stop(12, arrayOf(4f, 4f)),
-                            Expression.stop(15, arrayOf(10f, 10f)),
-                            Expression.stop(18, arrayOf(20f, 20f))
-                        )
-                    ),
-                    PropertyFactory.fillAntialias(true)
-                )
-                style.addLayer(borderLayer3)
-
+                style.addLayer(borderLayer)
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
 
-                // Resaltado Relleno
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightFill.setFilter(initialFilter)
@@ -154,43 +112,21 @@ fun loadMapStyle(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
                     PropertyFactory.fillOpacity(0.5f), 
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(false)
+                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula al resaltar
                 )
                 style.addLayer(highlightFill)
 
-                // Resaltado Borde Principal
-                val highlightLine1 = FillLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_main", SOURCE_RECINTO)
-                highlightLine1.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLine1.setFilter(initialFilter)
-                highlightLine1.setProperties(
+                // Cambio solicitado: Usar FillLayer para el borde del resaltado (igual que el borde normal)
+                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightLine.setFilter(initialFilter)
+                highlightLine.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
                     PropertyFactory.visibility(Property.VISIBLE),
                     PropertyFactory.fillAntialias(true)
                 )
-                style.addLayer(highlightLine1)
-
-                // Resaltado Borde Secundario (Offset 1)
-                val highlightLine2 = FillLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_offset1", SOURCE_RECINTO)
-                highlightLine2.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLine2.setFilter(initialFilter)
-                highlightLine2.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(HighlightColor.copy(alpha = 0.8f).toArgb()),
-                    PropertyFactory.fillTranslate(
-                        Expression.interpolate(
-                            Expression.exponential(1.8f),
-                            Expression.zoom(),
-                            Expression.stop(8, arrayOf(0.5f, 0.5f)),
-                            Expression.stop(12, arrayOf(2f, 2f)),
-                            Expression.stop(15, arrayOf(5f, 5f)),
-                            Expression.stop(18, arrayOf(10f, 10f))
-                        )
-                    ),
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(true)
-                )
-                style.addLayer(highlightLine2)
+                style.addLayer(highlightLine)
                 
             } catch (e: Exception) { e.printStackTrace() }
         }

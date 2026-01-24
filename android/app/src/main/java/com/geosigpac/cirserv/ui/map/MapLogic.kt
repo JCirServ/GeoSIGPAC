@@ -16,9 +16,7 @@ object MapLogic {
         if (map.cameraPosition.zoom < 13) {
             val emptyFilter = Expression.literal(false)
             map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
-            // Actualización para nuevas capas _main y _offset1
-            map.style?.getLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_main")?.let { (it as FillLayer).setFilter(emptyFilter) }
-            map.style?.getLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_offset1")?.let { (it as FillLayer).setFilter(emptyFilter) }
+            map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
             return ""
         }
         val center = map.cameraPosition.target ?: return ""
@@ -63,18 +61,14 @@ object MapLogic {
                         }
                     }
                     val finalFilter = Expression.all(*filterConditions.toTypedArray())
-                    
-                    // Aplicar filtro a todas las capas de resaltado actualizadas
                     map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(finalFilter) }
-                    map.style?.getLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_main")?.let { (it as FillLayer).setFilter(finalFilter) }
-                    map.style?.getLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_offset1")?.let { (it as FillLayer).setFilter(finalFilter) }
+                    map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(finalFilter) }
                 }
                 return resultRef
             } else {
                 val emptyFilter = Expression.literal(false)
                 map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL)?.let { (it as FillLayer).setFilter(emptyFilter) }
-                map.style?.getLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_main")?.let { (it as FillLayer).setFilter(emptyFilter) }
-                map.style?.getLayer("${LAYER_RECINTO_HIGHLIGHT_LINE}_offset1")?.let { (it as FillLayer).setFilter(emptyFilter) }
+                map.style?.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE)?.let { (it as LineLayer).setFilter(emptyFilter) }
                 return ""
             }
         } catch (e: Exception) { 
