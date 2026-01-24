@@ -263,13 +263,11 @@ fun SettingsDialog(
             ) {
                 // 1. FORMATO
                 Text("Formato de Captura", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_1_1, onClick = { onFormatChange(PhotoFormat.RATIO_1_1) }, label = { Text("1:1") })
-                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_4_3, onClick = { onFormatChange(PhotoFormat.RATIO_4_3) }, label = { Text("4:3") })
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_16_9, onClick = { onFormatChange(PhotoFormat.RATIO_16_9) }, label = { Text("16:9") })
-                    FilterChip(selected = currentFormat == PhotoFormat.FULL_SCREEN, onClick = { onFormatChange(PhotoFormat.FULL_SCREEN) }, label = { Text("FULL") })
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_1_1, onClick = { onFormatChange(PhotoFormat.RATIO_1_1) }, label = { Text("1:1", fontSize = 12.sp) }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_4_3, onClick = { onFormatChange(PhotoFormat.RATIO_4_3) }, label = { Text("4:3", fontSize = 12.sp) }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = currentFormat == PhotoFormat.RATIO_16_9, onClick = { onFormatChange(PhotoFormat.RATIO_16_9) }, label = { Text("16:9", fontSize = 12.sp) }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = currentFormat == PhotoFormat.FULL_SCREEN, onClick = { onFormatChange(PhotoFormat.FULL_SCREEN) }, label = { Text("FULL", fontSize = 12.sp) }, modifier = Modifier.weight(1f))
                 }
                 
                 // 2. CALIDAD
