@@ -756,6 +756,18 @@ private suspend fun fetchRealSigpacData(lat: Double, lng: Double): Pair<String?,
     return@withContext Pair(null, null)
 }
 
+// FUNCION HELPER PARA CONVERTIR COORDENADAS A DMS (EXIF FORMAT)
+private fun toDMS(coordinate: Double): String {
+    var loc = coordinate
+    if (loc < 0) loc = -loc
+    val degrees = loc.toInt()
+    loc = (loc - degrees) * 60
+    val minutes = loc.toInt()
+    loc = (loc - minutes) * 60
+    val seconds = (loc * 1000).toInt()
+    return "$degrees/1,$minutes/1,$seconds/1000"
+}
+
 /**
  * Función mejorada: Toma la foto, la procesa para añadir el cajetín de datos (overlay) y
  * guarda los metadatos EXIF reales en el archivo final.
@@ -924,10 +936,24 @@ private fun processImageWithOverlay(
             resolver.openFileDescriptor(uri, "rw")?.use { fd ->
                 val exifFinal = ExifInterface(fd.fileDescriptor)
                 
-                exifFinal.setLatLong(location.latitude, location.longitude)
-                exifFinal.setAltitude(location.altitude)
+                // Conversión manual a formato DMS para EXIF nativo
+                val lat = location.latitude
+                val latRef = if (lat > 0) "N" else "S"
+                exifFinal.setAttribute(ExifInterface.TAG_GPS_LATITUDE, toDMS(lat))
+                exifFinal.setAttribute(ExifInterface.TAG_GPS_LATITUDE_REF, latRef)
                 
-                // Copiar fecha si es necesario, aunque el timestamp actual es correcto
+                val lon = location.longitude
+                val lonRef = if (lon > 0) "E" else "W"
+                exifFinal.setAttribute(ExifInterface.TAG_GPS_LONGITUDE, toDMS(lon))
+                exifFinal.setAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF, lonRef)
+                
+                // Altitud
+                val alt = location.altitude
+                val altRef = if (alt < 0) "1" else "0"
+                val altNum = Math.abs(alt) * 1000
+                exifFinal.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${altNum.toInt()}/1000")
+                exifFinal.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, altRef)
+                
                 exifFinal.setAttribute(ExifInterface.TAG_DATETIME, dateFormat.format(Date()))
                 
                 exifFinal.saveAttributes()
