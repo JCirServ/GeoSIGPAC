@@ -42,7 +42,7 @@ val NeonGreen = Color(0xFF00FF88)
 
 // ENUMS DE CONFIGURACIÓN
 enum class GridMode { OFF, RULE_OF_THIRDS, GOLDEN_RATIO, GRID_4X4 }
-enum class CameraQuality { MAX, HIGH, BALANCED }
+enum class CameraQuality { LOW, MEDIUM, HIGH, MAX }
 enum class PhotoFormat { RATIO_4_3, RATIO_16_9, RATIO_1_1, FULL_SCREEN }
 enum class OverlayOption(val label: String) {
     DATE("Fecha y Hora"),
@@ -266,18 +266,26 @@ fun SettingsDialog(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = currentFormat == PhotoFormat.RATIO_4_3, onClick = { onFormatChange(PhotoFormat.RATIO_4_3) }, label = { Text("4:3") })
                     FilterChip(selected = currentFormat == PhotoFormat.RATIO_16_9, onClick = { onFormatChange(PhotoFormat.RATIO_16_9) }, label = { Text("16:9") })
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = currentFormat == PhotoFormat.RATIO_1_1, onClick = { onFormatChange(PhotoFormat.RATIO_1_1) }, label = { Text("1:1") })
+                    FilterChip(selected = currentFormat == PhotoFormat.FULL_SCREEN, onClick = { onFormatChange(PhotoFormat.FULL_SCREEN) }, label = { Text("FULL") })
                 }
                 
-                Text("Calidad", style = MaterialTheme.typography.labelSmall)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = quality == CameraQuality.MAX, onClick = { onQualityChange(CameraQuality.MAX) }, label = { Text("Máxima") })
-                    FilterChip(selected = quality == CameraQuality.HIGH, onClick = { onQualityChange(CameraQuality.HIGH) }, label = { Text("Alta") })
+                // 2. CALIDAD
+                Text("Calidad JPEG", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FilterChip(selected = quality == CameraQuality.LOW, onClick = { onQualityChange(CameraQuality.LOW) }, label = { Text("Baja") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = quality == CameraQuality.MEDIUM, onClick = { onQualityChange(CameraQuality.MEDIUM) }, label = { Text("Media") }, modifier = Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FilterChip(selected = quality == CameraQuality.HIGH, onClick = { onQualityChange(CameraQuality.HIGH) }, label = { Text("Alta") }, modifier = Modifier.weight(1f))
+                    FilterChip(selected = quality == CameraQuality.MAX, onClick = { onQualityChange(CameraQuality.MAX) }, label = { Text("Máx") }, modifier = Modifier.weight(1f))
                 }
 
                 Divider(color = Color.White.copy(0.1f))
 
-                // 2. FLASH / LINTERNA
+                // 3. FLASH / LINTERNA
                 Text("Iluminación", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -293,7 +301,7 @@ fun SettingsDialog(
 
                 Divider(color = Color.White.copy(0.1f))
 
-                // 3. COMPOSICIÓN
+                // 4. COMPOSICIÓN
                 Text("Guías de Composición", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column {
@@ -308,7 +316,7 @@ fun SettingsDialog(
                 
                 Divider(color = Color.White.copy(0.1f))
 
-                // 4. DATOS EN FOTO (OVERLAY)
+                // 5. DATOS EN FOTO (OVERLAY)
                 Text("Datos sobreimpresionados", style = MaterialTheme.typography.labelMedium, color = NeonGreen)
                 OverlayOption.values().forEach { option ->
                     val isSelected = selectedOverlays.contains(option)

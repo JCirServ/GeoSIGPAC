@@ -219,11 +219,14 @@ fun CameraScreen(
             // Capture
             val imageCaptureBuilder = ImageCapture.Builder().setTargetAspectRatio(cameraXRatio)
 
-            when(cameraQuality) {
-                CameraQuality.MAX -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                CameraQuality.HIGH -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                CameraQuality.BALANCED -> imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            // Mapeo de Calidad
+            val captureMode = when(cameraQuality) {
+                CameraQuality.MAX -> ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+                CameraQuality.HIGH -> ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+                CameraQuality.MEDIUM -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
+                CameraQuality.LOW -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
             }
+            imageCaptureBuilder.setCaptureMode(captureMode)
 
             val captureFlashMode = if (flashMode == 3) ImageCapture.FLASH_MODE_OFF else flashMode
             imageCaptureBuilder.setFlashMode(captureFlashMode)
@@ -297,9 +300,18 @@ fun CameraScreen(
             
             val cropToSquare = (photoFormat == PhotoFormat.RATIO_1_1)
             
+            // Determinar Calidad JPEG (0-100)
+            val jpegQuality = when(cameraQuality) {
+                CameraQuality.MAX -> 100
+                CameraQuality.HIGH -> 90
+                CameraQuality.MEDIUM -> 80
+                CameraQuality.LOW -> 60
+            }
+
             CameraCaptureLogic.takePhoto(
                 context, imageCaptureUseCase, projectId, sigpacRef, currentLocation,
                 cropToSquare = cropToSquare,
+                jpegQuality = jpegQuality,
                 overlayOptions = overlayOptions,
                 onImageCaptured = { uri -> 
                     isProcessingImage = false

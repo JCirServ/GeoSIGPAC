@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui.camera
 
 import android.content.ContentValues
@@ -38,6 +39,7 @@ object CameraCaptureLogic {
         sigpacRef: String?,
         location: Location?,
         cropToSquare: Boolean,
+        jpegQuality: Int,
         overlayOptions: Set<OverlayOption>,
         onImageCaptured: (Uri) -> Unit,
         onError: (ImageCaptureException) -> Unit
@@ -61,7 +63,7 @@ object CameraCaptureLogic {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            val finalUri = processImage(context, tempFile, projectId, sigpacRef, location, cropToSquare, overlayOptions)
+                            val finalUri = processImage(context, tempFile, projectId, sigpacRef, location, cropToSquare, jpegQuality, overlayOptions)
                             tempFile.delete()
                             withContext(Dispatchers.Main) {
                                 onImageCaptured(finalUri)
@@ -85,6 +87,7 @@ object CameraCaptureLogic {
         sigpacRef: String?,
         location: Location?,
         cropToSquare: Boolean,
+        jpegQuality: Int,
         overlayOptions: Set<OverlayOption>
     ): Uri {
         // 1. Cargar y Corregir Orientación
@@ -144,7 +147,7 @@ object CameraCaptureLogic {
             ?: throw Exception("Failed to create MediaStore entry")
 
         resolver.openOutputStream(uri)?.use { out ->
-            mutableBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            mutableBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out)
         }
         
         // 5. Inyectar TODOS los metadatos EXIF posibles
