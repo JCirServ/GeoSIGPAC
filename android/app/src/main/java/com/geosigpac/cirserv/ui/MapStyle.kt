@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
@@ -79,8 +80,7 @@ fun loadMapStyle(
                     sourceLayer = SOURCE_LAYER_ID_RECINTO
                     setProperties(
                         PropertyFactory.lineColor(tintColor.copy(alpha = 0.15f).toArgb()),
-                        PropertyFactory.lineWidth(0.8f),
-                        PropertyFactory.lineAntialias(false)
+                        PropertyFactory.lineWidth(0.8f)
                     )
                 })
 
