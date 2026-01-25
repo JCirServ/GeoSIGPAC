@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -32,16 +33,18 @@ import kotlin.math.max
 
 object CameraCaptureLogic {
 
+    private const val UPLOAD_TIMEOUT_MS = 120000L // 120s Timeout
+
     fun takePhoto(
         context: Context,
         imageCapture: ImageCapture?,
-        projectNames: List<String>, // Cambiado de projectId a lista de nombres
+        projectNames: List<String>, 
         sigpacRef: String?,
         location: Location?,
         cropToSquare: Boolean,
         jpegQuality: Int,
         overlayOptions: Set<OverlayOption>,
-        onImageCaptured: (Map<String, Uri>) -> Unit, // Devuelve un mapa Proyecto -> URI
+        onImageCaptured: (Map<String, Uri>) -> Unit, 
         onError: (ImageCaptureException) -> Unit
     ) {
         val imageCapture = imageCapture ?: return
@@ -63,28 +66,33 @@ object CameraCaptureLogic {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            // Definir carpetas destino. Si la lista está vacía, usar "SIN PROYECTO"
-                            val targetFolders = if (projectNames.isNotEmpty()) projectNames else listOf("SIN PROYECTO")
-                            
-                            val resultUris = processImage(
-                                context, 
-                                tempFile, 
-                                targetFolders, 
-                                sigpacRef, 
-                                location, 
-                                cropToSquare, 
-                                jpegQuality, 
-                                overlayOptions
-                            )
-                            
-                            tempFile.delete()
-                            withContext(Dispatchers.Main) {
-                                onImageCaptured(resultUris)
+                            // Timeout de seguridad de 120s para el procesado/guardado (o futura subida)
+                            withTimeout(UPLOAD_TIMEOUT_MS) {
+                                val targetFolders = if (projectNames.isNotEmpty()) projectNames else listOf("SIN PROYECTO")
+                                
+                                val resultUris = processImage(
+                                    context, 
+                                    tempFile, 
+                                    targetFolders, 
+                                    sigpacRef, 
+                                    location, 
+                                    cropToSquare, 
+                                    jpegQuality, 
+                                    overlayOptions
+                                )
+                                
+                                tempFile.delete()
+                                withContext(Dispatchers.Main) {
+                                    onImageCaptured(resultUris)
+                                }
                             }
                         } catch (e: Exception) {
                             Log.e("Camera", "Error processing image", e)
+                            tempFile.delete()
                             withContext(Dispatchers.Main) {
-                                onError(ImageCaptureException(ImageCapture.ERROR_FILE_IO, "Error procesando overlay: ${e.message}", e))
+                                val errorMsg = if(e is kotlinx.coroutines.TimeoutCancellationException) 
+                                    "Tiempo de espera agotado (120s)" else "Error: ${e.message}"
+                                onError(ImageCaptureException(ImageCapture.ERROR_FILE_IO, errorMsg, e))
                             }
                         }
                     }
@@ -136,7 +144,6 @@ object CameraCaptureLogic {
         
         // 3. Dibujar Overlay Configurable (Solo una vez en el bitmap final)
         if (overlayOptions.isNotEmpty()) {
-            // Nota: El overlay mostrará el primer proyecto si hay varios, o "SIN PROYECTO"
             val displayProject = if (targetFolders.contains("SIN PROYECTO")) null else targetFolders.firstOrNull()
             drawOverlay(mutableBitmap, location, sigpacRef, displayProject, overlayOptions)
         }
@@ -150,7 +157,6 @@ object CameraCaptureLogic {
 
         // 4. Guardar una copia por cada Proyecto destino
         for (folderName in targetFolders) {
-            // Estructura: DCIM/GeoSIGPAC/[Nombre Proyecto]/[Ref Sigpac]/[Fichero]
             val relativePath = "DCIM/GeoSIGPAC/$folderName/$safeSigpacRef"
 
             val contentValues = ContentValues().apply {

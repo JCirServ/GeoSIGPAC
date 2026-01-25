@@ -3,23 +3,28 @@ package com.geosigpac.cirserv.services
 
 import android.util.Log
 import com.geosigpac.cirserv.model.CultivoData
-import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.model.SigpacData
+import com.geosigpac.cirserv.utils.NetworkResult
+import com.geosigpac.cirserv.utils.NetworkUtils
+import com.geosigpac.cirserv.utils.RetryPolicy
 import com.geosigpac.cirserv.utils.SigpacCodeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONObject as JSONNative
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 object SigpacApiService {
 
     private const val TAG = "SigpacApiService"
+    
+    // Cache simple en memoria: URL -> Pair(Timestamp, ResponseString)
+    private val memoryCache = ConcurrentHashMap<String, Pair<Long, String>>()
+    private const val CACHE_DURATION_MS = 5 * 60 * 1000 // 5 minutos
 
     /**
      * @param targetAreaHa Superficie CALCULADA del polígono KML en Hectáreas (para desempate).
@@ -42,18 +47,14 @@ object SigpacApiService {
         val parc = if (hasCompleteFormat) parts[5] else (parts.getOrNull(parts.size - 2) ?: "")
         val rec = if (hasCompleteFormat) parts[6] else (parts.getOrNull(parts.size - 1) ?: "")
 
-        // 1. CONSULTA RECINTO (JSON DETALLADO)
         val recintoUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfo/$prov/$mun/$ag/$zo/$pol/$parc/$rec.json"
-        
-        // 2. CONSULTA CULTIVO DECLARADO (OGC API)
         val ogcQuery = "provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
         val cultivoUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?$ogcQuery"
 
-        val centroid: Pair<Double, Double>? = null
+        // Ejecutar llamadas en paralelo sería ideal, pero por simplicidad y robustez secuencial:
+        val sigpac = fetchUrlWithRetry(recintoUrl)?.let { parseSigpacDataJson(it) }
 
-        val sigpac = fetchUrl(recintoUrl)?.let { parseSigpacDataJson(it) }
-
-        val cultivo = fetchUrl(cultivoUrl)?.let { jsonStr ->
+        val cultivo = fetchUrlWithRetry(cultivoUrl)?.let { jsonStr ->
             try {
                 val root = JSONNative(jsonStr)
                 val features = root.optJSONArray("features")
@@ -64,65 +65,39 @@ object SigpacApiService {
                         candidates.add(features.getJSONObject(i))
                     }
 
-                    // LÓGICA DE SELECCIÓN DE REGISTRO (Ordenamiento por prioridad)
-                    // 1. Coincidencia Geométrica (Punto) -> Excluyente
-                    // 2. Coincidencia Superficie (Redondeo Target vs M2 Cultivo)
-                    // 3. Reciente (Año)
-                    // 4. Expediente (Número)
-                    
+                    // LÓGICA DE SELECCIÓN DE REGISTRO
                     val bestFeature = candidates.sortedWith(Comparator { o1, o2 ->
                         val p1 = o1.optJSONObject("properties")
                         val p2 = o2.optJSONObject("properties")
                         if (p1 == null || p2 == null) return@Comparator 0
 
-                        // A. GEOMETRÍA (Si se provee punto, tiene prioridad absoluta estar dentro)
-                        // Esto se usa principalmente si venimos de un clic en mapa
                         if (pointCheck != null) {
                             val geom1 = o1.optJSONObject("geometry")
                             val geom2 = o2.optJSONObject("geometry")
                             val inside1 = if(geom1 != null) isPointInGeoJsonGeometry(pointCheck.first, pointCheck.second, geom1) else false
                             val inside2 = if(geom2 != null) isPointInGeoJsonGeometry(pointCheck.first, pointCheck.second, geom2) else false
                             
-                            if (inside1 && !inside2) return@Comparator -1 // o1 gana
-                            if (!inside1 && inside2) return@Comparator 1  // o2 gana
+                            if (inside1 && !inside2) return@Comparator -1
+                            if (!inside1 && inside2) return@Comparator 1
                         }
 
-                        // B. SUPERFICIE (Lógica Ajustada)
-                        // Objetivo: Comparar superficie real redondeada a 2 decimales vs superficie cultivo (m2 -> ha)
                         if (targetAreaHa != null && targetAreaHa > 0) {
-                            // 1. Redondear la superficie REAL (Target) a 2 decimales
                             val targetRounded = (targetAreaHa * 100.0).roundToInt() / 100.0
-
-                            // 2. Convertir superficie CULTIVO de m2 a Ha directamente (ya viene redondeada en origen)
                             val area1Ha = p1.optDouble("parc_supcult", 0.0) / 10000.0
                             val area2Ha = p2.optDouble("parc_supcult", 0.0) / 10000.0
-
                             val diff1 = abs(area1Ha - targetRounded)
                             val diff2 = abs(area2Ha - targetRounded)
-
-                            // Preferimos la menor diferencia.
-                            // Consideramos iguales si la diferencia es despreciable (0.001 Ha = 10m2)
-                            if (abs(diff1 - diff2) > 0.001) {
-                                return@Comparator diff1.compareTo(diff2)
-                            }
+                            if (abs(diff1 - diff2) > 0.001) return@Comparator diff1.compareTo(diff2)
                         }
 
-                        // C. ANTIGÜEDAD (Año) - Mayor año gana
                         val y1 = p1.optInt("exp_ano", 0)
                         val y2 = p2.optInt("exp_ano", 0)
-                        if (y1 != y2) {
-                            return@Comparator y2.compareTo(y1) // Descendente
-                        }
+                        if (y1 != y2) return@Comparator y2.compareTo(y1)
 
-                        // D. NÚMERO EXPEDIENTE - Mayor número gana
-                        // Parseamos a Long para comparar numéricamente ("10" > "2")
-                        fun parseExp(s: String?): Long {
-                            return s?.trim()?.filter { it.isDigit() }?.toLongOrNull() ?: 0L
-                        }
+                        fun parseExp(s: String?): Long = s?.trim()?.filter { it.isDigit() }?.toLongOrNull() ?: 0L
                         val e1 = parseExp(p1.optString("exp_num", "0"))
                         val e2 = parseExp(p2.optString("exp_num", "0"))
-                        
-                        return@Comparator e2.compareTo(e1) // Descendente
+                        return@Comparator e2.compareTo(e1)
                     }).firstOrNull()
 
                     if (bestFeature != null) {
@@ -149,14 +124,12 @@ object SigpacApiService {
             } catch (e: Exception) { null }
         }
 
-        Triple(sigpac, cultivo, centroid)
+        Triple(sigpac, cultivo, null)
     }
 
     suspend fun recoverParcelaFromPoint(lat: Double, lng: Double): Triple<String?, String?, SigpacData?> = withContext(Dispatchers.IO) {
-        // 1. OBTENER REFERENCIA Y DATOS (recinfobypoint)
-        // OJO: Orden es (SRS, Longitud, Latitud) para EPSG:4258
         val identifyUrl = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfobypoint/4258/%.8f/%.8f.json", lng, lat)
-        val idResponse = fetchUrl(identifyUrl) ?: return@withContext Triple(null, null, null)
+        val idResponse = fetchUrlWithRetry(identifyUrl) ?: return@withContext Triple(null, null, null)
 
         var prov = ""; var mun = ""; var pol = ""; var parc = ""; var rec = ""; var agg = "0"; var zon = "0"
         var sigpacData: SigpacData? = null
@@ -167,9 +140,8 @@ object SigpacApiService {
             if (jsonArray.length() > 0) {
                 val item = jsonArray.getJSONObject(0)
                 
-                // Helper para buscar propiedad en raíz (formato plano) o dentro de 'properties' (GeoJSON)
                 fun getProp(key: String): String {
-                    if (item.has(key)) return item.getString(key) // getString fuerza conversión string/number
+                    if (item.has(key)) return item.getString(key)
                     val props = item.optJSONObject("properties")
                     if (props != null && props.has(key)) return props.getString(key)
                     return ""
@@ -207,7 +179,6 @@ object SigpacApiService {
                     altitud = getIntProp("altitud")
                 )
 
-                // 1.1 EXTRAER GEOMETRÍA WKT (Si existe, nos ahorramos la segunda llamada)
                 val wkt = getProp("wkt")
                 if (wkt.isNotEmpty()) {
                     geometryRaw = wktToGeoJson(wkt)
@@ -218,27 +189,25 @@ object SigpacApiService {
             return@withContext Triple(null, null, null) 
         }
 
-        // Si no encontramos los códigos básicos, no podemos continuar
         if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return@withContext Triple(null, null, null)
 
         val fullRef = "$prov:$mun:$pol:$parc:$rec"
 
-        // Si ya tenemos geometría via WKT, retornamos inmediatamente (Ruta Rápida)
         if (geometryRaw != null) {
             return@withContext Triple(fullRef, geometryRaw, sigpacData)
         }
 
-        // 2. OBTENER GEOMETRÍA DEL RECINTO (recinfoparc) - FALLBACK si no había WKT
+        // Fallback: recinfoparc
         val recUrl = "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/$prov/$mun/$agg/$zon/$pol/$parc/$rec.geojson"
-        val recJson = fetchUrl(recUrl)
+        val recJson = fetchUrlWithRetry(recUrl)
         if (recJson != null) {
             geometryRaw = extractGeometryFromGeoJson(recJson)
         }
 
-        // 3. FALLBACK FINAL: GEOMETRÍA DE CULTIVO
+        // Fallback: cultivo declarado
         if (geometryRaw == null) {
             val ogcUrl = "https://sigpac-hubcloud.es/ogcapi/collections/cultivo_declarado/items?provincia=$prov&municipio=$mun&poligono=$pol&parcela=$parc&recinto=$rec&f=json"
-            val cultivoJson = fetchUrl(ogcUrl)
+            val cultivoJson = fetchUrlWithRetry(ogcUrl)
             if (cultivoJson != null) {
                 try {
                     val root = JSONNative(cultivoJson)
@@ -254,14 +223,43 @@ object SigpacApiService {
     }
 
     /**
-     * Convierte WKT (POLYGON((x y, x y...))) a GeoJSON String.
-     * Soporta solo POLYGON simple por ahora, que es el estándar de recinfobypoint.
+     * Envoltura con RetryPolicy y Cache.
      */
+    private suspend fun fetchUrlWithRetry(urlString: String): String? {
+        // 1. Revisar Caché
+        memoryCache[urlString]?.let { (timestamp, data) ->
+            if (System.currentTimeMillis() - timestamp < CACHE_DURATION_MS) {
+                Log.v(TAG, "Cache HIT: $urlString")
+                return data
+            } else {
+                memoryCache.remove(urlString)
+            }
+        }
+
+        // 2. Ejecutar Red con Retry
+        return try {
+            val result = RetryPolicy.executeWithRetry {
+                NetworkUtils.fetchUrl(urlString)
+            }
+
+            if (result is NetworkResult.Success) {
+                memoryCache[urlString] = System.currentTimeMillis() to result.data
+                result.data
+            } else {
+                Log.w(TAG, "Fallo red (agotados reintentos) para: $urlString")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Excepción crítica en fetch: ${e.message}")
+            null
+        }
+    }
+
+    // --- Métodos Privados de Parseo (Sin cambios lógicos mayores) ---
+
     private fun wktToGeoJson(wkt: String): String? {
         try {
             if (!wkt.startsWith("POLYGON")) return null
-            
-            // Extraer coordenadas: ((x y, x y, ...))
             val innerContent = wkt.substringAfter("POLYGON").trim()
                 .removePrefix("(").removeSuffix(")")
                 .removePrefix("(").removeSuffix(")") 
@@ -277,12 +275,8 @@ object SigpacApiService {
                 }
             }
             jsonCoords.append("]]")
-            
             return """{"type": "Polygon", "coordinates": $jsonCoords}"""
-        } catch (e: Exception) {
-            Log.e(TAG, "Error converting WKT to GeoJSON: ${e.message}")
-            return null
-        }
+        } catch (e: Exception) { return null }
     }
 
     private fun parseSigpacDataJson(jsonStr: String): SigpacData? {
@@ -305,14 +299,11 @@ object SigpacApiService {
                     altitud = if (props.isNull("altitud")) null else props.optInt("altitud")
                 )
             }
-        } catch (e: Exception) { Log.e(TAG, "Error parsing SigpacData JSON: ${e.message}") }
+        } catch (e: Exception) { }
         return null
     }
 
-    private fun extractGeometryFromGeoJsonObj(geometry: JSONObject?): String? {
-        // Devolvemos el JSON String completo para mantener polígonos complejos/multipolígonos válidos.
-        return geometry?.toString()
-    }
+    private fun extractGeometryFromGeoJsonObj(geometry: JSONObject?): String? = geometry?.toString()
 
     private fun extractGeometryFromGeoJson(jsonStr: String): String? {
         return try {
@@ -320,9 +311,7 @@ object SigpacApiService {
             var geometry: JSONNative? = null
             if (root.has("features")) {
                 val features = root.getJSONArray("features")
-                if (features.length() > 0) {
-                    geometry = features.getJSONObject(0).optJSONObject("geometry")
-                }
+                if (features.length() > 0) geometry = features.getJSONObject(0).optJSONObject("geometry")
             } else if (root.has("geometry")) {
                 geometry = root.optJSONObject("geometry")
             }
@@ -334,22 +323,14 @@ object SigpacApiService {
         return try {
             val type = geometry.optString("type")
             val coordinates = geometry.getJSONArray("coordinates")
-            
             if (type.equals("Polygon", ignoreCase = true)) {
-                if (coordinates.length() > 0) {
-                    val ring = parseRing(coordinates.getJSONArray(0))
-                    return isPointInPolygon(lat, lng, ring)
-                }
+                if (coordinates.length() > 0) isPointInPolygon(lat, lng, parseRing(coordinates.getJSONArray(0))) else false
             } else if (type.equals("MultiPolygon", ignoreCase = true)) {
                 for (i in 0 until coordinates.length()) {
-                    val poly = coordinates.getJSONArray(i)
-                    if (poly.length() > 0) {
-                        val ring = parseRing(poly.getJSONArray(0))
-                        if (isPointInPolygon(lat, lng, ring)) return true
-                    }
+                    if (isPointInPolygon(lat, lng, parseRing(coordinates.getJSONArray(i).getJSONArray(0)))) return true
                 }
-            }
-            false
+                false
+            } else false
         } catch (e: Exception) { false }
     }
 
@@ -357,9 +338,7 @@ object SigpacApiService {
         val list = mutableListOf<Pair<Double, Double>>()
         for (i in 0 until jsonRing.length()) {
             val pt = jsonRing.getJSONArray(i)
-            val pLng = pt.getDouble(0)
-            val pLat = pt.getDouble(1)
-            list.add(pLat to pLng)
+            list.add(pt.getDouble(1) to pt.getDouble(0))
         }
         return list
     }
@@ -370,34 +349,9 @@ object SigpacApiService {
         for (i in polygon.indices) {
             val (latI, lngI) = polygon[i]
             val (latJ, lngJ) = polygon[j]
-            if (((latI > lat) != (latJ > lat)) &&
-                (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
-                inside = !inside
-            }
+            if (((latI > lat) != (latJ > lat)) && (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) inside = !inside
             j = i
         }
         return inside
-    }
-
-    private fun fetchUrl(urlString: String): String? {
-        Log.d(TAG, "HTTP GET REQ: $urlString")
-        return try {
-            val url = URL(urlString)
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 8000
-            conn.readTimeout = 8000
-            conn.setRequestProperty("User-Agent", "GeoSIGPAC-Mobile/1.0")
-            
-            val code = conn.responseCode
-            if (code == 200) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                Log.e(TAG, "HTTP Error Code: $code")
-                null
-            }
-        } catch (e: Exception) { 
-            Log.e(TAG, "HTTP Exception: ${e.message}")
-            null 
-        }
     }
 }
