@@ -59,54 +59,71 @@ object SigpacApiService {
                 val features = root.optJSONArray("features")
                 
                 if (features != null && features.length() > 0) {
-                    val allDeclarations = mutableListOf<JSONObject>()
+                    val candidates = mutableListOf<JSONObject>()
                     for (i in 0 until features.length()) {
-                        allDeclarations.add(features.getJSONObject(i))
+                        candidates.add(features.getJSONObject(i))
                     }
 
-                    // Filtrar por el AÑO MÁS RECIENTE disponible en los datos
-                    val maxYear = allDeclarations.maxOfOrNull { it.optJSONObject("properties")?.optInt("exp_ano", 0) ?: 0 } ?: 0
-                    val currentYearFeatures = allDeclarations.filter { it.optJSONObject("properties")?.optInt("exp_ano", 0) == maxYear }
-
-                    var bestFeature: JSONObject? = null
+                    // LÓGICA DE SELECCIÓN DE REGISTRO (Ordenamiento por prioridad)
+                    // 1. Coincidencia Geométrica (Punto) -> Excluyente
+                    // 2. Coincidencia Superficie (Redondeo Target vs M2 Cultivo)
+                    // 3. Reciente (Año)
+                    // 4. Expediente (Número)
                     
-                    // A. Prioridad: Coincidencia por PUNTO (Para marcadores KML convertidos)
-                    if (pointCheck != null) {
-                        for (feat in currentYearFeatures) {
-                            val geom = feat.optJSONObject("geometry")
-                            if (geom != null && isPointInGeoJsonGeometry(pointCheck.first, pointCheck.second, geom)) {
-                                bestFeature = feat
-                                break
-                            }
-                        }
-                    }
+                    val bestFeature = candidates.sortedWith(Comparator { o1, o2 ->
+                        val p1 = o1.optJSONObject("properties")
+                        val p2 = o2.optJSONObject("properties")
+                        if (p1 == null || p2 == null) return@Comparator 0
 
-                    // B. Prioridad: Coincidencia por ÁREA (Para polígonos KML)
-                    if (bestFeature == null && targetAreaHa != null && targetAreaHa > 0) {
-                        val toleranceSteps = listOf(0.005, 0.01, 0.05, 0.10) // Tolerancia en Ha
-                        
-                        for (tol in toleranceSteps) {
-                            var bestDiff = Double.MAX_VALUE
+                        // A. GEOMETRÍA (Si se provee punto, tiene prioridad absoluta estar dentro)
+                        // Esto se usa principalmente si venimos de un clic en mapa
+                        if (pointCheck != null) {
+                            val geom1 = o1.optJSONObject("geometry")
+                            val geom2 = o2.optJSONObject("geometry")
+                            val inside1 = if(geom1 != null) isPointInGeoJsonGeometry(pointCheck.first, pointCheck.second, geom1) else false
+                            val inside2 = if(geom2 != null) isPointInGeoJsonGeometry(pointCheck.first, pointCheck.second, geom2) else false
                             
-                            for (feat in currentYearFeatures) {
-                                val props = feat.optJSONObject("properties") ?: continue
-                                val supM2 = props.optDouble("parc_supcult", 0.0)
-                                val supHa = supM2 / 10000.0
-                                val diff = abs(supHa - targetAreaHa)
-                                
-                                if (diff <= tol && diff < bestDiff) {
-                                    bestDiff = diff
-                                    bestFeature = feat
-                                }
-                            }
-                            if (bestFeature != null) break 
+                            if (inside1 && !inside2) return@Comparator -1 // o1 gana
+                            if (!inside1 && inside2) return@Comparator 1  // o2 gana
                         }
-                    }
 
-                    // C. Fallback: Cultivo Principal (Mayor superficie)
-                    if (bestFeature == null && currentYearFeatures.isNotEmpty()) {
-                        bestFeature = currentYearFeatures.maxByOrNull { it.optJSONObject("properties")?.optDouble("parc_supcult", 0.0) ?: 0.0 }
-                    }
+                        // B. SUPERFICIE (Lógica Ajustada)
+                        // Objetivo: Comparar superficie real redondeada a 2 decimales vs superficie cultivo (m2 -> ha)
+                        if (targetAreaHa != null && targetAreaHa > 0) {
+                            // 1. Redondear la superficie REAL (Target) a 2 decimales
+                            val targetRounded = (targetAreaHa * 100.0).roundToInt() / 100.0
+
+                            // 2. Convertir superficie CULTIVO de m2 a Ha directamente (ya viene redondeada en origen)
+                            val area1Ha = p1.optDouble("parc_supcult", 0.0) / 10000.0
+                            val area2Ha = p2.optDouble("parc_supcult", 0.0) / 10000.0
+
+                            val diff1 = abs(area1Ha - targetRounded)
+                            val diff2 = abs(area2Ha - targetRounded)
+
+                            // Preferimos la menor diferencia.
+                            // Consideramos iguales si la diferencia es despreciable (0.001 Ha = 10m2)
+                            if (abs(diff1 - diff2) > 0.001) {
+                                return@Comparator diff1.compareTo(diff2)
+                            }
+                        }
+
+                        // C. ANTIGÜEDAD (Año) - Mayor año gana
+                        val y1 = p1.optInt("exp_ano", 0)
+                        val y2 = p2.optInt("exp_ano", 0)
+                        if (y1 != y2) {
+                            return@Comparator y2.compareTo(y1) // Descendente
+                        }
+
+                        // D. NÚMERO EXPEDIENTE - Mayor número gana
+                        // Parseamos a Long para comparar numéricamente ("10" > "2")
+                        fun parseExp(s: String?): Long {
+                            return s?.trim()?.filter { it.isDigit() }?.toLongOrNull() ?: 0L
+                        }
+                        val e1 = parseExp(p1.optString("exp_num", "0"))
+                        val e2 = parseExp(p2.optString("exp_num", "0"))
+                        
+                        return@Comparator e2.compareTo(e1) // Descendente
+                    }).firstOrNull()
 
                     if (bestFeature != null) {
                         val props = bestFeature.optJSONObject("properties")
