@@ -1,24 +1,29 @@
 
 package com.geosigpac.cirserv.services
 
+import com.geosigpac.cirserv.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.geosigpac.cirserv.model.NativeParcela
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object GeminiService {
-    // API_KEY gestionada por el entorno
-    private const val API_KEY = "TU_API_KEY_ENV" 
-
+    
+    // Inicialización segura usando BuildConfig generado por Gradle
     private val model = GenerativeModel(
         modelName = "gemini-3-flash-preview",
-        apiKey = System.getenv("API_KEY") ?: "" // Fallback a env var
+        apiKey = BuildConfig.GEMINI_API_KEY
     )
 
     /**
      * Analiza la coherencia técnica de un recinto basado en su uso y metadatos.
      */
     suspend fun analyzeParcela(parcela: NativeParcela): String = withContext(Dispatchers.IO) {
+        // Validación básica antes de llamar a la API
+        if (BuildConfig.GEMINI_API_KEY.isBlank()) {
+            return@withContext "API Key no configurada. Revise GEMINI_API_KEY."
+        }
+
         val prompt = """
             Eres un inspector experto de la PAC en España. Analiza este recinto:
             Referencia SIGPAC: ${parcela.referencia}
@@ -30,7 +35,6 @@ object GeminiService {
         """.trimIndent()
 
         try {
-            // Se asume que la API_KEY se inyecta correctamente en tiempo de ejecución
             val response = model.generateContent(prompt)
             response.text?.trim() ?: "Sin respuesta del inspector IA."
         } catch (e: Exception) {

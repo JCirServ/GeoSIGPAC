@@ -17,6 +17,14 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // SEGURIDAD: Inyección de API Key desde Variable de Entorno
+        // Para configurar:
+        // 1. En local (Linux/Mac): export GEMINI_API_KEY="tu_clave_real"
+        // 2. En local (Windows): set GEMINI_API_KEY="tu_clave_real"
+        // 3. O crear un archivo local.properties y añadir: GEMINI_API_KEY=tu_clave
+        val geminiApiKey = System.getenv("GEMINI_API_KEY") ?: ""
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
     }
 
     buildTypes {
@@ -37,6 +45,7 @@ android {
     
     buildFeatures {
         compose = true
+        buildConfig = true // Necesario para acceder a BuildConfig.GEMINI_API_KEY
     }
 }
 
