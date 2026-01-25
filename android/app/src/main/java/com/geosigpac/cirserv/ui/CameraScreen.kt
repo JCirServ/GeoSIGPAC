@@ -342,6 +342,8 @@ fun CameraScreen(
                 cropToSquare, jpegQuality, overlayOptions,
                 onImageCaptured = { uriMap -> 
                     isProcessingImage = false
+                    val previewUri = uriMap.values.firstOrNull()
+
                     if (matchedExpedientes.isNotEmpty() && targetRef != null) {
                         val newExpedientes = expedientes.map { exp ->
                             val projectUri = uriMap[exp.titular]
@@ -356,8 +358,56 @@ fun CameraScreen(
                             } else exp
                         }
                         onUpdateExpedientes(newExpedientes)
+                    } else {
+                        // CASO: SIN PROYECTO (General Capture)
+                        // Guardamos la foto en un expediente contenedor "Sin Proyecto" para que aparezca en el mapa.
+                        if (previewUri != null) {
+                            val generalExpId = "EXP_GENERAL_NO_PROJECT"
+                            val generalParcelId = "PARCEL_GENERAL_NO_PROJECT"
+                            
+                            val existingGeneralExp = expedientes.find { it.id == generalExpId }
+                            
+                            val updatedExp = if (existingGeneralExp != null) {
+                                val p = existingGeneralExp.parcelas.firstOrNull() ?: NativeParcela(
+                                    id = generalParcelId,
+                                    referencia = "FOTOS SIN PROYECTO",
+                                    uso = "GEN",
+                                    lat = 0.0, lng = 0.0, area = 0.0, metadata = emptyMap()
+                                )
+                                val newPhotos = p.photos + previewUri.toString()
+                                val newLocs = if (captureLocation != null) {
+                                    p.photoLocations + (previewUri.toString() to "${captureLocation.latitude},${captureLocation.longitude}")
+                                } else p.photoLocations
+                                val updatedP = p.copy(photos = newPhotos, photoLocations = newLocs)
+                                existingGeneralExp.copy(parcelas = listOf(updatedP))
+                            } else {
+                                val p = NativeParcela(
+                                    id = generalParcelId,
+                                    referencia = "FOTOS SIN PROYECTO",
+                                    uso = "GEN",
+                                    lat = captureLocation?.latitude ?: 0.0, 
+                                    lng = captureLocation?.longitude ?: 0.0,
+                                    area = 0.0,
+                                    metadata = emptyMap(),
+                                    photos = listOf(previewUri.toString()),
+                                    photoLocations = if (captureLocation != null) mapOf(previewUri.toString() to "${captureLocation.latitude},${captureLocation.longitude}") else emptyMap()
+                                )
+                                NativeExpediente(
+                                    id = generalExpId,
+                                    titular = "Sin Proyecto Asignado",
+                                    fechaImportacion = "General",
+                                    parcelas = listOf(p)
+                                )
+                            }
+                            
+                            val newList = if (existingGeneralExp != null) {
+                                expedientes.map { if (it.id == generalExpId) updatedExp else it }
+                            } else {
+                                expedientes + updatedExp
+                            }
+                            onUpdateExpedientes(newList)
+                        }
                     }
-                    val previewUri = uriMap.values.firstOrNull()
                     if (previewUri != null) onImageCaptured(previewUri)
                 }, 
                 onError = { isProcessingImage = false; onError(it) }

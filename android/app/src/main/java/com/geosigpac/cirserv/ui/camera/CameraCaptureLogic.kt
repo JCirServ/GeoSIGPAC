@@ -30,6 +30,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.min
 
 object CameraCaptureLogic {
 
@@ -129,7 +130,7 @@ object CameraCaptureLogic {
         if (cropToSquare) {
             val w = rotatedBitmap.width
             val h = rotatedBitmap.height
-            val side = Math.min(w, h)
+            val side = min(w, h)
             val xOffset = (w - side) / 2
             val yOffset = (h - side) / 2
             
@@ -258,9 +259,18 @@ object CameraCaptureLogic {
         val w = bitmap.width
         val h = bitmap.height
         
+        // --- CÁLCULO DE PROPORCIONES ---
+        // Usamos la dimensión más pequeña (minDimension) como base.
+        // Esto garantiza que el texto se vea del mismo tamaño relativo en Vertical (Portrait) y Horizontal (Landscape).
+        val minDimension = min(w, h).toFloat()
+        
+        // Tamaño base del texto: 2.8% del lado más corto.
+        // Ej: En una foto de 3000x4000, min=3000 -> text=84px.
+        val baseTextSize = minDimension * 0.028f
+        
         val paintText = Paint().apply {
             color = AndroidColor.WHITE
-            textSize = h * 0.022f
+            textSize = baseTextSize
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             setShadowLayer(4f, 2f, 2f, AndroidColor.BLACK)
             isAntiAlias = true
@@ -299,8 +309,10 @@ object CameraCaptureLogic {
 
         if (lines.isEmpty()) return
 
-        val lineHeight = paintText.textSize * 1.4f
-        val padding = lineHeight * 0.5f
+        // --- CÁLCULO DE CAJETÍN ---
+        val lineHeight = baseTextSize * 1.45f
+        val padding = baseTextSize * 0.8f // Padding relativo al tamaño de fuente
+        
         val boxHeight = (lineHeight * lines.size) + (padding * 2)
         
         var maxTextWidth = 0f
@@ -310,10 +322,12 @@ object CameraCaptureLogic {
         }
         val boxWidth = maxTextWidth + (padding * 2)
         
+        // Dibujamos el fondo en la esquina inferior izquierda
         canvas.drawRect(0f, h - boxHeight, boxWidth, h.toFloat(), paintBg)
         
         val startX = padding
-        var startY = h - boxHeight + padding + lineHeight - (lineHeight * 0.2f)
+        // Ajuste fino vertical para centrar el texto en sus líneas
+        var startY = h - boxHeight + padding + baseTextSize 
         
         lines.forEach { (text, color) ->
             paintText.color = color
