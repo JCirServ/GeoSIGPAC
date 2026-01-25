@@ -74,7 +74,7 @@ fun loadMapStyle(
                 )
                 style.addLayer(fillLayer)
 
-                // Borde Cultivo (Amarillo Neón) - Este sí usa la técnica de "Thick Outline" segura
+                // Borde Cultivo (Amarillo Neón)
                 val cropBorderColor = if (baseMap == BaseMap.PNOA) Color(0xFFFFEA00) else Color(0xFFF57F17)
                 addThickOutline(
                     style = style,
@@ -179,7 +179,7 @@ private fun addThickOutline(
     minZoom: Float,
     offsetMult: Float
 ) {
-    // Capa Central (Siempre visible, línea fina base)
+    // Capa Central (Siempre visible, línea fina base 1px)
     val base = FillLayer(baseLayerId, sourceId)
     base.sourceLayer = sourceLayer
     base.minZoom = minZoom
@@ -190,7 +190,7 @@ private fun addThickOutline(
     )
     style.addLayer(base)
 
-    // Offsets para grosor (simulación de borde mediante capas desplazadas)
+    // Capas de grosor (Simulación de borde)
     val offsets = listOf(
         arrayOf(1f * offsetMult, 0f),
         arrayOf(0f, 1f * offsetMult),
@@ -203,24 +203,37 @@ private fun addThickOutline(
         if (style.getLayer(layerName) == null) {
             val layer = FillLayer(layerName, sourceId)
             layer.sourceLayer = sourceLayer
-            layer.minZoom = minZoom
+            // IMPORTANTE: minZoom más alto para las capas de grosor
+            // Para que no se rendericen "de lejos" y ensucien el mapa
+            layer.minZoom = minZoom 
 
-            // INTERPOLACIÓN DINÁMICA DE GROSOR:
-            // Zoom < 14.5: Offset 0 (Solo se ve la línea fina base).
-            // Zoom >= 16.0: Offset Completo (Se ve el borde grueso para detalle).
-            // Entre 14.5 y 16.0: Transición suave.
+            // INTERPOLACIÓN DINÁMICA DE GROSOR (Pixel Translate):
+            // Zoom < 15.5: Offset 0 (No hay grosor).
+            // Zoom 18.0: Offset Máximo (Grosor completo para detalle).
             val dynamicTranslate = Expression.interpolate(
                 Expression.linear(),
                 Expression.zoom(),
-                Expression.stop(14.5f, arrayOf(0f, 0f)),
-                Expression.stop(16.0f, offset)
+                Expression.stop(15.5f, arrayOf(0f, 0f)), 
+                Expression.stop(18.0f, offset)
+            )
+
+            // INTERPOLACIÓN DINÁMICA DE OPACIDAD:
+            // Oculta las capas de grosor completamente hasta que se hace zoom in suficiente.
+            // Zoom <= 15.0: Opacidad 0 (Solo se ve la línea fina base).
+            // Zoom >= 16.5: Opacidad 1 (Ya se ven gruesas).
+            val dynamicOpacity = Expression.interpolate(
+                Expression.linear(),
+                Expression.zoom(),
+                Expression.stop(15.0f, 0f),
+                Expression.stop(16.5f, 1f)
             )
 
             layer.setProperties(
                 PropertyFactory.fillColor(Color.Transparent.toArgb()),
                 PropertyFactory.fillOutlineColor(color),
                 PropertyFactory.fillAntialias(true),
-                PropertyFactory.fillTranslate(dynamicTranslate)
+                PropertyFactory.fillTranslate(dynamicTranslate),
+                PropertyFactory.fillOpacity(dynamicOpacity) // Solo las capas "thick" usan esto
             )
             style.addLayerBelow(layer, baseLayerId)
         }
