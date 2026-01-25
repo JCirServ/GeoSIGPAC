@@ -78,6 +78,9 @@ dependencies {
     // Coil (Image Loading)
     implementation(libs.coil.compose)
 
+    // Spatial Indexing (R-Tree)
+    implementation("com.github.davidmoten:rtree:0.10.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
