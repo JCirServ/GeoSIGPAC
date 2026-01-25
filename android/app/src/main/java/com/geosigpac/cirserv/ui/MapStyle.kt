@@ -56,7 +56,7 @@ fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                tileSetCultivo.minZoom = 15f
+                tileSetCultivo.minZoom = 13f // Descarga desde nivel 13
                 tileSetCultivo.maxZoom = 15f
                 
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
@@ -65,7 +65,7 @@ fun loadMapStyle(
                 // BASE CULTIVO (Amarillo)
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
-                fillLayer.minZoom = 15f 
+                fillLayer.minZoom = 13f 
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(CultivoFillColor.toArgb()),
                     PropertyFactory.fillOpacity(CultivoFillOpacity),
@@ -82,7 +82,8 @@ fun loadMapStyle(
                     sourceLayer = SOURCE_LAYER_ID_CULTIVO,
                     baseLayerId = "cultivo-layer-line",
                     color = cropBorderColor.toArgb(),
-                    minZoom = 15f,
+                    minZoom = 13f, // La línea base aparece en 13
+                    thickZoom = 16f, // El grosor extra aparece en 16
                     offsetMult = 0.5f 
                 )
 
@@ -93,7 +94,7 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                tileSetRecinto.minZoom = 15f
+                tileSetRecinto.minZoom = 13f // Descarga desde nivel 13
                 tileSetRecinto.maxZoom = 15f
 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
@@ -103,7 +104,7 @@ fun loadMapStyle(
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                tintLayer.minZoom = 15f
+                tintLayer.minZoom = 13f
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
                     PropertyFactory.fillOpacity(0.1f),
@@ -120,7 +121,8 @@ fun loadMapStyle(
                     sourceLayer = SOURCE_LAYER_ID_RECINTO,
                     baseLayerId = LAYER_RECINTO_LINE,
                     color = borderColor.toArgb(),
-                    minZoom = 15f,
+                    minZoom = 13f, // La línea base aparece en 13
+                    thickZoom = 16f, // El grosor extra aparece en 16
                     offsetMult = 1.0f 
                 )
                 
@@ -137,7 +139,7 @@ fun loadMapStyle(
         if (showRecinto) {
             val hRecintoFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
             hRecintoFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
-            hRecintoFill.minZoom = 15f
+            hRecintoFill.minZoom = 13f
             hRecintoFill.setFilter(initialFilter)
             hRecintoFill.setProperties(
                 PropertyFactory.fillColor(HighlightColorRecinto.toArgb()),
@@ -153,7 +155,7 @@ fun loadMapStyle(
         if (showCultivo) {
             val hCultivoFill = FillLayer(LAYER_CULTIVO_HIGHLIGHT_FILL, SOURCE_CULTIVO)
             hCultivoFill.sourceLayer = SOURCE_LAYER_ID_CULTIVO
-            hCultivoFill.minZoom = 15f
+            hCultivoFill.minZoom = 13f
             hCultivoFill.setFilter(initialFilter)
             hCultivoFill.setProperties(
                 PropertyFactory.fillColor(HighlightColorCultivo.toArgb()),
@@ -177,9 +179,11 @@ private fun addThickOutline(
     baseLayerId: String,
     color: Int,
     minZoom: Float,
+    thickZoom: Float,
     offsetMult: Float
 ) {
-    // Capa Central (Siempre visible, línea fina base 1px)
+    // Capa Central (Siempre visible desde minZoom, línea fina base 1px)
+    // Esto asegura que de lejos (Zoom 13-15) veas algo limpio.
     val base = FillLayer(baseLayerId, sourceId)
     base.sourceLayer = sourceLayer
     base.minZoom = minZoom
@@ -191,6 +195,7 @@ private fun addThickOutline(
     style.addLayer(base)
 
     // Capas de grosor (Simulación de borde)
+    // Solo visibles cuando te acercas (thickZoom = 16f)
     val offsets = listOf(
         arrayOf(1f * offsetMult, 0f),
         arrayOf(0f, 1f * offsetMult),
@@ -203,37 +208,15 @@ private fun addThickOutline(
         if (style.getLayer(layerName) == null) {
             val layer = FillLayer(layerName, sourceId)
             layer.sourceLayer = sourceLayer
-            // IMPORTANTE: minZoom más alto para las capas de grosor
-            // Para que no se rendericen "de lejos" y ensucien el mapa
-            layer.minZoom = minZoom 
-
-            // INTERPOLACIÓN DINÁMICA DE GROSOR (Pixel Translate):
-            // Zoom < 15.5: Offset 0 (No hay grosor).
-            // Zoom 18.0: Offset Máximo (Grosor completo para detalle).
-            val dynamicTranslate = Expression.interpolate(
-                Expression.linear(),
-                Expression.zoom(),
-                Expression.stop(15.5f, arrayOf(0f, 0f)), 
-                Expression.stop(18.0f, offset)
-            )
-
-            // INTERPOLACIÓN DINÁMICA DE OPACIDAD:
-            // Oculta las capas de grosor completamente hasta que se hace zoom in suficiente.
-            // Zoom <= 15.0: Opacidad 0 (Solo se ve la línea fina base).
-            // Zoom >= 16.5: Opacidad 1 (Ya se ven gruesas).
-            val dynamicOpacity = Expression.interpolate(
-                Expression.linear(),
-                Expression.zoom(),
-                Expression.stop(15.0f, 0f),
-                Expression.stop(16.5f, 1f)
-            )
+            // IMPORTANTE: minZoom más alto para las capas de grosor.
+            // No se descargan ni pintan hasta llegar al nivel de detalle.
+            layer.minZoom = thickZoom 
 
             layer.setProperties(
                 PropertyFactory.fillColor(Color.Transparent.toArgb()),
                 PropertyFactory.fillOutlineColor(color),
                 PropertyFactory.fillAntialias(true),
-                PropertyFactory.fillTranslate(dynamicTranslate),
-                PropertyFactory.fillOpacity(dynamicOpacity) // Solo las capas "thick" usan esto
+                PropertyFactory.fillTranslate(offset) // Offset fijo, sin interpolación
             )
             style.addLayerBelow(layer, baseLayerId)
         }

@@ -67,8 +67,8 @@ val FieldDivider = Color(0xFF424242)
 // --- NUEVA PALETA DE COLORES MAPA (Alto Contraste) ---
 
 // 1. RECINTOS (Estructural - Cian/Blanco Frío)
-// PNOA: Gris Plata Brillante (antes 0xFFC0C0C0)
-val BorderColorPNOA = Color(0xFFE0E0E0) 
+// PNOA: Casi transparente, solo borde blanco fuerte.
+val BorderColorPNOA = Color(0xFFFFFFFF) 
 val FillColorPNOA   = Color(0x15E0F7FA) // Cian muy tenue (Alpha bajo)
 
 // OSM: Gris oscuro.
