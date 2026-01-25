@@ -53,8 +53,8 @@ fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                // MEJORA: Zoom extendido para detalle máximo
-                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 22f
+                // FIX: El servidor solo llega hasta zoom 15. Establecer 15 activa el overzoom automático hasta 22.
+                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 15f
                 
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
@@ -74,8 +74,8 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                // MEJORA: Zoom extendido para inspección técnica
-                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 22f
+                // FIX: El servidor solo llega hasta zoom 15. Establecer 15 activa el overzoom automático hasta 22.
+                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
