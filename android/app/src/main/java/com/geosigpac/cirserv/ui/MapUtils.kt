@@ -79,11 +79,11 @@ val CultivoFillColor = Color(0xFFFFD600) // Amarillo Oro
 val CultivoFillOpacity = 0.25f // Opacidad media
 
 // 3. SELECCIÓN / RETÍCULA (Interacción Actualizada)
-// Recinto: Naranja Claro (Fondo general del recinto)
-val HighlightColorRecinto = Color(0xFFFFAB40) // Orange Accent 200 / Naranja Claro Vibrante
+// Recinto: Naranja Claro / Pastel (Fondo general del recinto)
+val HighlightColorRecinto = Color(0xFFFFCC80) // Orange 200
 
-// Cultivo: Naranja Oscuro (Selección específica de la subdivisión)
-val HighlightColorCultivo = Color(0xFFD84315) // Deep Orange 800 / Naranja Quemado
+// Cultivo: Naranja Oscuro / Quemado (Selección específica de la subdivisión)
+val HighlightColorCultivo = Color(0xFFE65100) // Orange 900
 val HighlightOpacity = 0.50f
 
 // 4. KML / PROYECTOS (Usuario - Violeta/Índigo)

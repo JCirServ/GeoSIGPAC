@@ -140,9 +140,11 @@ object MapLogic {
             
             // ESTRATEGIA A: USAR ID ÚNICO (Si el vector lo tiene)
             // Esta es la forma más precisa de aislar una geometría específica.
-            if (feature.id() != null) {
-                // Filtramos exactamente por el ID del feature
-                cultivoConditions.add(Expression.eq(Expression.id(), Expression.literal(feature.id())))
+            val fId = feature.id()
+            if (fId != null) {
+                // Filtramos exactamente por el ID del feature. 
+                // Fix: Aseguramos conversión a String para evitar ambigüedad en Expression.literal
+                cultivoConditions.add(Expression.eq(Expression.id(), Expression.literal(fId.toString())))
             } 
             // ESTRATEGIA B: COMPARAR TODAS LAS PROPIEDADES (Si no hay ID)
             // Si dos geometrías son distintas pero todos sus atributos son idénticos, esta estrategia fallará (resaltará ambas).
