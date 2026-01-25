@@ -81,52 +81,22 @@ fun loadMapStyle(
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // CAPA 1: RELLENO (TINT)
+                // CAPA UNIFICADA: RELLENO + BORDE
+                // Se usa FillLayer con fillOutlineColor para evitar el uso de LineLayer que puede desaparecer al hacer zoom
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
+                val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
+                
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
                     PropertyFactory.fillOpacity(0.15f),
-                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillAntialias(false)
+                    PropertyFactory.fillOutlineColor(borderColor.toArgb()),
+                    PropertyFactory.fillAntialias(true) // Necesario para que se vea el borde (outline)
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE CON LINELAYER NATIVO
-                val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
-                val borderLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderLayer.setProperties(
-                    PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.8f),
-                            Expression.zoom(),
-                            Expression.stop(10, 0.8f),
-                            Expression.stop(13, 1.2f),
-                            Expression.stop(15, 2.0f),
-                            Expression.stop(17, 3.5f),
-                            Expression.stop(19, 5.0f),
-                            Expression.stop(22, 8.0f)
-                        )
-                    ),
-                    PropertyFactory.lineOpacity(0.95f),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineBlur(
-                        Expression.interpolate(
-                            Expression.linear(),
-                            Expression.zoom(),
-                            Expression.stop(10, 0.5f),
-                            Expression.stop(15, 0.3f),
-                            Expression.stop(22, 0.1f)
-                        )
-                    )
-                )
-                style.addLayer(borderLayer)
-
-                // CAPAS DE RESALTADO
+                // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
@@ -136,39 +106,21 @@ fun loadMapStyle(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
                     PropertyFactory.fillOpacity(0.5f), 
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(false)
+                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
+                    PropertyFactory.fillAntialias(true)
                 )
                 style.addLayer(highlightFill)
 
+                // Mantenemos LineLayer SOLO para el resaltado grueso de selección
                 val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
                     PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.8f),
-                            Expression.zoom(),
-                            Expression.stop(10, 2.0f),
-                            Expression.stop(13, 3.0f),
-                            Expression.stop(15, 4.5f),
-                            Expression.stop(17, 6.0f),
-                            Expression.stop(19, 8.0f),
-                            Expression.stop(22, 12.0f)
-                        )
-                    ),
+                    PropertyFactory.lineWidth(4f),
                     PropertyFactory.lineOpacity(1.0f),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineBlur(
-                        Expression.interpolate(
-                            Expression.linear(),
-                            Expression.zoom(),
-                            Expression.stop(10, 0.8f),
-                            Expression.stop(15, 0.5f),
-                            Expression.stop(22, 0.2f)
-                        )
-                    ),
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightLine)
