@@ -84,6 +84,35 @@ fun loadMapStyle(
                     minZoom = 15f // Restringir visibilidad a Zoom 15
                 )
 
+                // --- NUEVAS CAPAS DE RESALTADO CULTIVO (Para retícula) ---
+                val initialFilter = Expression.literal(false)
+
+                // Resaltado Relleno Cultivo
+                val highlightCultivoFill = FillLayer(LAYER_CULTIVO_HIGHLIGHT_FILL, SOURCE_CULTIVO)
+                highlightCultivoFill.sourceLayer = SOURCE_LAYER_ID_CULTIVO
+                highlightCultivoFill.minZoom = 15f
+                highlightCultivoFill.setFilter(initialFilter)
+                highlightCultivoFill.setProperties(
+                    PropertyFactory.fillColor(HighlightColor.toArgb()),
+                    PropertyFactory.fillOpacity(0.5f),
+                    PropertyFactory.visibility(Property.VISIBLE),
+                    PropertyFactory.fillAntialias(false)
+                )
+                style.addLayer(highlightCultivoFill)
+
+                // Resaltado Borde Cultivo
+                val highlightCultivoLine = FillLayer(LAYER_CULTIVO_HIGHLIGHT_LINE, SOURCE_CULTIVO)
+                highlightCultivoLine.sourceLayer = SOURCE_LAYER_ID_CULTIVO
+                highlightCultivoLine.minZoom = 15f
+                highlightCultivoLine.setFilter(initialFilter)
+                highlightCultivoLine.setProperties(
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
+                    PropertyFactory.visibility(Property.VISIBLE),
+                    PropertyFactory.fillAntialias(true)
+                )
+                style.addLayer(highlightCultivoLine)
+
             } catch (e: Exception) { e.printStackTrace() }
         }
 

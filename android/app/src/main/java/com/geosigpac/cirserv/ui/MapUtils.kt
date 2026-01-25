@@ -34,6 +34,8 @@ const val SOURCE_LAYER_ID_RECINTO = "recinto"
 
 const val SOURCE_CULTIVO = "cultivo-source"
 const val LAYER_CULTIVO_FILL = "cultivo-layer-fill"
+const val LAYER_CULTIVO_HIGHLIGHT_FILL = "cultivo-layer-highlight-fill" // NUEVO
+const val LAYER_CULTIVO_HIGHLIGHT_LINE = "cultivo-layer-highlight-line" // NUEVO
 const val SOURCE_LAYER_ID_CULTIVO = "cultivo_declarado"
 
 // NUEVO: Capa de Resultados de Búsqueda (GeoJSON directo)

@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui.map
 
 import android.graphics.RectF
@@ -37,7 +38,9 @@ object MapLogic {
                 screenPoint.x + sensitivity, screenPoint.y + sensitivity
             )
 
-            val features = map.queryRenderedFeatures(searchArea, LAYER_RECINTO_FILL)
+            // MODIFICACIÓN: Consultamos ambas capas (Cultivo y Recinto)
+            // Se prioriza Cultivo porque suele estar "encima" o ser más granular visualmente
+            val features = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL, LAYER_RECINTO_FILL)
             
             if (features.isNotEmpty()) {
                 val feature = features[0]
@@ -101,8 +104,13 @@ object MapLogic {
         if (filterConditions.isNotEmpty()) {
             val finalFilter = Expression.all(*filterConditions.toTypedArray())
             map.style?.let { style ->
+                // Aplicar a Recintos
                 (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
                 (style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(finalFilter)
+                
+                // Aplicar a Cultivos
+                (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
+                (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_LINE) as? FillLayer)?.setFilter(finalFilter)
             }
         }
     }
@@ -110,8 +118,13 @@ object MapLogic {
     private fun clearHighlight(map: MapLibreMap) {
         val emptyFilter = Expression.literal(false)
         map.style?.let { style ->
+            // Limpiar Recintos
             (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(emptyFilter)
             (style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(emptyFilter)
+            
+            // Limpiar Cultivos
+            (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(emptyFilter)
+            (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_LINE) as? FillLayer)?.setFilter(emptyFilter)
         }
         lastSelectedRef = ""
     }
