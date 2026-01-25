@@ -32,7 +32,6 @@ fun loadMapStyle(
     shouldCenterUser: Boolean,
     onLocationEnabled: () -> Unit
 ) {
-    // Configuración inicial del Builder sin cargar JSON externo para tener control total
     val styleBuilder = Style.Builder()
 
     val tileUrl = if (baseMap == BaseMap.OSM) {
@@ -46,13 +45,7 @@ fun loadMapStyle(
     
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
     styleBuilder.withSource(rasterSource)
-    
-    val rasterLayer = RasterLayer(LAYER_BASE, SOURCE_BASE).apply {
-        setProperties(
-            PropertyFactory.rasterOpacity(1.0f)
-        )
-    }
-    styleBuilder.withLayer(rasterLayer)
+    styleBuilder.withLayer(RasterLayer(LAYER_BASE, SOURCE_BASE))
 
     map.setStyle(styleBuilder) { style ->
         
@@ -60,8 +53,7 @@ fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                tileSetCultivo.minZoom = 5f
-                tileSetCultivo.maxZoom = 18f
+                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 15f
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -70,9 +62,7 @@ fun loadMapStyle(
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
-                    PropertyFactory.fillAntialias(true),
-                    PropertyFactory.fillTranslate(arrayOf(0f, 0f)),
-                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb())
+                    PropertyFactory.fillAntialias(false) // Previene lineas en cultivos también
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -82,126 +72,63 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                tileSetRecinto.minZoom = 5f
-                tileSetRecinto.maxZoom = 18f
-                
+                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
+
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
-                
-                // CAPA 1: LÍNEA PRINCIPAL (borde visible)
-                val lineLayer = LineLayer("${LAYER_RECINTO_LINE}_main", SOURCE_RECINTO)
-                lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                lineLayer.setProperties(
-                    PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineOpacity(0.95f),
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.5f),
-                            Expression.zoom(),
-                            Expression.stop(5f, 0.8f),
-                            Expression.stop(10f, 1.2f),
-                            Expression.stop(13f, 2.0f),
-                            Expression.stop(15f, 3.0f),
-                            Expression.stop(17f, 5.0f),
-                            Expression.stop(20f, 8.0f),
-                            Expression.stop(22f, 12.0f)
-                        )
-                    ),
-                    PropertyFactory.lineTranslate(arrayOf(0f, 0f)),
-                    PropertyFactory.lineOffset(0f),
-                    PropertyFactory.lineBlur(0.2f),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.linePattern(Expression.literal("")),
-                    PropertyFactory.lineGapWidth(0f),
-                    PropertyFactory.lineSortKey(1.0f)
-                )
-                style.addLayer(lineLayer)
-                
-                // CAPA 2: LÍNEA DE REFUERZO (Overlay para cubrir gaps)
-                val lineLayerOverlay = LineLayer("${LAYER_RECINTO_LINE}_overlay", SOURCE_RECINTO)
-                lineLayerOverlay.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                lineLayerOverlay.setProperties(
-                    PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineOpacity(0.3f),
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.linear(),
-                            Expression.zoom(),
-                            Expression.stop(5f, 0.5f),
-                            Expression.stop(15f, 1.0f),
-                            Expression.stop(22f, 2.0f)
-                        )
-                    ),
-                    PropertyFactory.lineTranslate(arrayOf(0.3f, 0.3f)),
-                    PropertyFactory.lineBlur(0.5f),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND)
-                )
-                lineLayerOverlay.setFilter(Expression.gte(Expression.zoom(), 15f))
-                style.addLayer(lineLayerOverlay)
-
-                // CAPA 3: RELLENO (Fill)
+                // CAPA 1: RELLENO (TINT)
+                // Color distinto al borde, semitransparente
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
-                val fillLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
-                fillLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                fillLayer.setProperties(
+                val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
+                tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.15f),
-                    PropertyFactory.fillAntialias(true),
-                    PropertyFactory.fillTranslate(arrayOf(0f, 0f))
+                    PropertyFactory.fillOpacity(0.15f), // Opacidad suficiente para ver el color pero ver el fondo
+                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula estática
                 )
-                style.addLayerBelow(fillLayer, "${LAYER_RECINTO_LINE}_main")
+                style.addLayer(tintLayer)
 
-                // CAPAS DE HIGHLIGHT (Selección)
+                // CAPA 2: BORDE (OUTLINE)
+                // Borde de otro color, sólido. Usamos FillLayer para líneas nítidas sin grid.
+                val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
+                val borderLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderLayer.setProperties(
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(borderColor.toArgb()),
+                    PropertyFactory.fillAntialias(true) // En bordes finos queremos antialias para que no se vean sierra
+                )
+                style.addLayer(borderLayer)
+
+                // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
 
-                // Highlight Fill
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightFill.setFilter(initialFilter)
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.3f),
+                    PropertyFactory.fillOpacity(0.5f), 
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(true),
-                    PropertyFactory.fillTranslate(arrayOf(0f, 0f))
+                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula al resaltar
                 )
                 style.addLayer(highlightFill)
 
-                // Highlight Line
-                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                // Cambio solicitado: Usar FillLayer para el borde del resaltado (igual que el borde normal)
+                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
-                    PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineOpacity(0.9f),
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.5f),
-                            Expression.zoom(),
-                            Expression.stop(10f, 3.0f),
-                            Expression.stop(15f, 5.0f),
-                            Expression.stop(20f, 8.0f),
-                            Expression.stop(22f, 12.0f)
-                        )
-                    ),
-                    PropertyFactory.lineTranslate(arrayOf(0f, 0f))
+                    PropertyFactory.fillAntialias(true)
                 )
                 style.addLayer(highlightLine)
                 
             } catch (e: Exception) { e.printStackTrace() }
-        }
-
-        // CONFIGURACIÓN ADICIONAL 11.5.1
-        try {
-            // Mejoras de rendimiento y renderizado
-            map.setPrefetchZoomDelta(2) // Pre-cargar tiles
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
 
         if (enableLocation(map, context, shouldCenterUser)) {
@@ -237,6 +164,7 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
     return false
 }
 
+// Extension function helper
 fun Color.toArgb(): Int {
     return android.graphics.Color.argb(
         (alpha * 255).toInt(),
