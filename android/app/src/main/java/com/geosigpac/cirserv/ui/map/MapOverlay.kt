@@ -292,6 +292,7 @@ fun MapOverlay(
             }
         }
     }
+    
 
     // --- KEYBOARD ---
     AnimatedVisibility(
