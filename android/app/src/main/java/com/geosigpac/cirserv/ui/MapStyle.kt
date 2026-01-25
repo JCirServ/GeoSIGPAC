@@ -164,9 +164,6 @@ fun loadMapStyle(
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // Cache de renderizado para rendimiento
-        map.setRenderCacheSize(1024)
-
         if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
         }
