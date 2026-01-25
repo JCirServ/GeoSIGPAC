@@ -95,7 +95,11 @@ fun CameraScreen(
     // --- UI STATES ---
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showParcelSheet by remember { mutableStateOf(false) }
+    
+    // GALERÍA STATE (Modificado para soportar Sin Proyecto)
     var showGallery by remember { mutableStateOf(false) }
+    var galleryTarget by remember { mutableStateOf<Pair<NativeExpediente, NativeParcela>?>(null) }
+    
     var showManualInput by remember { mutableStateOf(false) }
     var showManualCaptureConfirmation by remember { mutableStateOf(false) }
     
@@ -149,8 +153,12 @@ fun CameraScreen(
 
     val activeRef = manualSigpacRef ?: geoMatchedParcel?.second?.referencia ?: sigpacRef
 
-    // --- MATCHING PRIORITY ---
-    // Prioridad absoluta al projectId pasado por parámetro (modo "Forzar Parcela")
+    // --- MATCHING PRIORITY & DATA RESOLUTION ---
+    // 1. Buscamos el expediente/parcela "Sin Proyecto" (Contenedor General)
+    val generalExp = remember(expedientes) { expedientes.find { it.id == "EXP_GENERAL_NO_PROJECT" } }
+    val generalParcel = remember(generalExp) { generalExp?.parcelas?.firstOrNull() }
+
+    // 2. Determinamos la parcela "Matched" (Por GPS o ID forzado)
     val matchedParcelInfo = remember(projectId, manualSigpacRef, geoMatchedParcel, sigpacRef, expedientes) {
         if (projectId != null) {
             var foundExp: NativeExpediente? = null
@@ -182,15 +190,22 @@ fun CameraScreen(
         }
     }
 
+    // 3. Determinamos la "Parcela Activa de Visualización" (Display Parcel)
+    // Si estamos en un recinto, es ese. Si no, usamos el contenedor general "Sin Proyecto" para mostrar sus fotos.
+    val activeDisplayParcel = matchedParcelInfo?.second ?: generalParcel
+    val activeDisplayExp = matchedParcelInfo?.first ?: generalExp
+
     // --- THUMBNAIL LOGIC ---
+    // Usamos activeDisplayParcel para decidir qué foto mostrar en el botón preview
     var capturedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-    val targetPreviewUri = remember(matchedParcelInfo, lastCapturedUri) {
-        if (matchedParcelInfo != null && matchedParcelInfo.second.photos.isNotEmpty()) {
-            Uri.parse(matchedParcelInfo.second.photos.last())
+    val targetPreviewUri = remember(activeDisplayParcel, lastCapturedUri) {
+        if (activeDisplayParcel != null && activeDisplayParcel.photos.isNotEmpty()) {
+            Uri.parse(activeDisplayParcel.photos.last())
         } else lastCapturedUri
     }
-    val currentPhotoCount = remember(matchedParcelInfo, photoCount) {
-        if (matchedParcelInfo != null) matchedParcelInfo.second.photos.size else photoCount
+    
+    val currentPhotoCount = remember(activeDisplayParcel, photoCount) {
+        if (activeDisplayParcel != null) activeDisplayParcel.photos.size else photoCount
     }
 
     LaunchedEffect(targetPreviewUri) {
@@ -483,7 +498,7 @@ fun CameraScreen(
             currentZoom = currentLinearZoom,
             matchedParcelInfo = matchedParcelInfo,
             isInsideGeometry = geoMatchedParcel != null,
-            photoCount = currentPhotoCount,
+            photoCount = currentPhotoCount, // Ahora refleja también las fotos Sin Proyecto si están activas
             capturedBitmap = capturedBitmap,
             onSettingsClick = { showSettingsDialog = true },
             onProjectsClick = onGoToProjects,
@@ -499,7 +514,7 @@ fun CameraScreen(
                         nearestCandidate = nearest
                         showNearestDialog = true
                     } else {
-                        // Si no hay ninguna parcela cargada, captura normal
+                        // Si no hay ninguna parcela cargada, captura normal (Sin Proyecto)
                         performCapture()
                     }
                 } else {
@@ -507,7 +522,15 @@ fun CameraScreen(
                     performCapture() 
                 }
             },
-            onPreviewClick = { if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) showGallery = true else onClose() },
+            onPreviewClick = { 
+                // Lógica mejorada: Abrir galería si hay parcela activa (Matched o General) con fotos
+                if (activeDisplayParcel != null && activeDisplayExp != null && activeDisplayParcel.photos.isNotEmpty()) {
+                    galleryTarget = Pair(activeDisplayExp, activeDisplayParcel)
+                    showGallery = true
+                } else {
+                    onClose()
+                }
+            },
             onMapClick = onGoToMap,
             onZoomChange = { camera?.cameraControl?.setLinearZoom(it) }
         )
@@ -596,15 +619,31 @@ fun CameraScreen(
             }
         }
         
-        if (showGallery && matchedParcelInfo != null) {
-            val (exp, parc) = matchedParcelInfo!!
-            FullScreenPhotoGallery(photos = parc.photos, initialIndex = parc.photos.lastIndex, onDismiss = { showGallery = false }, onDeletePhoto = { photoUriToDelete ->
-                val updatedPhotos = parc.photos.filter { it != photoUriToDelete }
-                val updatedLocs = parc.photoLocations.toMutableMap().apply { remove(photoUriToDelete) }
-                val updatedParcel = parc.copy(photos = updatedPhotos, photoLocations = updatedLocs)
-                val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcel.id) updatedParcel else it })
-                onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
-            })
+        // --- GALERÍA ACTUALIZADA ---
+        if (showGallery && galleryTarget != null) {
+            val (targetExp, targetParc) = galleryTarget!!
+            FullScreenPhotoGallery(
+                photos = targetParc.photos, 
+                initialIndex = targetParc.photos.lastIndex, // Abrir última foto por defecto
+                onDismiss = { showGallery = false }, 
+                onDeletePhoto = { photoUriToDelete ->
+                    val updatedPhotos = targetParc.photos.filter { it != photoUriToDelete }
+                    val updatedLocs = targetParc.photoLocations.toMutableMap().apply { remove(photoUriToDelete) }
+                    val updatedParcel = targetParc.copy(photos = updatedPhotos, photoLocations = updatedLocs)
+                    
+                    val updatedExp = targetExp.copy(parcelas = targetExp.parcelas.map { if (it.id == updatedParcel.id) updatedParcel else it })
+                    val newList = expedientes.map { if (it.id == updatedExp.id) updatedExp else it }
+                    onUpdateExpedientes(newList)
+                    
+                    // Actualizar estado local de la galería para que no crashee o se cierre si no quedan fotos
+                    if (updatedPhotos.isEmpty()) {
+                        showGallery = false
+                    } else {
+                        // Importante: Actualizar galleryTarget con la nueva versión de la parcela
+                        galleryTarget = Pair(updatedExp, updatedParcel)
+                    }
+                }
+            )
         }
     }
 }

@@ -73,6 +73,11 @@ fun NativeMapScreen(
     var isSearching by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(false) }
     
+    // Sincronizar visibilidad automáticamente al añadir nuevos expedientes (ej: Sin Proyecto)
+    LaunchedEffect(expedientes) {
+        visibleProjectIds = visibleProjectIds + expedientes.map { it.id }
+    }
+    
     // Datos Info
     var instantSigpacRef by remember { mutableStateOf("") }
     var recintoData by remember { mutableStateOf<Map<String, String>?>(null) }
@@ -245,7 +250,7 @@ fun NativeMapScreen(
             // Click Listener para Marcadores de FOTOS
             map.addOnMapClickListener { point ->
                 val screenPoint = map.projection.toScreenLocation(point)
-                val features = map.queryRenderedFeatures(screenPoint, LAYER_PHOTOS)
+                val features = map.queryRenderedFeatures(screenPoint, com.geosigpac.cirserv.ui.map.LAYER_PHOTOS)
                 
                 if (features.isNotEmpty()) {
                     val feature = features[0]
