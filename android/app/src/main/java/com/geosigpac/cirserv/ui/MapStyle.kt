@@ -32,23 +32,35 @@ fun loadMapStyle(
     shouldCenterUser: Boolean,
     onLocationEnabled: () -> Unit
 ) {
-    val styleBuilder = Style.Builder()
-
-    val tileUrl = if (baseMap == BaseMap.OSM) {
-        "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-    } else {
-        "https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&tilematrixset=GoogleMapsCompatible&tilematrix={z}&tilerow={y}&tilecol={x}"
-    }
-
-    val tileSet = TileSet("2.2.0", tileUrl)
-    tileSet.attribution = if (baseMap == BaseMap.OSM) "© OpenStreetMap" else "© IGN PNOA"
-    
-    val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
-    styleBuilder.withSource(rasterSource)
-    styleBuilder.withLayer(RasterLayer(LAYER_BASE, SOURCE_BASE))
+    // 1. Cargar configuración fina desde JSON (Recintos)
+    val styleBuilder = Style.Builder().fromUri("asset://recinto_style.json")
 
     map.setStyle(styleBuilder) { style ->
         
+        // 2. Añadir Mapa Base (Raster) POR DEBAJO (index 0)
+        val tileUrl = if (baseMap == BaseMap.OSM) {
+            "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        } else {
+            "https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&tilematrixset=GoogleMapsCompatible&tilematrix={z}&tilerow={y}&tilecol={x}"
+        }
+
+        val tileSet = TileSet("2.2.0", tileUrl)
+        tileSet.attribution = if (baseMap == BaseMap.OSM) "© OpenStreetMap" else "© IGN PNOA"
+        
+        val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
+        style.addSource(rasterSource)
+        style.addLayerAt(RasterLayer(LAYER_BASE, SOURCE_BASE), 0)
+
+        // 3. Gestión de Visibilidad Recinto (cargado por JSON)
+        if (!showRecinto) {
+            style.getLayer(LAYER_RECINTO_FILL)?.setProperties(PropertyFactory.visibility(Property.NONE))
+            style.getLayer(LAYER_RECINTO_LINE)?.setProperties(PropertyFactory.visibility(Property.NONE))
+        } else {
+            style.getLayer(LAYER_RECINTO_FILL)?.setProperties(PropertyFactory.visibility(Property.VISIBLE))
+            style.getLayer(LAYER_RECINTO_LINE)?.setProperties(PropertyFactory.visibility(Property.VISIBLE))
+        }
+
+        // 4. Capa Cultivo (Programático)
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
@@ -58,6 +70,7 @@ fun loadMapStyle(
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
+                // Insertar debajo de relleno recinto si existe, para que el borde del recinto quede encima
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.setProperties(
@@ -66,103 +79,54 @@ fun loadMapStyle(
                     PropertyFactory.fillAntialias(true),
                     PropertyFactory.fillTranslate(arrayOf(0f, 0f))
                 )
-                style.addLayer(fillLayer)
+                
+                if (style.getLayer(LAYER_RECINTO_FILL) != null) {
+                    style.addLayerBelow(fillLayer, LAYER_RECINTO_FILL)
+                } else {
+                    style.addLayer(fillLayer)
+                }
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        if (showRecinto) {
-            try {
-                val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
-                val tileSetRecinto = TileSet("pbf", recintoUrl)
-                tileSetRecinto.minZoom = 5f
-                tileSetRecinto.maxZoom = 15f
-                
-                val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
-                style.addSource(recintoSource)
+        // 5. Capas de Resaltado (Programático) - Dependen de SOURCE_RECINTO (recinto-source)
+        try {
+            val initialFilter = Expression.literal(false)
 
-                val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
-                val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
+            // Highlight Fill
+            val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
+            highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
+            highlightFill.setFilter(initialFilter)
+            highlightFill.setProperties(
+                PropertyFactory.fillColor(HighlightColor.toArgb()),
+                PropertyFactory.fillOpacity(0.3f),
+                PropertyFactory.visibility(Property.VISIBLE),
+                PropertyFactory.fillAntialias(true),
+                PropertyFactory.fillTranslate(arrayOf(0f, 0f))
+            )
+            style.addLayer(highlightFill)
 
-                // 1. CAPA DE RELLENO (FillLayer)
-                val recintoFill = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
-                recintoFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                recintoFill.setProperties(
-                    PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.15f),
-                    PropertyFactory.fillAntialias(true),
-                    PropertyFactory.fillTranslate(arrayOf(0f, 0f))
-                )
-                style.addLayer(recintoFill)
-
-                // 2. CAPA DE BORDE (LineLayer) - Implementación de tu lógica de grosor
-                // Usamos LineLayer porque FillLayer no soporta grosores variables en Android
-                val recintoLine = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                recintoLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                recintoLine.setProperties(
-                    PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineOpacity(1.0f),
-                    PropertyFactory.lineTranslate(arrayOf(0f, 0f)),
-                    // Tu interpolación exacta aplicada a lineWidth
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.5f),
-                            Expression.zoom(),
-                            Expression.stop(5f, 0.5f),
-                            Expression.stop(10f, 1.0f),
-                            Expression.stop(13f, 1.5f),
-                            Expression.stop(15f, 2.0f),
-                            Expression.stop(17f, 3.0f),
-                            Expression.stop(20f, 5.0f),
-                            Expression.stop(22f, 8.0f)
-                        )
-                    ),
-                    // Tu desenfoque aplicado a lineBlur
-                    PropertyFactory.lineBlur(0.2f),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
-                )
-                style.addLayer(recintoLine)
-
-                // CAPAS DE RESALTADO (SELECCIÓN)
-                val initialFilter = Expression.literal(false)
-
-                // Highlight Fill
-                val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
-                highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightFill.setFilter(initialFilter)
-                highlightFill.setProperties(
-                    PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.3f),
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(true),
-                    PropertyFactory.fillTranslate(arrayOf(0f, 0f))
-                )
-                style.addLayer(highlightFill)
-
-                // Highlight Line
-                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
-                highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLine.setFilter(initialFilter)
-                highlightLine.setProperties(
-                    PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineOpacity(0.9f),
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.5f),
-                            Expression.zoom(),
-                            Expression.stop(10f, 3.0f),
-                            Expression.stop(15f, 5.0f),
-                            Expression.stop(20f, 8.0f),
-                            Expression.stop(22f, 12.0f)
-                        )
-                    ),
-                    PropertyFactory.lineTranslate(arrayOf(0f, 0f))
-                )
-                style.addLayer(highlightLine)
-                
-            } catch (e: Exception) { e.printStackTrace() }
-        }
+            // Highlight Line
+            val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+            highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+            highlightLine.setFilter(initialFilter)
+            highlightLine.setProperties(
+                PropertyFactory.lineColor(HighlightColor.toArgb()),
+                PropertyFactory.lineOpacity(0.9f),
+                PropertyFactory.visibility(Property.VISIBLE),
+                PropertyFactory.lineWidth(
+                    Expression.interpolate(
+                        Expression.exponential(1.5f),
+                        Expression.zoom(),
+                        Expression.stop(10f, 3.0f),
+                        Expression.stop(15f, 5.0f),
+                        Expression.stop(20f, 8.0f),
+                        Expression.stop(22f, 12.0f)
+                    )
+                ),
+                PropertyFactory.lineTranslate(arrayOf(0f, 0f))
+            )
+            style.addLayer(highlightLine)
+        } catch (e: Exception) { e.printStackTrace() }
 
         if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
