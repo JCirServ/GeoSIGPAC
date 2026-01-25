@@ -79,8 +79,11 @@ fun loadMapStyle(
                 )
                 style.addLayer(fillLayer)
 
-                // Borde Cultivo: Sutil, para diferenciar cultivos dentro del recinto
-                val cropBorderColor = if (baseMap == BaseMap.PNOA) Color.White.copy(alpha = 0.5f) else Color.DarkGray
+                // Borde Cultivo: COLOR DISTINTO para diferenciar de Recintos
+                // PNOA (Satélite): Amarillo Neón (0xFFFFEA00) vs Blanco Recinto
+                // OSM (Mapa): Ocre/Naranja (0xFFF57F17) vs Gris Recinto
+                val cropBorderColor = if (baseMap == BaseMap.PNOA) Color(0xFFFFEA00) else Color(0xFFF57F17)
+                
                 addThickOutline(
                     style = style,
                     sourceId = SOURCE_CULTIVO,
@@ -88,7 +91,7 @@ fun loadMapStyle(
                     baseLayerId = "cultivo-layer-line",
                     color = cropBorderColor.toArgb(),
                     minZoom = 15f,
-                    offsetMult = 0.5f // Borde más fino para cultivos
+                    offsetMult = 0.5f // Borde un poco más fino que el de recinto
                 )
 
             } catch (e: Exception) { e.printStackTrace() }
@@ -117,7 +120,7 @@ fun loadMapStyle(
                 )
                 style.addLayer(tintLayer)
 
-                // Borde Recinto: Grueso y Definido (Estructura)
+                // Borde Recinto: Grueso y Definido (Estructura) - BLANCO o GRIS
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 addThickOutline(
                     style = style,
