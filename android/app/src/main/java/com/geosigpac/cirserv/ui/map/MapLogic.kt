@@ -2,6 +2,7 @@
 package com.geosigpac.cirserv.ui.map
 
 import android.graphics.RectF
+import android.util.Log
 import com.geosigpac.cirserv.ui.*
 import com.geosigpac.cirserv.utils.SigpacCodeManager
 import org.maplibre.android.maps.MapLibreMap
@@ -43,6 +44,15 @@ object MapLogic {
             val features = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL, LAYER_RECINTO_FILL)
             
             if (features.isNotEmpty()) {
+                // --- DEBUG LOGGING: INSPECCIÓN DE PROPIEDADES ---
+                Log.d("DEBUG_CULTIVOS", "--- DETECCIÓN BAJO PUNTERO (Total: ${features.size}) ---")
+                features.take(5).forEachIndexed { i, f ->
+                    val tipo = if (f.hasProperty("parc_producto")) "CULTIVO" else "RECINTO/BASE"
+                    // Imprimimos ID y todas las propiedades para encontrar la clave única
+                    Log.d("DEBUG_CULTIVOS", "[$i] TIPO: $tipo | ID: ${f.id()} | PROPS: ${f.properties()}")
+                }
+                // ------------------------------------------------
+
                 // Tomamos la primera característica
                 val feature = features[0]
                 val currentRef = extractSigpacRef(feature)
