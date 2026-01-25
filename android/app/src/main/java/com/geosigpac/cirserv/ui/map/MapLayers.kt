@@ -5,8 +5,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.util.Log
 import androidx.compose.ui.graphics.Color
@@ -91,8 +89,14 @@ object MapLayers {
             // --- CAPA DE BÚSQUEDA ---
             if (style.getSource(SOURCE_SEARCH_RESULT) == null) {
                 style.addSource(GeoJsonSource(SOURCE_SEARCH_RESULT))
-                style.addLayer(FillLayer(LAYER_SEARCH_RESULT_FILL, SOURCE_SEARCH_RESULT).apply { setProperties(PropertyFactory.fillColor(HighlightColor.toArgb()), PropertyFactory.fillOpacity(0.4f)) })
-                style.addLayer(LineLayer(LAYER_SEARCH_RESULT_LINE, SOURCE_SEARCH_RESULT).apply { setProperties(PropertyFactory.lineColor(HighlightColor.toArgb()), PropertyFactory.lineWidth(4f)) })
+                // Solo FillLayer con borde simulado vía fillOutlineColor para evitar LineLayer
+                style.addLayer(FillLayer(LAYER_SEARCH_RESULT_FILL, SOURCE_SEARCH_RESULT).apply {
+                    setProperties(
+                        PropertyFactory.fillColor(HighlightColorRecinto.toArgb()), 
+                        PropertyFactory.fillOpacity(0.4f),
+                        PropertyFactory.fillOutlineColor(HighlightColorRecinto.toArgb())
+                    ) 
+                })
             }
         }
     }
