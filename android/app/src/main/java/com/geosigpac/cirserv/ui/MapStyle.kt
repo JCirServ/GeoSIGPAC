@@ -6,7 +6,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
 import org.maplibre.android.location.LocationComponentActivationOptions
 import org.maplibre.android.location.modes.CameraMode
@@ -62,7 +61,7 @@ fun loadMapStyle(
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
-                    PropertyFactory.fillAntialias(false) // Previene lineas en cultivos también
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -78,29 +77,43 @@ fun loadMapStyle(
                 style.addSource(recintoSource)
 
                 // CAPA 1: RELLENO (TINT)
-                // Color distinto al borde, semitransparente
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.15f), // Opacidad suficiente para ver el color pero ver el fondo
+                    PropertyFactory.fillOpacity(0.15f),
                     PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula estática
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE (OUTLINE)
-                // Borde de otro color, sólido. Usamos FillLayer para líneas nítidas sin grid.
+                // CAPA 2: BORDE (LINE LAYER) - MapLibre 12.x Optimized
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
-                val borderLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(borderColor.toArgb()),
-                    PropertyFactory.fillAntialias(true) // En bordes finos queremos antialias para que no se vean sierra
+                
+                val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                lineLayer.setProperties(
+                    PropertyFactory.lineColor(borderColor.toArgb()),
+                    PropertyFactory.lineOpacity(0.95f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                    // Interpolación exponencial para el grosor:
+                    // Zoom 12 -> 1px (fino)
+                    // Zoom 16 -> 3px (visible)
+                    // Zoom 20 -> 8px (grueso para trabajo de campo)
+                    PropertyFactory.lineWidth(
+                        Expression.interpolate(
+                            Expression.exponential(1.5f),
+                            Expression.zoom(),
+                            Expression.stop(10f, 0.5f),
+                            Expression.stop(13f, 1.5f),
+                            Expression.stop(16f, 3.0f),
+                            Expression.stop(20f, 8.0f)
+                        )
+                    )
                 )
-                style.addLayer(borderLayer)
+                style.addLayer(lineLayer)
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
@@ -112,19 +125,30 @@ fun loadMapStyle(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
                     PropertyFactory.fillOpacity(0.5f), 
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula al resaltar
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(highlightFill)
 
-                // Cambio solicitado: Usar FillLayer para el borde del resaltado (igual que el borde normal)
-                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                // Resaltado de Borde (LineLayer para que coincida con el estilo principal)
+                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
+                    PropertyFactory.lineColor(HighlightColor.toArgb()),
+                    PropertyFactory.lineOpacity(1.0f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(true)
+                    // Un poco más grueso que la línea normal para destacar
+                    PropertyFactory.lineWidth(
+                        Expression.interpolate(
+                            Expression.exponential(1.5f),
+                            Expression.zoom(),
+                            Expression.stop(10f, 1.5f),
+                            Expression.stop(16f, 5.0f),
+                            Expression.stop(20f, 10.0f)
+                        )
+                    )
                 )
                 style.addLayer(highlightLine)
                 
