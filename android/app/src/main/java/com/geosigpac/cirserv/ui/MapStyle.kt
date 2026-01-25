@@ -210,7 +210,6 @@ fun loadMapStyle(
         try {
             // Mejoras de rendimiento y renderizado
             map.setPrefetchZoomDelta(2) // Pre-cargar tiles
-            style.styleDefaultCamera = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
