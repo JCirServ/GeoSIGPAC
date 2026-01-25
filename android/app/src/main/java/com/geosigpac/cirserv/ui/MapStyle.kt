@@ -1,4 +1,3 @@
-
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
@@ -53,9 +52,8 @@ fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                // FIX: El servidor solo llega hasta zoom 15. Establecer 15 activa el overzoom automático hasta 22.
-                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 15f
-                
+                tileSetCultivo.minZoom = 5f
+                tileSetCultivo.maxZoom = 22f
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -74,14 +72,17 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                // FIX: El servidor solo llega hasta zoom 15. Establecer 15 activa el overzoom automático hasta 22.
-                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
-
+                tileSetRecinto.minZoom = 5f
+                tileSetRecinto.maxZoom = 22f
+                
+                // CONFIGURACIÓN NATIVA AVANZADA
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
+                recintoSource.setOption("buffer", 64)
+                recintoSource.setOption("tileSize", 512)
+                
                 style.addSource(recintoSource)
 
                 // CAPA 1: RELLENO (TINT)
-                // Se usa fillAntialias(false) para evitar líneas fantasma entre tiles en el relleno
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
@@ -93,9 +94,7 @@ fun loadMapStyle(
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE UNIFICADO (LINE LAYER)
-                // Sustituye a la combinación anterior de Fill+Line para eliminar grid artifacts.
-                // Usa lineCap/Join ROUND para unir segmentos entre tiles suavemente.
+                // CAPA 2: BORDE CON LINELAYER NATIVO
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 val borderLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
@@ -105,8 +104,12 @@ fun loadMapStyle(
                         Expression.interpolate(
                             Expression.exponential(1.8f),
                             Expression.zoom(),
-                            Expression.stop(10f, 0.8f),  // Zoom medio: línea fina
-                            Expression.stop(22f, 8.0f)   // Zoom máximo: línea gruesa técnica
+                            Expression.stop(10, 0.8f),
+                            Expression.stop(13, 1.2f),
+                            Expression.stop(15, 2.0f),
+                            Expression.stop(17, 3.5f),
+                            Expression.stop(19, 5.0f),
+                            Expression.stop(22, 8.0f)
                         )
                     ),
                     PropertyFactory.lineOpacity(0.95f),
@@ -116,15 +119,15 @@ fun loadMapStyle(
                         Expression.interpolate(
                             Expression.linear(),
                             Expression.zoom(),
-                            Expression.stop(10f, 0.5f),  // Zoom lejano: más suave
-                            Expression.stop(22f, 0.1f)   // Zoom cercano: más nítido
+                            Expression.stop(10, 0.5f),
+                            Expression.stop(15, 0.3f),
+                            Expression.stop(22, 0.1f)
                         )
-                    ),
-                    PropertyFactory.visibility(Property.VISIBLE)
+                    )
                 )
                 style.addLayer(borderLayer)
 
-                // CAPAS DE RESALTADO (SELECCIÓN)
+                // CAPAS DE RESALTADO
                 val initialFilter = Expression.literal(false)
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
@@ -138,8 +141,6 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightFill)
 
-                // CAPA RESALTADO BORDE (LINE LAYER)
-                // Configuración de alto contraste para selección
                 val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
@@ -149,8 +150,12 @@ fun loadMapStyle(
                         Expression.interpolate(
                             Expression.exponential(1.8f),
                             Expression.zoom(),
-                            Expression.stop(10f, 2.0f),
-                            Expression.stop(22f, 12.0f)
+                            Expression.stop(10, 2.0f),
+                            Expression.stop(13, 3.0f),
+                            Expression.stop(15, 4.5f),
+                            Expression.stop(17, 6.0f),
+                            Expression.stop(19, 8.0f),
+                            Expression.stop(22, 12.0f)
                         )
                     ),
                     PropertyFactory.lineOpacity(1.0f),
@@ -160,8 +165,9 @@ fun loadMapStyle(
                         Expression.interpolate(
                             Expression.linear(),
                             Expression.zoom(),
-                            Expression.stop(10f, 0.8f),
-                            Expression.stop(22f, 0.2f)
+                            Expression.stop(10, 0.8f),
+                            Expression.stop(15, 0.5f),
+                            Expression.stop(22, 0.2f)
                         )
                     ),
                     PropertyFactory.visibility(Property.VISIBLE)
@@ -204,7 +210,6 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
     return false
 }
 
-// Extension function helper
 fun Color.toArgb(): Int {
     return android.graphics.Color.argb(
         (alpha * 255).toInt(),
