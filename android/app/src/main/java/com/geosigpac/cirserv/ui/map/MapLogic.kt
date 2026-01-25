@@ -47,8 +47,9 @@ object MapLogic {
                 val feature = features[0]
                 val currentRef = extractSigpacRef(feature)
                 
-                // Generar un hash simple de las propiedades de cultivo para detectar cambios dentro del mismo recinto
-                val currentCultivoHash = if (feature.hasProperty("parc_producto")) feature.getProperty("parc_producto").toString() else "recinto"
+                // Generar un hash robusto usando TODAS las claves de diferenciación de cultivo
+                // Antes solo usaba parc_producto, lo que fallaba si había dos cultivos del mismo tipo con diferente superficie/riego.
+                val currentCultivoHash = generateCultivoHash(feature)
 
                 // Solo refrescamos el filtro si ha cambiado la parcela/recinto o el cultivo interno
                 if (currentRef != lastSelectedRef || currentCultivoHash != lastSelectedCultivoHash) {
@@ -65,6 +66,22 @@ object MapLogic {
         } catch (e: Exception) {
             return ""
         }
+    }
+
+    private fun generateCultivoHash(feature: org.maplibre.geojson.Feature): String {
+        // Si no es un cultivo (es recinto base), devolvemos hash estático
+        if (!feature.hasProperty("parc_producto")) return "recinto_base"
+
+        // Concatenamos valores de claves clave para detectar cualquier cambio de geometría
+        val sb = StringBuilder()
+        CULTIVO_KEYS.forEach { key ->
+            if (feature.hasProperty(key)) {
+                sb.append(feature.getProperty(key).toString()).append("|")
+            } else {
+                sb.append("null|")
+            }
+        }
+        return sb.toString()
     }
 
     /**
