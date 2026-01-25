@@ -48,70 +48,48 @@ fun loadMapStyle(
 
     map.setStyle(styleBuilder) { style ->
         
+        // ----------------------------------------------------
+        // ORDEN DE CAPAS (Z-INDEX IMPLÍCITO DE ABAJO A ARRIBA)
+        // 1. Mapa Base (Raster) - Ya añadido
+        // 2. Cultivos (Relleno + Borde)
+        // 3. Recintos (Relleno + Borde)
+        // 4. KML / Proyectos (Se añaden dinámicamente en MapLayers)
+        // 5. Highlights (Resaltado Interacción) - SIEMPRE ARRIBA
+        // ----------------------------------------------------
+
         if (showCultivo) {
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                // AJUSTE SOLICITADO: Solo Zoom 15
                 tileSetCultivo.minZoom = 15f
                 tileSetCultivo.maxZoom = 15f
                 
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
-                // CAPA 1: RELLENO CULTIVO
+                // CAPA 2: RELLENO CULTIVO (Amarillo)
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
-                fillLayer.minZoom = 15f // Restringir visibilidad a Zoom 15
+                fillLayer.minZoom = 15f 
                 fillLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Yellow.toArgb()),
-                    PropertyFactory.fillOpacity(0.35f),
-                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()), // Limpiamos outline por defecto
+                    PropertyFactory.fillColor(CultivoFillColor.toArgb()),
+                    PropertyFactory.fillOpacity(CultivoFillOpacity),
+                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(fillLayer)
 
-                // CAPA 2: BORDE GRUESO (Thick Outline) para separación de polígonos
-                // Usamos blanco en satélite para contraste fuerte, gris en mapa base claro.
-                val cropBorderColor = if (baseMap == BaseMap.PNOA) Color.White else Color.DarkGray
-                
+                // Borde Cultivo: Sutil, para diferenciar cultivos dentro del recinto
+                val cropBorderColor = if (baseMap == BaseMap.PNOA) Color.White.copy(alpha = 0.5f) else Color.DarkGray
                 addThickOutline(
                     style = style,
                     sourceId = SOURCE_CULTIVO,
                     sourceLayer = SOURCE_LAYER_ID_CULTIVO,
-                    baseLayerId = "cultivo-layer-line", // ID único para borde cultivo
+                    baseLayerId = "cultivo-layer-line",
                     color = cropBorderColor.toArgb(),
-                    minZoom = 15f // Restringir visibilidad a Zoom 15
+                    minZoom = 15f,
+                    offsetMult = 0.5f // Borde más fino para cultivos
                 )
-
-                // --- NUEVAS CAPAS DE RESALTADO CULTIVO (Para retícula) ---
-                val initialFilter = Expression.literal(false)
-
-                // Resaltado Relleno Cultivo
-                val highlightCultivoFill = FillLayer(LAYER_CULTIVO_HIGHLIGHT_FILL, SOURCE_CULTIVO)
-                highlightCultivoFill.sourceLayer = SOURCE_LAYER_ID_CULTIVO
-                highlightCultivoFill.minZoom = 15f
-                highlightCultivoFill.setFilter(initialFilter)
-                highlightCultivoFill.setProperties(
-                    PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.5f),
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(false)
-                )
-                style.addLayer(highlightCultivoFill)
-
-                // Resaltado Borde Cultivo
-                val highlightCultivoLine = FillLayer(LAYER_CULTIVO_HIGHLIGHT_LINE, SOURCE_CULTIVO)
-                highlightCultivoLine.sourceLayer = SOURCE_LAYER_ID_CULTIVO
-                highlightCultivoLine.minZoom = 15f
-                highlightCultivoLine.setFilter(initialFilter)
-                highlightCultivoLine.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(true)
-                )
-                style.addLayer(highlightCultivoLine)
 
             } catch (e: Exception) { e.printStackTrace() }
         }
@@ -120,67 +98,93 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                // AJUSTE SOLICITADO: Solo Zoom 15
                 tileSetRecinto.minZoom = 15f
                 tileSetRecinto.maxZoom = 15f
 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // CAPA 1: RELLENO (TINT)
+                // CAPA 3: RELLENO RECINTO (Cian Transparente)
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                tintLayer.minZoom = 15f // Restringir visibilidad a Zoom 15
+                tintLayer.minZoom = 15f
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.15f),
+                    PropertyFactory.fillOpacity(0.1f), // Muy bajo para ver el cultivo debajo
                     PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE (OUTLINE) - Solución Robusta "Thick Outline"
+                // Borde Recinto: Grueso y Definido (Estructura)
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
-                
                 addThickOutline(
                     style = style,
                     sourceId = SOURCE_RECINTO,
                     sourceLayer = SOURCE_LAYER_ID_RECINTO,
                     baseLayerId = LAYER_RECINTO_LINE,
                     color = borderColor.toArgb(),
-                    minZoom = 15f // Pasamos el zoom mínimo 15
+                    minZoom = 15f,
+                    offsetMult = 1.0f // Borde estándar
                 )
-
-                // CAPAS DE RESALTADO (SELECCIÓN)
-                val initialFilter = Expression.literal(false)
-
-                val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
-                highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightFill.minZoom = 15f
-                highlightFill.setFilter(initialFilter)
-                highlightFill.setProperties(
-                    PropertyFactory.fillColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.5f), 
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(false)
-                )
-                style.addLayer(highlightFill)
-
-                // Resaltado de Borde
-                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
-                highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLine.minZoom = 15f
-                highlightLine.setFilter(initialFilter)
-                highlightLine.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
-                    PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(true)
-                )
-                style.addLayer(highlightLine)
                 
             } catch (e: Exception) { e.printStackTrace() }
+        }
+
+        // CAPAS DE RESALTADO (SE AÑADEN AL FINAL PARA ESTAR ARRIBA)
+        // Se inicializan invisibles (filtro = false)
+        val initialFilter = Expression.literal(false)
+
+        // 1. Resaltado Cultivo (Naranja/Rojo)
+        if (showCultivo) {
+            val hCultivoFill = FillLayer(LAYER_CULTIVO_HIGHLIGHT_FILL, SOURCE_CULTIVO)
+            hCultivoFill.sourceLayer = SOURCE_LAYER_ID_CULTIVO
+            hCultivoFill.minZoom = 15f
+            hCultivoFill.setFilter(initialFilter)
+            hCultivoFill.setProperties(
+                PropertyFactory.fillColor(HighlightColor.toArgb()),
+                PropertyFactory.fillOpacity(HighlightOpacity),
+                PropertyFactory.visibility(Property.VISIBLE)
+            )
+            style.addLayer(hCultivoFill) // addLayer (sin index) lo pone al final (arriba)
+
+            // Borde Resaltado Cultivo
+            val hCultivoLine = LineLayer(LAYER_CULTIVO_HIGHLIGHT_LINE, SOURCE_CULTIVO)
+            hCultivoLine.sourceLayer = SOURCE_LAYER_ID_CULTIVO
+            hCultivoLine.minZoom = 15f
+            hCultivoLine.setFilter(initialFilter)
+            hCultivoLine.setProperties(
+                PropertyFactory.lineColor(HighlightColor.toArgb()),
+                PropertyFactory.lineWidth(3f),
+                PropertyFactory.visibility(Property.VISIBLE)
+            )
+            style.addLayer(hCultivoLine)
+        }
+
+        // 2. Resaltado Recinto (Naranja/Rojo)
+        if (showRecinto) {
+            val hRecintoFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
+            hRecintoFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
+            hRecintoFill.minZoom = 15f
+            hRecintoFill.setFilter(initialFilter)
+            hRecintoFill.setProperties(
+                PropertyFactory.fillColor(HighlightColor.toArgb()),
+                PropertyFactory.fillOpacity(HighlightOpacity),
+                PropertyFactory.visibility(Property.VISIBLE)
+            )
+            style.addLayer(hRecintoFill)
+
+            val hRecintoLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+            hRecintoLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+            hRecintoLine.minZoom = 15f
+            hRecintoLine.setFilter(initialFilter)
+            hRecintoLine.setProperties(
+                PropertyFactory.lineColor(HighlightColor.toArgb()),
+                PropertyFactory.lineWidth(3f),
+                PropertyFactory.visibility(Property.VISIBLE)
+            )
+            style.addLayer(hRecintoLine)
         }
 
         if (enableLocation(map, context, shouldCenterUser)) {
@@ -189,19 +193,16 @@ fun loadMapStyle(
     }
 }
 
-/**
- * Función Helper para simular bordes gruesos usando múltiples capas FillLayer con offsets.
- * Esto evita el uso de LineLayer que genera artifacts de malla en vectores de polígonos (MVT).
- */
 private fun addThickOutline(
     style: Style,
     sourceId: String,
     sourceLayer: String,
     baseLayerId: String,
     color: Int,
-    minZoom: Float
+    minZoom: Float,
+    offsetMult: Float
 ) {
-    // 1. Capa Central (Referencia)
+    // Capa Central
     val base = FillLayer(baseLayerId, sourceId)
     base.sourceLayer = sourceLayer
     base.minZoom = minZoom
@@ -212,18 +213,16 @@ private fun addThickOutline(
     )
     style.addLayer(base)
 
-    // 2. Capas de Offset para simular grosor (~2-3px visuales)
-    // Se dibujan DEBAJO de la línea principal para mantener nitidez central
+    // Offsets para grosor
     val offsets = listOf(
-        arrayOf(1f, 0f),
-        arrayOf(0f, 1f),
-        arrayOf(-1f, 0f),
-        arrayOf(0f, -1f)
+        arrayOf(1f * offsetMult, 0f),
+        arrayOf(0f, 1f * offsetMult),
+        arrayOf(-1f * offsetMult, 0f),
+        arrayOf(0f, -1f * offsetMult)
     )
 
     offsets.forEachIndexed { i, offset ->
         val layerName = "${baseLayerId}_thick_$i"
-        // Aseguramos no duplicar si por alguna razón se llama dos veces
         if (style.getLayer(layerName) == null) {
             val layer = FillLayer(layerName, sourceId)
             layer.sourceLayer = sourceLayer
@@ -266,7 +265,6 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
     return false
 }
 
-// Extension function helper
 fun Color.toArgb(): Int {
     return android.graphics.Color.argb(
         (alpha * 255).toInt(),

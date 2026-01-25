@@ -32,23 +32,33 @@ object MapLayers {
 
     fun setupProjectLayers(context: Context, map: MapLibreMap) {
         map.getStyle { style ->
-            // --- CAPAS DE PARCELAS (Relleno y Línea) ---
+            // --- CAPAS DE PARCELAS KML (Relleno y Línea) ---
             if (style.getSource(SOURCE_PROJECTS) == null) {
                 style.addSource(GeoJsonSource(SOURCE_PROJECTS))
                 
+                // Color KML: Índigo / Violeta (Contrasta con Amarillo Cultivo y Cian Recinto)
+                val kmlFillColor = Color(0xFF6200EA) // Deep Purple A700
+                val kmlLineColor = Color(0xFF00E5FF) // Cyan Accent
+                
                 // Relleno Parcela
                 style.addLayer(FillLayer(LAYER_PROJECTS_FILL, SOURCE_PROJECTS).apply {
-                    setProperties(PropertyFactory.fillColor(Color(0xFF2196F3).toArgb()), PropertyFactory.fillOpacity(0.3f))
+                    setProperties(
+                        PropertyFactory.fillColor(kmlFillColor.toArgb()), 
+                        PropertyFactory.fillOpacity(0.35f)
+                    )
                     setFilter(Expression.eq(Expression.get("type"), Expression.literal("parcela")))
                 })
                 
                 // Línea Parcela
                 style.addLayer(LineLayer(LAYER_PROJECTS_LINE, SOURCE_PROJECTS).apply {
-                    setProperties(PropertyFactory.lineColor(Color(0xFF0D47A1).toArgb()), PropertyFactory.lineWidth(1.5f))
+                    setProperties(
+                        PropertyFactory.lineColor(kmlLineColor.toArgb()), 
+                        PropertyFactory.lineWidth(2.0f)
+                    )
                     setFilter(Expression.eq(Expression.get("type"), Expression.literal("parcela")))
                 })
                 
-                // Centroide (Punto por defecto)
+                // Centroide (Punto)
                 style.addLayer(CircleLayer(LAYER_PROJECTS_CENTROID, SOURCE_PROJECTS).apply {
                     setProperties(
                         PropertyFactory.circleColor(Color(0xFF00FF88).toArgb()),
@@ -60,13 +70,11 @@ object MapLayers {
                 })
             }
 
-            // --- CAPA DE FOTOS (Marcadores de Cámara) ---
+            // --- CAPA DE FOTOS ---
             if (style.getSource(SOURCE_PHOTOS) == null) {
-                // 1. Generar y registrar el icono de cámara
                 val iconBitmap = generatePhotoMarkerBitmap()
                 style.addImage(ICON_PHOTO, iconBitmap)
 
-                // 2. Crear fuente y capa
                 style.addSource(GeoJsonSource(SOURCE_PHOTOS))
                 
                 style.addLayer(SymbolLayer(LAYER_PHOTOS, SOURCE_PHOTOS).apply {
@@ -75,7 +83,6 @@ object MapLayers {
                         PropertyFactory.iconSize(1.0f),
                         PropertyFactory.iconAllowOverlap(true),
                         PropertyFactory.iconIgnorePlacement(true),
-                        // Offset para que el pico del marcador apunte al sitio (opcional, aquí es circular)
                         PropertyFactory.iconOffset(arrayOf(0f, -10f)) 
                     )
                 })
@@ -137,8 +144,7 @@ object MapLayers {
                     parcelFeatures.add(feat)
                 }
 
-                // 3. FOTOS INDIVIDUALES GEORREFERENCIADAS
-                // Iteramos sobre las fotos que tienen ubicación guardada
+                // 3. FOTOS
                 p.photos.forEach { uri ->
                     val locString = p.photoLocations[uri]
                     if (locString != null) {
@@ -168,29 +174,22 @@ object MapLayers {
         withContext(Dispatchers.Main) {
             if (map.style != null) {
                 map.style?.getSourceAs<GeoJsonSource>(SOURCE_PROJECTS)?.setGeoJson(FeatureCollection.fromFeatures(parcelFeatures))
-                // Actualizar capa de fotos independientemente
                 map.style?.getSourceAs<GeoJsonSource>(SOURCE_PHOTOS)?.setGeoJson(FeatureCollection.fromFeatures(photoFeatures))
             }
         }
     }
 
-    /**
-     * Genera un Bitmap programáticamente con forma de icono de cámara.
-     * Fondo Circular Blanco con borde Gris y un icono de cámara simplificado en el centro.
-     */
     private fun generatePhotoMarkerBitmap(): Bitmap {
-        val size = 72 // Tamaño px
+        val size = 72
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        // 1. Fondo Circular Blanco con Sombra/Borde
         val paintBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
         val paintBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply { 
             color = android.graphics.Color.parseColor("#444444")
             style = Paint.Style.STROKE
             strokeWidth = 4f
         }
-        
         val radius = size / 2f - 4f
         val cx = size / 2f
         val cy = size / 2f
@@ -198,32 +197,21 @@ object MapLayers {
         canvas.drawCircle(cx, cy, radius, paintBg)
         canvas.drawCircle(cx, cy, radius, paintBorder)
 
-        // 2. Icono de Cámara (Simplificado geométricamente)
         val paintIcon = Paint(Paint.ANTI_ALIAS_FLAG).apply { 
             color = android.graphics.Color.parseColor("#333333") 
             style = Paint.Style.FILL
         }
 
-        // Cuerpo cámara
-        val rectW = size * 0.5f
-        val rectH = size * 0.35f
-        val left = cx - rectW/2
-        val top = cy - rectH/2 + 4f
+        val rectW = size * 0.5f; val rectH = size * 0.35f
+        val left = cx - rectW/2; val top = cy - rectH/2 + 4f
         canvas.drawRoundRect(RectF(left, top, left + rectW, top + rectH), 6f, 6f, paintIcon)
-        
-        // Visor (Triángulo/Trapecio arriba)
-        val visorW = size * 0.2f
-        val visorH = size * 0.1f
+        val visorW = size * 0.2f; val visorH = size * 0.1f
         canvas.drawRect(RectF(cx - visorW/2, top - visorH, cx + visorW/2, top), paintIcon)
 
-        // Lente (Círculo blanco dentro, borde negro fuera)
         paintIcon.color = android.graphics.Color.WHITE
         canvas.drawCircle(cx, cy + 4f, size * 0.12f, paintIcon)
-        
         val paintLensBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.parseColor("#333333")
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
+            color = android.graphics.Color.parseColor("#333333"); style = Paint.Style.STROKE; strokeWidth = 3f
         }
         canvas.drawCircle(cx, cy + 4f, size * 0.12f, paintLensBorder)
 

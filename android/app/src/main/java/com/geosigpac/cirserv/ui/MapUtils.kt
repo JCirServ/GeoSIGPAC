@@ -27,54 +27,61 @@ const val LAYER_BASE = "base-layer"
 // Capas SIGPAC (MVT)
 const val SOURCE_RECINTO = "recinto-source"
 const val LAYER_RECINTO_LINE = "recinto-layer-line"
-const val LAYER_RECINTO_FILL = "recinto-layer-fill" // Capa de Relleno (Tint)
-const val LAYER_RECINTO_HIGHLIGHT_FILL = "recinto-layer-highlight-fill" // Capa iluminada relleno
-const val LAYER_RECINTO_HIGHLIGHT_LINE = "recinto-layer-highlight-line" // Capa iluminada borde
+const val LAYER_RECINTO_FILL = "recinto-layer-fill"
+const val LAYER_RECINTO_HIGHLIGHT_FILL = "recinto-layer-highlight-fill"
+const val LAYER_RECINTO_HIGHLIGHT_LINE = "recinto-layer-highlight-line"
 const val SOURCE_LAYER_ID_RECINTO = "recinto"
 
 const val SOURCE_CULTIVO = "cultivo-source"
 const val LAYER_CULTIVO_FILL = "cultivo-layer-fill"
-const val LAYER_CULTIVO_HIGHLIGHT_FILL = "cultivo-layer-highlight-fill" // NUEVO
-const val LAYER_CULTIVO_HIGHLIGHT_LINE = "cultivo-layer-highlight-line" // NUEVO
+const val LAYER_CULTIVO_HIGHLIGHT_FILL = "cultivo-layer-highlight-fill"
+const val LAYER_CULTIVO_HIGHLIGHT_LINE = "cultivo-layer-highlight-line"
 const val SOURCE_LAYER_ID_CULTIVO = "cultivo_declarado"
 
-// NUEVO: Capa de Resultados de Búsqueda (GeoJSON directo)
+// Capa de Resultados de Búsqueda
 const val SOURCE_SEARCH_RESULT = "search-result-source"
 const val LAYER_SEARCH_RESULT_FILL = "search-result-fill"
 const val LAYER_SEARCH_RESULT_LINE = "search-result-line"
 
-// Campos para identificar unívocamente un recinto
 val SIGPAC_KEYS = listOf("provincia", "municipio", "agregado", "zona", "poligono", "parcela", "recinto")
 
-// --- COORDENADAS POR DEFECTO (Comunidad Valenciana) ---
+// --- COORDENADAS POR DEFECTO ---
 const val VALENCIA_LAT = 39.4699
 const val VALENCIA_LNG = -0.3763
 const val DEFAULT_ZOOM = 16.0
 const val USER_TRACKING_ZOOM = 16.0
 
-// --- COLORES TEMA CAMPO ---
+// --- COLORES TEMA ---
 val FieldBackground = Color(0xFF121212)
 val FieldSurface = Color(0xFF252525)
-val FieldGreen = Color(0xFF00FF88) // Updated to Neon Green
+val FieldGreen = Color(0xFF00FF88)
 val HighContrastWhite = Color(0xFFFFFFFF)
 val FieldGray = Color(0xFFB0B0B0)
 val FieldDivider = Color(0xFF424242)
 
-val HighlightColor = Color(0xFFF97316) // Naranja Selección
+// --- NUEVA PALETA DE COLORES MAPA (Alto Contraste) ---
 
-// ==========================================
-// CONFIGURACIÓN DE COLORES DEL MAPA (PALETAS)
-// ==========================================
+// 1. RECINTOS (Estructural - Cian/Blanco Frío)
+// PNOA: Casi transparente, solo borde blanco fuerte.
+val BorderColorPNOA = Color(0xFFFFFFFF) 
+val FillColorPNOA   = Color(0x15E0F7FA) // Cian muy tenue (Alpha bajo)
 
-/* OPCIÓN A: ESTILO TÉCNICO (ACTIVO)
-   PNOA: Borde Blanco (Definición) + Relleno Azul (Datos)
-   OSM:  Borde Gris Oscuro (Cadastral) + Relleno Naranja (Visibilidad)
-*/
-val BorderColorPNOA = Color(0xFFFFFFFF) // Blanco Puro
-val FillColorPNOA   = Color(0xFF00B0FF) // Azul Eléctrico
+// OSM: Gris oscuro.
+val BorderColorOSM  = Color(0xFF263238)
+val FillColorOSM    = Color(0x2037474F)
 
-val BorderColorOSM  = Color(0xFF263238) // Gris Pizarra Oscuro (Blue Gray 900)
-val FillColorOSM    = Color(0xFFFF6D00) // Naranja Vivo
+// 2. CULTIVOS (Agronómico - Amarillo Oro)
+// Color distinto al azul/cian de recintos.
+val CultivoFillColor = Color(0xFFFFD600) // Amarillo Oro
+val CultivoFillOpacity = 0.25f // Opacidad media
+
+// 3. SELECCIÓN / RETÍCULA (Interacción - Rojo/Naranja Neón)
+// Debe destacar sobre TODO.
+val HighlightColor = Color(0xFFFF3D00) // Deep Orange A400
+val HighlightOpacity = 0.45f
+
+// 4. KML / PROYECTOS (Usuario - Violeta/Índigo)
+// Definido en MapLayers.kt, pero conceptualmente es 0xFF6200EA
 
 enum class BaseMap(val title: String) {
     OSM("OpenStreetMap"),
@@ -87,29 +94,19 @@ data class ParcelSearchResult(
 )
 
 // --- FUNCIONES API (WFS & INFO) ---
+// (Sin cambios en las funciones de lógica de negocio)
 
-/**
- * Calcula los límites y la geometría de una parcela basada en su data local KML
- * sin necesidad de llamadas a API externa.
- */
 fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
-    // 1. INTENTO: Geometría Completa (Polígono)
     if (!parcela.geometryRaw.isNullOrEmpty()) {
         try {
-            // Caso A: GeoJSON (Recinto hidratado desde API)
             if (parcela.geometryRaw.trim().startsWith("{")) {
-                // Workaround: Envolvemos la geometría cruda en un objeto Feature para poder usar Feature.fromJson
                 val rawGeom = parcela.geometryRaw.trim()
                 val featureJson = """{"type": "Feature", "properties": {}, "geometry": $rawGeom}"""
                 val feature = Feature.fromJson(featureJson)
-
-                // Calculamos bounds simples iterando coordenadas del JSON raw
                 val root = JSONObject(parcela.geometryRaw)
                 val coords = root.optJSONArray("coordinates")
-                
                 var minLat = Double.MAX_VALUE; var maxLat = -Double.MAX_VALUE
                 var minLng = Double.MAX_VALUE; var maxLng = -Double.MAX_VALUE
-
                 fun traverse(arr: JSONArray) {
                     if (arr.length() == 0) return
                     val first = arr.get(0)
@@ -125,7 +122,6 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
                     }
                 }
                 if (coords != null) traverse(coords)
-
                 if (minLat != Double.MAX_VALUE) {
                     val latPadding = (maxLat - minLat) * 0.20
                     val lngPadding = (maxLng - minLng) * 0.20
@@ -133,12 +129,9 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
                     return ParcelSearchResult(bounds, feature)
                 }
             }
-
-            // Caso B: KML String legacy (Pares lat,lng separados por espacios)
             val points = mutableListOf<Point>()
             var minLat = Double.MAX_VALUE; var maxLat = -Double.MAX_VALUE
             var minLng = Double.MAX_VALUE; var maxLng = -Double.MAX_VALUE
-
             val coordPairs = parcela.geometryRaw.trim().split("\\s+".toRegex())
             coordPairs.forEach { pair ->
                 val coords = pair.split(",")
@@ -154,12 +147,10 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
                     }
                 }
             }
-
             if (points.isNotEmpty()) {
                 val latPadding = (maxLat - minLat) * 0.20
                 val lngPadding = (maxLng - minLng) * 0.20
                 val bounds = LatLngBounds.from(maxLat + latPadding, maxLng + lngPadding, minLat - latPadding, minLng - lngPadding)
-
                 if (points.first() != points.last()) { points.add(points.first()) }
                 val polygon = Polygon.fromLngLats(listOf(points))
                 val feature = Feature.fromGeometry(polygon)
@@ -169,100 +160,61 @@ fun computeLocalBoundsAndFeature(parcela: NativeParcela): ParcelSearchResult? {
             Log.e("MapUtils", "Error parsing local geometry: ${e.message}")
         }
     }
-
-    // 2. INTENTO: Fallback a Centroide (Punto)
-    // Si falla la geometría o no existe, usamos el centroide para volar al punto
     if (parcela.centroidLat != null && parcela.centroidLng != null) {
         val lat = parcela.centroidLat
         val lng = parcela.centroidLng
         val pointFeature = Feature.fromGeometry(Point.fromLngLat(lng, lat))
-        
-        // Creamos un Bounds artificial pequeño alrededor del punto (aprox 200m)
         val delta = 0.002
         val bounds = LatLngBounds.from(lat + delta, lng + delta, lat - delta, lng - delta)
-        
         return ParcelSearchResult(bounds, pointFeature)
     }
-
     return null
 }
 
-/**
- * Busca la ubicación de un recinto o parcela utilizando el endpoint GeoJSON de recinfoparc.
- * Devuelve tanto el BoundingBox para la cámara como el Feature para dibujarlo inmediatamente.
- */
 suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: String, rec: String?): ParcelSearchResult? = withContext(Dispatchers.IO) {
     try {
-        val ag = "0"
-        val zo = "0"
-
-        val urlString = String.format(
-            Locale.US,
-            "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/%s/%s/%s/%s/%s/%s.geojson",
-            prov, mun, ag, zo, pol, parc
-        )
-
+        val ag = "0"; val zo = "0"
+        val urlString = String.format(Locale.US, "https://sigpac-hubcloud.es/servicioconsultassigpac/query/recinfoparc/%s/%s/%s/%s/%s/%s.geojson", prov, mun, ag, zo, pol, parc)
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = 10000
-        connection.readTimeout = 10000
-        connection.requestMethod = "GET"
-        connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
-
+        connection.connectTimeout = 10000; connection.readTimeout = 10000
+        connection.requestMethod = "GET"; connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
         if (connection.responseCode == 200) {
             val reader = BufferedReader(InputStreamReader(connection.inputStream))
-            val response = StringBuilder()
-            var line: String?
+            val response = StringBuilder(); var line: String?
             while (reader.readLine().also { line = it } != null) response.append(line)
-            reader.close()
-            connection.disconnect()
-
+            reader.close(); connection.disconnect()
             val responseString = response.toString()
             val featureCollection = JSONObject(responseString)
             val features = featureCollection.optJSONArray("features")
-
             if (features != null && features.length() > 0) {
-                var minLat = Double.MAX_VALUE
-                var maxLat = -Double.MAX_VALUE
-                var minLng = Double.MAX_VALUE
-                var maxLng = -Double.MAX_VALUE
+                var minLat = Double.MAX_VALUE; var maxLat = -Double.MAX_VALUE
+                var minLng = Double.MAX_VALUE; var maxLng = -Double.MAX_VALUE
                 var foundFeature: JSONObject? = null
-
                 for (i in 0 until features.length()) {
                     val featureObj = features.getJSONObject(i)
                     val props = featureObj.optJSONObject("properties")
-                    
                     if (rec != null && props != null) {
                         val currentRec = props.optString("recinto")
                         if (currentRec != rec) continue
                     }
-
                     foundFeature = featureObj
-                    
                     val geometry = featureObj.optJSONObject("geometry") ?: continue
                     val coordinates = geometry.optJSONArray("coordinates") ?: continue
-
                     fun extractPoints(arr: JSONArray) {
                         if (arr.length() == 0) return
                         val first = arr.get(0)
                         if (first is Double || first is Int) {
-                            val lng = arr.getDouble(0)
-                            val lat = arr.getDouble(1)
-                            if (lat < minLat) minLat = lat
-                            if (lat > maxLat) maxLat = lat
-                            if (lng < minLng) minLng = lng
-                            if (lng > maxLng) maxLng = lng
+                            val lng = arr.getDouble(0); val lat = arr.getDouble(1)
+                            if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat
+                            if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng
                         } else if (first is JSONArray) {
-                            for (j in 0 until arr.length()) {
-                                extractPoints(arr.getJSONArray(j))
-                            }
+                            for (j in 0 until arr.length()) extractPoints(arr.getJSONArray(j))
                         }
                     }
-
                     extractPoints(coordinates)
                     if (rec != null) break
                 }
-
                 if (foundFeature != null && minLat != Double.MAX_VALUE) {
                     val mapLibreFeature = Feature.fromJson(foundFeature.toString())
                     val latPadding = (maxLat - minLat) * 0.30
@@ -272,9 +224,7 @@ suspend fun searchParcelLocation(prov: String, mun: String, pol: String, parc: S
                 }
             }
         }
-    } catch (e: Exception) {
-        Log.e("SEARCH_SIGPAC", "Error: ${e.message}")
-    }
+    } catch (e: Exception) { Log.e("SEARCH_SIGPAC", "Error: ${e.message}") }
     return@withContext null
 }
 
@@ -284,9 +234,7 @@ suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? 
         val url = URL(urlString)
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 5000; connection.readTimeout = 5000
-        connection.requestMethod = "GET"
-        connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
-        
+        connection.requestMethod = "GET"; connection.setRequestProperty("User-Agent", "GeoSIGPAC-App/1.0")
         if (connection.responseCode == 200) {
             val reader = BufferedReader(InputStreamReader(connection.inputStream))
             val response = StringBuilder(); var line: String?
@@ -298,7 +246,6 @@ suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? 
                 val jsonArray = JSONArray(jsonResponse)
                 if (jsonArray.length() > 0) targetJson = jsonArray.getJSONObject(0)
             } else if (jsonResponse.startsWith("{")) targetJson = JSONObject(jsonResponse)
-
             if (targetJson != null) {
                 fun getProp(key: String): String {
                     if (targetJson!!.has(key)) return targetJson!!.optString(key)
@@ -319,7 +266,6 @@ suspend fun fetchFullSigpacInfo(lat: Double, lng: Double): Map<String, String>? 
                 val translatedUso = SigpacCodeManager.getUsoDescription(rawUso) ?: rawUso
                 val rawRegion = getProp("region")
                 val translatedRegion = SigpacCodeManager.getRegionDescription(rawRegion) ?: rawRegion
-
                 return@withContext mapOf(
                     "provincia" to prov, "municipio" to mun, "agregado" to getProp("agregado"),
                     "zona" to getProp("zona"), "poligono" to pol, "parcela" to getProp("parcela"), "recinto" to getProp("recinto"),
