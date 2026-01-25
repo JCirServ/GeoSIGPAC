@@ -537,7 +537,7 @@ fun CameraScreen(
                     Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
                         Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) { Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.Gray.copy(0.4f))) }
                         NativeRecintoCard(parcela = parc, onLocate = { onGoToMap() }, onCamera = { showParcelSheet = false }, onUpdateParcela = { updatedParcela ->
-                            val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcel.id) updatedParcel else it })
+                            val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
                             onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
                         }, initiallyExpanded = true, initiallyTechExpanded = true)
                         Spacer(Modifier.height(32.dp))
