@@ -53,7 +53,9 @@ fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 15f
+                // MEJORA: Zoom extendido para detalle máximo
+                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 22f
+                
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -72,12 +74,14 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
+                // MEJORA: Zoom extendido para inspección técnica
+                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 22f
 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
                 // CAPA 1: RELLENO (TINT)
+                // Se usa fillAntialias(false) para evitar líneas fantasma entre tiles en el relleno
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
@@ -89,42 +93,36 @@ fun loadMapStyle(
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE BASE (FillLayer outline - sin grid)
-                // Usado en zooms lejanos/medios donde LineLayer causa artifacts
+                // CAPA 2: BORDE UNIFICADO (LINE LAYER)
+                // Sustituye a la combinación anterior de Fill+Line para eliminar grid artifacts.
+                // Usa lineCap/Join ROUND para unir segmentos entre tiles suavemente.
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
-                val borderBaseFill = FillLayer("recinto-layer-line-base", SOURCE_RECINTO)
-                borderBaseFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderBaseFill.maxZoom = 15.5f // NEW: Control por min/max zoom en capa
-                borderBaseFill.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(borderColor.toArgb()),
-                    PropertyFactory.fillAntialias(true),
-                    PropertyFactory.visibility(Property.VISIBLE)
-                )
-                style.addLayer(borderBaseFill)
-
-                // CAPA 3: BORDE DETALLADO (LineLayer - solo zoom cercano)
-                // Activo solo en zoom >15.5 donde el grid no es problema
-                val borderDetailLine = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                borderDetailLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderDetailLine.minZoom = 15.5f // NEW: Control por min/max zoom en capa
-                borderDetailLine.setProperties(
+                val borderLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderLayer.setProperties(
                     PropertyFactory.lineColor(borderColor.toArgb()),
                     PropertyFactory.lineWidth(
                         Expression.interpolate(
-                            Expression.exponential(1.5f),
+                            Expression.exponential(1.8f),
                             Expression.zoom(),
-                            Expression.stop(15.5f, 2.0f),  // Inicio: 2px
-                            Expression.stop(18, 3.5f),     // Máximo zoom: 3.5px
-                            Expression.stop(22, 6.0f)      // Ultra-zoom: 6px
+                            Expression.stop(10f, 0.8f),  // Zoom medio: línea fina
+                            Expression.stop(22f, 8.0f)   // Zoom máximo: línea gruesa técnica
                         )
                     ),
                     PropertyFactory.lineOpacity(0.95f),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineBlur(
+                        Expression.interpolate(
+                            Expression.linear(),
+                            Expression.zoom(),
+                            Expression.stop(10f, 0.5f),  // Zoom lejano: más suave
+                            Expression.stop(22f, 0.1f)   // Zoom cercano: más nítido
+                        )
+                    ),
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
-                style.addLayer(borderDetailLine)
+                style.addLayer(borderLayer)
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
@@ -140,41 +138,35 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightFill)
 
-                // RESALTADO: Base outline (FillLayer - zoom bajo/medio)
-                val highlightLineBase = FillLayer("recinto-layer-highlight-line-base", SOURCE_RECINTO)
-                highlightLineBase.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLineBase.setFilter(initialFilter)
-                highlightLineBase.maxZoom = 15.5f // NEW: Control por min/max zoom en capa
-                highlightLineBase.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
-                    PropertyFactory.fillAntialias(true),
-                    PropertyFactory.visibility(Property.VISIBLE)
-                )
-                style.addLayer(highlightLineBase)
-
-                // RESALTADO: Detalle grueso (LineLayer - solo zoom cercano)
-                val highlightLineDetail = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
-                highlightLineDetail.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLineDetail.setFilter(initialFilter)
-                highlightLineDetail.minZoom = 15.5f // NEW: Control por min/max zoom en capa
-                highlightLineDetail.setProperties(
+                // CAPA RESALTADO BORDE (LINE LAYER)
+                // Configuración de alto contraste para selección
+                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightLine.setFilter(initialFilter)
+                highlightLine.setProperties(
                     PropertyFactory.lineColor(HighlightColor.toArgb()),
                     PropertyFactory.lineWidth(
                         Expression.interpolate(
-                            Expression.exponential(1.5f),
+                            Expression.exponential(1.8f),
                             Expression.zoom(),
-                            Expression.stop(15.5f, 3.0f),  // Inicio destacado: 3px
-                            Expression.stop(18, 5.0f),     // Muy visible: 5px
-                            Expression.stop(22, 8.0f)      // Ultra-zoom: 8px
+                            Expression.stop(10f, 2.0f),
+                            Expression.stop(22f, 12.0f)
                         )
                     ),
                     PropertyFactory.lineOpacity(1.0f),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineBlur(
+                        Expression.interpolate(
+                            Expression.linear(),
+                            Expression.zoom(),
+                            Expression.stop(10f, 0.8f),
+                            Expression.stop(22f, 0.2f)
+                        )
+                    ),
                     PropertyFactory.visibility(Property.VISIBLE)
                 )
-                style.addLayer(highlightLineDetail)
+                style.addLayer(highlightLine)
                 
             } catch (e: Exception) { e.printStackTrace() }
         }
