@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
@@ -93,18 +94,12 @@ fun loadMapStyle(
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 val borderBaseFill = FillLayer("recinto-layer-line-base", SOURCE_RECINTO)
                 borderBaseFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderBaseFill.maxZoom = 15.5f // NEW: Control por min/max zoom en capa
                 borderBaseFill.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(borderColor.toArgb()),
                     PropertyFactory.fillAntialias(true),
-                    // Visible solo hasta zoom 15
-                    PropertyFactory.visibility(
-                        Expression.step(
-                            Expression.zoom(),
-                            Expression.literal(Property.VISIBLE),
-                            Expression.stop(15.5f, Property.NONE)
-                        )
-                    )
+                    PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(borderBaseFill)
 
@@ -112,6 +107,7 @@ fun loadMapStyle(
                 // Activo solo en zoom >15.5 donde el grid no es problema
                 val borderDetailLine = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderDetailLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                borderDetailLine.minZoom = 15.5f // NEW: Control por min/max zoom en capa
                 borderDetailLine.setProperties(
                     PropertyFactory.lineColor(borderColor.toArgb()),
                     PropertyFactory.lineWidth(
@@ -126,14 +122,7 @@ fun loadMapStyle(
                     PropertyFactory.lineOpacity(0.95f),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    // Visible solo desde zoom 15.5
-                    PropertyFactory.visibility(
-                        Expression.step(
-                            Expression.zoom(),
-                            Expression.literal(Property.NONE),
-                            Expression.stop(15.5f, Property.VISIBLE)
-                        )
-                    )
+                    PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(borderDetailLine)
 
@@ -155,17 +144,12 @@ fun loadMapStyle(
                 val highlightLineBase = FillLayer("recinto-layer-highlight-line-base", SOURCE_RECINTO)
                 highlightLineBase.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLineBase.setFilter(initialFilter)
+                highlightLineBase.maxZoom = 15.5f // NEW: Control por min/max zoom en capa
                 highlightLineBase.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
                     PropertyFactory.fillAntialias(true),
-                    PropertyFactory.visibility(
-                        Expression.step(
-                            Expression.zoom(),
-                            Expression.literal(Property.VISIBLE),
-                            Expression.stop(15.5f, Property.NONE)
-                        )
-                    )
+                    PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightLineBase)
 
@@ -173,6 +157,7 @@ fun loadMapStyle(
                 val highlightLineDetail = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLineDetail.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLineDetail.setFilter(initialFilter)
+                highlightLineDetail.minZoom = 15.5f // NEW: Control por min/max zoom en capa
                 highlightLineDetail.setProperties(
                     PropertyFactory.lineColor(HighlightColor.toArgb()),
                     PropertyFactory.lineWidth(
@@ -187,13 +172,7 @@ fun loadMapStyle(
                     PropertyFactory.lineOpacity(1.0f),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.visibility(
-                        Expression.step(
-                            Expression.zoom(),
-                            Expression.literal(Property.NONE),
-                            Expression.stop(15.5f, Property.VISIBLE)
-                        )
-                    )
+                    PropertyFactory.visibility(Property.VISIBLE)
                 )
                 style.addLayer(highlightLineDetail)
                 
