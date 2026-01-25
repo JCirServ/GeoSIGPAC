@@ -52,7 +52,10 @@ fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                tileSetCultivo.minZoom = 5f; tileSetCultivo.maxZoom = 15f
+                // OPTIMIZACIÓN: Cargar SOLO niveles 14 y 15 como solicitó el usuario
+                tileSetCultivo.minZoom = 14f
+                tileSetCultivo.maxZoom = 15f
+                
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -71,7 +74,9 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                tileSetRecinto.minZoom = 5f; tileSetRecinto.maxZoom = 15f
+                // OPTIMIZACIÓN: Cargar SOLO niveles 14 y 15 como solicitó el usuario
+                tileSetRecinto.minZoom = 14f
+                tileSetRecinto.maxZoom = 15f
 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
@@ -88,16 +93,28 @@ fun loadMapStyle(
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE (OUTLINE) - Solución Robusta "Thick Outline"
+                // CAPA 2: BORDE (LINE LAYER) - MapLibre 12.x Optimized
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 
-                addThickOutline(
-                    style = style,
-                    sourceId = SOURCE_RECINTO,
-                    sourceLayer = SOURCE_LAYER_ID_RECINTO,
-                    baseLayerId = LAYER_RECINTO_LINE,
-                    color = borderColor.toArgb()
+                val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
+                lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                lineLayer.setProperties(
+                    PropertyFactory.lineColor(borderColor.toArgb()),
+                    PropertyFactory.lineOpacity(0.95f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                    // Interpolación exponencial para el grosor ajustada al nuevo inicio (Zoom 14)
+                    PropertyFactory.lineWidth(
+                        Expression.interpolate(
+                            Expression.exponential(1.5f),
+                            Expression.zoom(),
+                            Expression.stop(14f, 1.0f),
+                            Expression.stop(16f, 3.0f),
+                            Expression.stop(20f, 8.0f)
+                        )
+                    )
                 )
+                style.addLayer(lineLayer)
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
@@ -113,15 +130,25 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightFill)
 
-                // Resaltado de Borde
-                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                // Resaltado de Borde (LineLayer)
+                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
+                    PropertyFactory.lineColor(HighlightColor.toArgb()),
+                    PropertyFactory.lineOpacity(1.0f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(true)
+                    PropertyFactory.lineWidth(
+                        Expression.interpolate(
+                            Expression.exponential(1.5f),
+                            Expression.zoom(),
+                            Expression.stop(14f, 2.0f),
+                            Expression.stop(16f, 5.0f),
+                            Expression.stop(20f, 10.0f)
+                        )
+                    )
                 )
                 style.addLayer(highlightLine)
                 
@@ -130,53 +157,6 @@ fun loadMapStyle(
 
         if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
-        }
-    }
-}
-
-/**
- * Función Helper para simular bordes gruesos usando múltiples capas FillLayer con offsets.
- * Esto evita el uso de LineLayer que genera artifacts de malla en vectores de polígonos (MVT).
- */
-private fun addThickOutline(
-    style: Style,
-    sourceId: String,
-    sourceLayer: String,
-    baseLayerId: String,
-    color: Int
-) {
-    // 1. Capa Central (Referencia)
-    val base = FillLayer(baseLayerId, sourceId)
-    base.sourceLayer = sourceLayer
-    base.setProperties(
-        PropertyFactory.fillColor(Color.Transparent.toArgb()),
-        PropertyFactory.fillOutlineColor(color),
-        PropertyFactory.fillAntialias(true)
-    )
-    style.addLayer(base)
-
-    // 2. Capas de Offset para simular grosor (~2-3px visuales)
-    // Se dibujan DEBAJO de la línea principal para mantener nitidez central
-    val offsets = listOf(
-        arrayOf(1f, 0f),
-        arrayOf(0f, 1f),
-        arrayOf(-1f, 0f),
-        arrayOf(0f, -1f)
-    )
-
-    offsets.forEachIndexed { i, offset ->
-        val layerName = "${baseLayerId}_thick_$i"
-        // Aseguramos no duplicar si por alguna razón se llama dos veces
-        if (style.getLayer(layerName) == null) {
-            val layer = FillLayer(layerName, sourceId)
-            layer.sourceLayer = sourceLayer
-            layer.setProperties(
-                PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                PropertyFactory.fillOutlineColor(color),
-                PropertyFactory.fillAntialias(true),
-                PropertyFactory.fillTranslate(offset)
-            )
-            style.addLayerBelow(layer, baseLayerId)
         }
     }
 }
