@@ -38,15 +38,16 @@ object MapLogic {
                 screenPoint.x + sensitivity, screenPoint.y + sensitivity
             )
 
-            // MODIFICACIÓN: Consultamos ambas capas (Cultivo y Recinto)
-            // Se prioriza Cultivo porque suele estar "encima" o ser más granular visualmente
+            // 1. Consultamos AMBAS capas para asegurar que pillamos algo si el usuario apunta
+            // Priorizamos Cultivo porque suele ser la geometría más específica (interna)
             val features = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL, LAYER_RECINTO_FILL)
             
             if (features.isNotEmpty()) {
+                // Tomamos la primera característica (la que esté visualmente más arriba o primero en el array)
                 val feature = features[0]
                 val currentRef = extractSigpacRef(feature)
                 
-                // Evitar refrescos de estilo innecesarios
+                // Solo refrescamos el filtro si ha cambiado la parcela/recinto
                 if (currentRef != lastSelectedRef) {
                     applyHighlight(map, feature)
                     lastSelectedRef = currentRef
@@ -63,7 +64,7 @@ object MapLogic {
     }
 
     /**
-     * Extrae solo los 5 códigos esenciales.
+     * Extrae solo los 5 códigos esenciales para formar la referencia única.
      */
     private fun extractSigpacRef(feature: org.maplibre.geojson.Feature): String {
         fun getSafe(key: String): String {
@@ -78,17 +79,16 @@ object MapLogic {
         val parc = getSafe("parcela")
         val rec = getSafe("recinto")
 
-        // Validamos que los datos críticos existan
         if (prov.isEmpty() || mun.isEmpty() || pol.isEmpty()) return ""
 
-        // Formato: 28:079:1:25:1
+        // Formato estándar: 28:079:1:25:1
         return "$prov:$mun:$pol:$parc:$rec"
     }
 
     private fun applyHighlight(map: MapLibreMap, feature: org.maplibre.geojson.Feature) {
         val filterConditions = mutableListOf<Expression>()
         
-        // Usamos la lista de claves (incluyendo zona/agregado si están en el PBF para que el filtro sea exacto)
+        // Construimos un filtro que coincida exactamente con la geometría seleccionada (Prov, Mun, Pol, Parc, Rec)
         SIGPAC_KEYS.forEach { key ->
             if (feature.hasProperty(key)) {
                 val prop = feature.getProperty(key).asJsonPrimitive
@@ -104,13 +104,14 @@ object MapLogic {
         if (filterConditions.isNotEmpty()) {
             val finalFilter = Expression.all(*filterConditions.toTypedArray())
             map.style?.let { style ->
-                // Aplicar a Recintos
+                // Aplicar a Recintos (Capa base catastral)
                 (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
                 (style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(finalFilter)
                 
-                // Aplicar a Cultivos
+                // Aplicar a Cultivos (Capa agronómica interna)
+                // CORRECCIÓN CRÍTICA: Cast correcto a FillLayer y LineLayer respectivamente
                 (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
-                (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_LINE) as? FillLayer)?.setFilter(finalFilter)
+                (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(finalFilter)
             }
         }
     }
@@ -124,7 +125,7 @@ object MapLogic {
             
             // Limpiar Cultivos
             (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(emptyFilter)
-            (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_LINE) as? FillLayer)?.setFilter(emptyFilter)
+            (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(emptyFilter)
         }
         lastSelectedRef = ""
     }

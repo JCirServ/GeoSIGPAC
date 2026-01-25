@@ -79,11 +79,8 @@ fun loadMapStyle(
                 )
                 style.addLayer(fillLayer)
 
-                // Borde Cultivo: COLOR DISTINTO para diferenciar de Recintos
-                // PNOA (Satélite): Amarillo Neón (0xFFFFEA00) vs Blanco Recinto
-                // OSM (Mapa): Ocre/Naranja (0xFFF57F17) vs Gris Recinto
+                // Borde Cultivo
                 val cropBorderColor = if (baseMap == BaseMap.PNOA) Color(0xFFFFEA00) else Color(0xFFF57F17)
-                
                 addThickOutline(
                     style = style,
                     sourceId = SOURCE_CULTIVO,
@@ -91,7 +88,7 @@ fun loadMapStyle(
                     baseLayerId = "cultivo-layer-line",
                     color = cropBorderColor.toArgb(),
                     minZoom = 15f,
-                    offsetMult = 0.5f // Borde un poco más fino que el de recinto
+                    offsetMult = 0.5f 
                 )
 
             } catch (e: Exception) { e.printStackTrace() }
@@ -114,13 +111,13 @@ fun loadMapStyle(
                 tintLayer.minZoom = 15f
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.1f), // Muy bajo para ver el cultivo debajo
+                    PropertyFactory.fillOpacity(0.1f),
                     PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
                     PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(tintLayer)
 
-                // Borde Recinto: Grueso y Definido (Estructura) - BLANCO o GRIS
+                // Borde Recinto
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 addThickOutline(
                     style = style,
@@ -129,18 +126,19 @@ fun loadMapStyle(
                     baseLayerId = LAYER_RECINTO_LINE,
                     color = borderColor.toArgb(),
                     minZoom = 15f,
-                    offsetMult = 1.0f // Borde estándar
+                    offsetMult = 1.0f 
                 )
                 
             } catch (e: Exception) { e.printStackTrace() }
         }
 
         // CAPAS DE RESALTADO (SE AÑADEN AL FINAL PARA ESTAR ARRIBA)
-        // Se inicializan invisibles (filtro = false)
         val initialFilter = Expression.literal(false)
 
-        // 1. Resaltado Cultivo (Naranja/Rojo)
+        // 1. Resaltado Cultivo (Naranja/Rojo) - IMPORTANTE: Añadir aunque showCultivo sea false (para consistencia si se activa luego)
+        // Pero usamos check showCultivo para no petar si el source no existe.
         if (showCultivo) {
+            // Relleno Resaltado
             val hCultivoFill = FillLayer(LAYER_CULTIVO_HIGHLIGHT_FILL, SOURCE_CULTIVO)
             hCultivoFill.sourceLayer = SOURCE_LAYER_ID_CULTIVO
             hCultivoFill.minZoom = 15f
@@ -150,9 +148,9 @@ fun loadMapStyle(
                 PropertyFactory.fillOpacity(HighlightOpacity),
                 PropertyFactory.visibility(Property.VISIBLE)
             )
-            style.addLayer(hCultivoFill) // addLayer (sin index) lo pone al final (arriba)
+            style.addLayer(hCultivoFill) 
 
-            // Borde Resaltado Cultivo
+            // Borde Resaltado
             val hCultivoLine = LineLayer(LAYER_CULTIVO_HIGHLIGHT_LINE, SOURCE_CULTIVO)
             hCultivoLine.sourceLayer = SOURCE_LAYER_ID_CULTIVO
             hCultivoLine.minZoom = 15f
