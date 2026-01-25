@@ -179,7 +179,7 @@ private fun addThickOutline(
     minZoom: Float,
     offsetMult: Float
 ) {
-    // Capa Central
+    // Capa Central (Siempre visible, línea fina base)
     val base = FillLayer(baseLayerId, sourceId)
     base.sourceLayer = sourceLayer
     base.minZoom = minZoom
@@ -190,7 +190,7 @@ private fun addThickOutline(
     )
     style.addLayer(base)
 
-    // Offsets para grosor
+    // Offsets para grosor (simulación de borde mediante capas desplazadas)
     val offsets = listOf(
         arrayOf(1f * offsetMult, 0f),
         arrayOf(0f, 1f * offsetMult),
@@ -204,11 +204,23 @@ private fun addThickOutline(
             val layer = FillLayer(layerName, sourceId)
             layer.sourceLayer = sourceLayer
             layer.minZoom = minZoom
+
+            // INTERPOLACIÓN DINÁMICA DE GROSOR:
+            // Zoom < 14.5: Offset 0 (Solo se ve la línea fina base).
+            // Zoom >= 16.0: Offset Completo (Se ve el borde grueso para detalle).
+            // Entre 14.5 y 16.0: Transición suave.
+            val dynamicTranslate = Expression.interpolate(
+                Expression.linear(),
+                Expression.zoom(),
+                Expression.stop(14.5f, arrayOf(0f, 0f)),
+                Expression.stop(16.0f, offset)
+            )
+
             layer.setProperties(
                 PropertyFactory.fillColor(Color.Transparent.toArgb()),
                 PropertyFactory.fillOutlineColor(color),
                 PropertyFactory.fillAntialias(true),
-                PropertyFactory.fillTranslate(offset)
+                PropertyFactory.fillTranslate(dynamicTranslate)
             )
             style.addLayerBelow(layer, baseLayerId)
         }
