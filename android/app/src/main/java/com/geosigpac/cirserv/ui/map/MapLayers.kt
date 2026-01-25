@@ -91,8 +91,9 @@ object MapLayers {
             // --- CAPA DE BÚSQUEDA ---
             if (style.getSource(SOURCE_SEARCH_RESULT) == null) {
                 style.addSource(GeoJsonSource(SOURCE_SEARCH_RESULT))
-                style.addLayer(FillLayer(LAYER_SEARCH_RESULT_FILL, SOURCE_SEARCH_RESULT).apply { setProperties(PropertyFactory.fillColor(HighlightColor.toArgb()), PropertyFactory.fillOpacity(0.4f)) })
-                style.addLayer(LineLayer(LAYER_SEARCH_RESULT_LINE, SOURCE_SEARCH_RESULT).apply { setProperties(PropertyFactory.lineColor(HighlightColor.toArgb()), PropertyFactory.lineWidth(4f)) })
+                // FIXED: Usamos HighlightColorRecinto (Naranja) ya que HighlightColor genérico fue eliminado
+                style.addLayer(FillLayer(LAYER_SEARCH_RESULT_FILL, SOURCE_SEARCH_RESULT).apply { setProperties(PropertyFactory.fillColor(HighlightColorRecinto.toArgb()), PropertyFactory.fillOpacity(0.4f)) })
+                style.addLayer(LineLayer(LAYER_SEARCH_RESULT_LINE, SOURCE_SEARCH_RESULT).apply { setProperties(PropertyFactory.lineColor(HighlightColorRecinto.toArgb()), PropertyFactory.lineWidth(4f)) })
             }
         }
     }
