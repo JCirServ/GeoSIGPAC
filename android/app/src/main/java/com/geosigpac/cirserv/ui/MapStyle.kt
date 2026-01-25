@@ -48,10 +48,10 @@ fun loadMapStyle(
     styleBuilder.withSource(rasterSource)
     
     // IMPORTANTE: Añadir antialias al raster base para suavizar la imagen de fondo
+    // Nota: rasterAntialias no es soportado en esta versión de SDK, se usa rasterResampling implícito (linear)
     val rasterLayer = RasterLayer(LAYER_BASE, SOURCE_BASE).apply {
         setProperties(
-            PropertyFactory.rasterOpacity(1.0f),
-            PropertyFactory.rasterAntialias(true)
+            PropertyFactory.rasterOpacity(1.0f)
         )
     }
     styleBuilder.withLayer(rasterLayer)
