@@ -304,7 +304,10 @@ fun MapOverlay(
             CustomSigpacKeyboard(
                 onKey = { char -> onSearchQueryChange(searchQuery + char) },
                 onBackspace = { if (searchQuery.isNotEmpty()) onSearchQueryChange(searchQuery.dropLast(1)) },
-                onSearch = onSearchPerform,
+                onSearch = { 
+                    onSearchPerform()
+                    showCustomKeyboard = false // Se cierra el teclado automáticamente al buscar
+                },
                 onClose = { showCustomKeyboard = false }
             )
         }
