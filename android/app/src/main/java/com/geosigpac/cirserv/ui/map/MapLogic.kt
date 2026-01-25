@@ -47,9 +47,8 @@ object MapLogic {
                 val feature = features[0]
                 val currentRef = extractSigpacRef(feature)
                 
-                // Generar un hash robusto usando TODAS las claves de diferenciación de cultivo
-                // Antes solo usaba parc_producto, lo que fallaba si había dos cultivos del mismo tipo con diferente superficie/riego.
-                val currentCultivoHash = generateCultivoHash(feature)
+                // Generar un hash mucho más preciso que incluya ID y todas las props
+                val currentCultivoHash = generateStrictCultivoHash(feature)
 
                 // Solo refrescamos el filtro si ha cambiado la parcela/recinto o el cultivo interno
                 if (currentRef != lastSelectedRef || currentCultivoHash != lastSelectedCultivoHash) {
@@ -68,17 +67,20 @@ object MapLogic {
         }
     }
 
-    private fun generateCultivoHash(feature: org.maplibre.geojson.Feature): String {
-        // Si no es un cultivo (es recinto base), devolvemos hash estático
-        if (!feature.hasProperty("parc_producto")) return "recinto_base"
+    private fun generateStrictCultivoHash(feature: org.maplibre.geojson.Feature): String {
+        // 1. Usar ID si existe (es lo más robusto)
+        if (feature.id() != null) {
+            return "ID:${feature.id()}"
+        }
 
-        // Concatenamos valores de claves clave para detectar cualquier cambio de geometría
+        // 2. Si no hay ID, concatenamos TODAS las propiedades disponibles.
+        // Esto captura diferencias sutiles (como oids internos o superficies decimales distintas)
+        // que no están en la lista corta de CULTIVO_KEYS.
         val sb = StringBuilder()
-        CULTIVO_KEYS.forEach { key ->
-            if (feature.hasProperty(key)) {
-                sb.append(feature.getProperty(key).toString()).append("|")
-            } else {
-                sb.append("null|")
+        val props = feature.properties()
+        if (props != null) {
+            for (entry in props.entrySet()) {
+                sb.append(entry.key).append("=").append(entry.value.toString()).append("|")
             }
         }
         return sb.toString()
@@ -109,7 +111,7 @@ object MapLogic {
     private fun applyHighlight(map: MapLibreMap, feature: org.maplibre.geojson.Feature) {
         val style = map.style ?: return
 
-        // 1. FILTRO BASE (RECINTO) - Se aplica a la capa de resaltado Naranja (Fondo)
+        // 1. FILTRO BASE (RECINTO) - Se aplica a la capa de resaltado Naranja Claro (Fondo)
         // Utiliza solo las claves geográficas del Recinto (Prov, Mun, Pol, Parc, Rec)
         val recintoConditions = mutableListOf<Expression>()
         SIGPAC_KEYS.forEach { key ->
@@ -129,28 +131,45 @@ object MapLogic {
             (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(recintoFilter)
         }
 
-        // 2. FILTRO ESPECÍFICO (CULTIVO) - Se aplica a la capa de resaltado Cian (Superior)
-        // Si el feature clickado tiene propiedades de cultivo (producto, etc.), usamos un filtro MÁS estricto.
-        // Si es solo un recinto base (sin datos de cultivo), limpiamos esta capa superior.
+        // 2. FILTRO ESPECÍFICO (CULTIVO) - Se aplica a la capa de resaltado Naranja Oscuro (Superior)
         
         val isCultivoFeature = feature.hasProperty("parc_producto") || feature.hasProperty("parc_sistexp")
         
         if (isCultivoFeature) {
             val cultivoConditions = mutableListOf<Expression>()
             
-            // Añadimos las condiciones base del recinto (obligatorias para localizar la zona)
-            cultivoConditions.addAll(recintoConditions)
-            
-            // Añadimos las condiciones específicas del cultivo (obligatorias para distinguir la subdivisión)
-            CULTIVO_KEYS.forEach { key ->
-                if (feature.hasProperty(key)) {
-                    val prop = feature.getProperty(key).asJsonPrimitive
-                    val value: Any = when {
-                        prop.isNumber -> prop.asNumber
-                        prop.isBoolean -> prop.asBoolean
-                        else -> prop.asString
+            // ESTRATEGIA A: USAR ID ÚNICO (Si el vector lo tiene)
+            // Esta es la forma más precisa de aislar una geometría específica.
+            if (feature.id() != null) {
+                // Filtramos exactamente por el ID del feature
+                cultivoConditions.add(Expression.eq(Expression.id(), Expression.literal(feature.id())))
+            } 
+            // ESTRATEGIA B: COMPARAR TODAS LAS PROPIEDADES (Si no hay ID)
+            // Si dos geometrías son distintas pero todos sus atributos son idénticos, esta estrategia fallará (resaltará ambas).
+            // Pero al incluir TODAS las propiedades (y no solo las básicas), aumentamos la probabilidad de encontrar diferencias (ej: superficies con decimales distintos).
+            else {
+                // Añadimos recinto base
+                cultivoConditions.addAll(recintoConditions)
+                
+                // Añadimos dinámicamente TODAS las propiedades que tenga el feature
+                val props = feature.properties()
+                if (props != null) {
+                    for (entry in props.entrySet()) {
+                        val key = entry.key
+                        // Saltamos las claves de recinto que ya añadimos arriba para evitar duplicados
+                        if (SIGPAC_KEYS.contains(key)) continue
+                        
+                        val element = entry.value
+                        if (element.isJsonPrimitive) {
+                            val prim = element.asJsonPrimitive
+                            val value: Any = when {
+                                prim.isNumber -> prim.asNumber // Importante: Mantener precisión numérica para superficies
+                                prim.isBoolean -> prim.asBoolean
+                                else -> prim.asString
+                            }
+                            cultivoConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
+                        }
                     }
-                    cultivoConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
                 }
             }
             
@@ -158,7 +177,7 @@ object MapLogic {
             (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(cultivoFilter)
             
         } else {
-            // Si estamos sobre un recinto genérico o fuera de un cultivo definido, ocultamos el highlight específico
+            // Si estamos sobre un recinto genérico, ocultamos el highlight específico
             (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(Expression.literal(false))
         }
     }
