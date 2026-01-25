@@ -88,32 +88,16 @@ fun loadMapStyle(
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE (LINE LAYER) - MapLibre 12.x Optimized
+                // CAPA 2: BORDE (OUTLINE) - Solución Robusta "Thick Outline"
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 
-                val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                lineLayer.setProperties(
-                    PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineOpacity(0.95f),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                    // Interpolación exponencial para el grosor:
-                    // Zoom 12 -> 1px (fino)
-                    // Zoom 16 -> 3px (visible)
-                    // Zoom 20 -> 8px (grueso para trabajo de campo)
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.5f),
-                            Expression.zoom(),
-                            Expression.stop(10f, 0.5f),
-                            Expression.stop(13f, 1.5f),
-                            Expression.stop(16f, 3.0f),
-                            Expression.stop(20f, 8.0f)
-                        )
-                    )
+                addThickOutline(
+                    style = style,
+                    sourceId = SOURCE_RECINTO,
+                    sourceLayer = SOURCE_LAYER_ID_RECINTO,
+                    baseLayerId = LAYER_RECINTO_LINE,
+                    color = borderColor.toArgb()
                 )
-                style.addLayer(lineLayer)
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
@@ -129,26 +113,15 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightFill)
 
-                // Resaltado de Borde (LineLayer para que coincida con el estilo principal)
-                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                // Resaltado de Borde
+                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
-                    PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineOpacity(1.0f),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
                     PropertyFactory.visibility(Property.VISIBLE),
-                    // Un poco más grueso que la línea normal para destacar
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.5f),
-                            Expression.zoom(),
-                            Expression.stop(10f, 1.5f),
-                            Expression.stop(16f, 5.0f),
-                            Expression.stop(20f, 10.0f)
-                        )
-                    )
+                    PropertyFactory.fillAntialias(true)
                 )
                 style.addLayer(highlightLine)
                 
@@ -157,6 +130,53 @@ fun loadMapStyle(
 
         if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
+        }
+    }
+}
+
+/**
+ * Función Helper para simular bordes gruesos usando múltiples capas FillLayer con offsets.
+ * Esto evita el uso de LineLayer que genera artifacts de malla en vectores de polígonos (MVT).
+ */
+private fun addThickOutline(
+    style: Style,
+    sourceId: String,
+    sourceLayer: String,
+    baseLayerId: String,
+    color: Int
+) {
+    // 1. Capa Central (Referencia)
+    val base = FillLayer(baseLayerId, sourceId)
+    base.sourceLayer = sourceLayer
+    base.setProperties(
+        PropertyFactory.fillColor(Color.Transparent.toArgb()),
+        PropertyFactory.fillOutlineColor(color),
+        PropertyFactory.fillAntialias(true)
+    )
+    style.addLayer(base)
+
+    // 2. Capas de Offset para simular grosor (~2-3px visuales)
+    // Se dibujan DEBAJO de la línea principal para mantener nitidez central
+    val offsets = listOf(
+        arrayOf(1f, 0f),
+        arrayOf(0f, 1f),
+        arrayOf(-1f, 0f),
+        arrayOf(0f, -1f)
+    )
+
+    offsets.forEachIndexed { i, offset ->
+        val layerName = "${baseLayerId}_thick_$i"
+        // Aseguramos no duplicar si por alguna razón se llama dos veces
+        if (style.getLayer(layerName) == null) {
+            val layer = FillLayer(layerName, sourceId)
+            layer.sourceLayer = sourceLayer
+            layer.setProperties(
+                PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                PropertyFactory.fillOutlineColor(color),
+                PropertyFactory.fillAntialias(true),
+                PropertyFactory.fillTranslate(offset)
+            )
+            style.addLayerBelow(layer, baseLayerId)
         }
     }
 }
