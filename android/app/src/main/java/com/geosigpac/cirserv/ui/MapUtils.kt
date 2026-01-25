@@ -47,6 +47,7 @@ const val LAYER_SEARCH_RESULT_LINE = "search-result-line"
 val SIGPAC_KEYS = listOf("provincia", "municipio", "agregado", "zona", "poligono", "parcela", "recinto")
 
 // Claves extendidas para diferenciar CULTIVOS dentro de un mismo recinto
+// Esto permite resaltar solo la parte del cultivo (separada por líneas amarillas) y no todo el recinto
 val CULTIVO_KEYS = listOf("parc_producto", "parc_sistexp", "tipo_aprovecha", "parc_supcult")
 
 // --- COORDENADAS POR DEFECTO ---
@@ -78,13 +79,12 @@ val FillColorOSM    = Color(0x2037474F)
 val CultivoFillColor = Color(0xFFFFD600) // Amarillo Oro
 val CultivoFillOpacity = 0.25f // Opacidad media
 
-// 3. SELECCIÓN / RETÍCULA (Interacción Actualizada)
-// Recinto: Naranja Claro / Pastel (Fondo general del recinto)
-val HighlightColorRecinto = Color(0xFFFFCC80) // Orange 200
-
-// Cultivo: Naranja Oscuro / Quemado (Selección específica de la subdivisión)
-val HighlightColorCultivo = Color(0xFFE65100) // Orange 900
-val HighlightOpacity = 0.50f
+// 3. SELECCIÓN / RETÍCULA (Interacción)
+// Naranja Neón para RECINTO (Estructura externa) - SE USA PARA RESULTADOS DE BÚSQUEDA
+val HighlightColorRecinto = Color(0xFFFF3D00) // Deep Orange
+// Cian Eléctrico para CULTIVO (Uso interno) - Diferenciación clara
+val HighlightColorCultivo = Color(0xFF00E5FF) // Cyan Accent
+val HighlightOpacity = 0.40f
 
 // 4. KML / PROYECTOS (Usuario - Violeta/Índigo)
 // Definido en MapLayers.kt
