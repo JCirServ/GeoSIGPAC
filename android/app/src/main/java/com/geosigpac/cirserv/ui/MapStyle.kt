@@ -52,7 +52,7 @@ fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                // OPTIMIZACIÓN: Cargar SOLO niveles 14 y 15 como solicitó el usuario
+                // AJUSTE SOLICITADO: Zoom 14 y 15
                 tileSetCultivo.minZoom = 14f
                 tileSetCultivo.maxZoom = 15f
                 
@@ -61,6 +61,7 @@ fun loadMapStyle(
 
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
+                fillLayer.minZoom = 14f // Evitar renderizado prematuro
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
@@ -74,7 +75,7 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                // OPTIMIZACIÓN: Cargar SOLO niveles 14 y 15 como solicitó el usuario
+                // AJUSTE SOLICITADO: Zoom 14 y 15
                 tileSetRecinto.minZoom = 14f
                 tileSetRecinto.maxZoom = 15f
 
@@ -85,6 +86,7 @@ fun loadMapStyle(
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                tintLayer.minZoom = 14f // Evitar renderizado prematuro
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
                     PropertyFactory.fillOpacity(0.15f),
@@ -93,34 +95,24 @@ fun loadMapStyle(
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE (LINE LAYER) - MapLibre 12.x Optimized
+                // CAPA 2: BORDE (OUTLINE) - Solución Robusta "Thick Outline"
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 
-                val lineLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                lineLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                lineLayer.setProperties(
-                    PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineOpacity(0.95f),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                    // Interpolación exponencial para el grosor ajustada al nuevo inicio (Zoom 14)
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.5f),
-                            Expression.zoom(),
-                            Expression.stop(14f, 1.0f),
-                            Expression.stop(16f, 3.0f),
-                            Expression.stop(20f, 8.0f)
-                        )
-                    )
+                addThickOutline(
+                    style = style,
+                    sourceId = SOURCE_RECINTO,
+                    sourceLayer = SOURCE_LAYER_ID_RECINTO,
+                    baseLayerId = LAYER_RECINTO_LINE,
+                    color = borderColor.toArgb(),
+                    minZoom = 14f // Pasamos el zoom mínimo
                 )
-                style.addLayer(lineLayer)
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightFill.minZoom = 14f
                 highlightFill.setFilter(initialFilter)
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
@@ -130,25 +122,16 @@ fun loadMapStyle(
                 )
                 style.addLayer(highlightFill)
 
-                // Resaltado de Borde (LineLayer)
-                val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
+                // Resaltado de Borde
+                val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
+                highlightLine.minZoom = 14f
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
-                    PropertyFactory.lineColor(HighlightColor.toArgb()),
-                    PropertyFactory.lineOpacity(1.0f),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                    PropertyFactory.fillOutlineColor(HighlightColor.toArgb()),
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.lineWidth(
-                        Expression.interpolate(
-                            Expression.exponential(1.5f),
-                            Expression.zoom(),
-                            Expression.stop(14f, 2.0f),
-                            Expression.stop(16f, 5.0f),
-                            Expression.stop(20f, 10.0f)
-                        )
-                    )
+                    PropertyFactory.fillAntialias(true)
                 )
                 style.addLayer(highlightLine)
                 
@@ -157,6 +140,56 @@ fun loadMapStyle(
 
         if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
+        }
+    }
+}
+
+/**
+ * Función Helper para simular bordes gruesos usando múltiples capas FillLayer con offsets.
+ * Esto evita el uso de LineLayer que genera artifacts de malla en vectores de polígonos (MVT).
+ */
+private fun addThickOutline(
+    style: Style,
+    sourceId: String,
+    sourceLayer: String,
+    baseLayerId: String,
+    color: Int,
+    minZoom: Float
+) {
+    // 1. Capa Central (Referencia)
+    val base = FillLayer(baseLayerId, sourceId)
+    base.sourceLayer = sourceLayer
+    base.minZoom = minZoom
+    base.setProperties(
+        PropertyFactory.fillColor(Color.Transparent.toArgb()),
+        PropertyFactory.fillOutlineColor(color),
+        PropertyFactory.fillAntialias(true)
+    )
+    style.addLayer(base)
+
+    // 2. Capas de Offset para simular grosor (~2-3px visuales)
+    // Se dibujan DEBAJO de la línea principal para mantener nitidez central
+    val offsets = listOf(
+        arrayOf(1f, 0f),
+        arrayOf(0f, 1f),
+        arrayOf(-1f, 0f),
+        arrayOf(0f, -1f)
+    )
+
+    offsets.forEachIndexed { i, offset ->
+        val layerName = "${baseLayerId}_thick_$i"
+        // Aseguramos no duplicar si por alguna razón se llama dos veces
+        if (style.getLayer(layerName) == null) {
+            val layer = FillLayer(layerName, sourceId)
+            layer.sourceLayer = sourceLayer
+            layer.minZoom = minZoom
+            layer.setProperties(
+                PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                PropertyFactory.fillOutlineColor(color),
+                PropertyFactory.fillAntialias(true),
+                PropertyFactory.fillTranslate(offset)
+            )
+            style.addLayerBelow(layer, baseLayerId)
         }
     }
 }
