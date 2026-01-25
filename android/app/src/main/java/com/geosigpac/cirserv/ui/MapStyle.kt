@@ -59,15 +59,31 @@ fun loadMapStyle(
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
+                // CAPA 1: RELLENO CULTIVO
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
                 fillLayer.minZoom = 14f // Evitar renderizado prematuro
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
+                    PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()), // Limpiamos outline por defecto
                     PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(fillLayer)
+
+                // CAPA 2: BORDE GRUESO (Thick Outline) para separación de polígonos
+                // Usamos blanco en satélite para contraste fuerte, gris en mapa base claro.
+                val cropBorderColor = if (baseMap == BaseMap.PNOA) Color.White else Color.DarkGray
+                
+                addThickOutline(
+                    style = style,
+                    sourceId = SOURCE_CULTIVO,
+                    sourceLayer = SOURCE_LAYER_ID_CULTIVO,
+                    baseLayerId = "cultivo-layer-line", // ID único para borde cultivo
+                    color = cropBorderColor.toArgb(),
+                    minZoom = 14f
+                )
+
             } catch (e: Exception) { e.printStackTrace() }
         }
 
