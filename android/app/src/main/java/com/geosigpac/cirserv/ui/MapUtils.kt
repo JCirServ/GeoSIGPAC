@@ -71,14 +71,15 @@ val BorderColorOSM  = Color(0xFF263238)
 val FillColorOSM    = Color(0x2037474F)
 
 // 2. CULTIVOS (Agronómico - Amarillo Oro)
-// Color distinto al azul/cian de recintos.
 val CultivoFillColor = Color(0xFFFFD600) // Amarillo Oro
 val CultivoFillOpacity = 0.25f // Opacidad media
 
-// 3. SELECCIÓN / RETÍCULA (Interacción - Rojo/Naranja Neón)
-// Debe destacar sobre TODO.
-val HighlightColor = Color(0xFFFF3D00) // Deep Orange A400
-val HighlightOpacity = 0.45f
+// 3. SELECCIÓN / RETÍCULA (Interacción)
+// Naranja Neón para RECINTO (Estructura externa)
+val HighlightColorRecinto = Color(0xFFFF3D00) // Deep Orange
+// Cian Eléctrico para CULTIVO (Uso interno) - Diferenciación clara
+val HighlightColorCultivo = Color(0xFF00E5FF) // Cyan Accent
+val HighlightOpacity = 0.40f
 
 // 4. KML / PROYECTOS (Usuario - Violeta/Índigo)
 // Definido en MapLayers.kt, pero conceptualmente es 0xFF6200EA
