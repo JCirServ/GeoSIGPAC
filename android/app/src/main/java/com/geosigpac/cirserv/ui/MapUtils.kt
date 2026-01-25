@@ -43,7 +43,12 @@ const val SOURCE_SEARCH_RESULT = "search-result-source"
 const val LAYER_SEARCH_RESULT_FILL = "search-result-fill"
 const val LAYER_SEARCH_RESULT_LINE = "search-result-line"
 
+// Claves básicas para identificar un RECINTO único
 val SIGPAC_KEYS = listOf("provincia", "municipio", "agregado", "zona", "poligono", "parcela", "recinto")
+
+// Claves extendidas para diferenciar CULTIVOS dentro de un mismo recinto
+// Esto permite resaltar solo la parte del cultivo (separada por líneas amarillas) y no todo el recinto
+val CULTIVO_KEYS = listOf("parc_producto", "parc_sistexp", "tipo_aprovecha", "parc_supcult")
 
 // --- COORDENADAS POR DEFECTO ---
 const val VALENCIA_LAT = 39.4699

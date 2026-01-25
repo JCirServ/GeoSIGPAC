@@ -12,6 +12,7 @@ import org.maplibre.android.geometry.LatLng
 object MapLogic {
 
     private var lastSelectedRef = "" 
+    private var lastSelectedCultivoHash = ""
 
     /**
      * Actualiza la información y el resaltado.
@@ -42,14 +43,18 @@ object MapLogic {
             val features = map.queryRenderedFeatures(searchArea, LAYER_CULTIVO_FILL, LAYER_RECINTO_FILL)
             
             if (features.isNotEmpty()) {
-                // Tomamos la primera característica (la que esté visualmente más arriba o primero en el array)
+                // Tomamos la primera característica
                 val feature = features[0]
                 val currentRef = extractSigpacRef(feature)
                 
-                // Solo refrescamos el filtro si ha cambiado la parcela/recinto
-                if (currentRef != lastSelectedRef) {
+                // Generar un hash simple de las propiedades de cultivo para detectar cambios dentro del mismo recinto
+                val currentCultivoHash = if (feature.hasProperty("parc_producto")) feature.getProperty("parc_producto").toString() else "recinto"
+
+                // Solo refrescamos el filtro si ha cambiado la parcela/recinto o el cultivo interno
+                if (currentRef != lastSelectedRef || currentCultivoHash != lastSelectedCultivoHash) {
                     applyHighlight(map, feature)
                     lastSelectedRef = currentRef
+                    lastSelectedCultivoHash = currentCultivoHash
                 }
                 
                 return currentRef
@@ -85,9 +90,11 @@ object MapLogic {
     }
 
     private fun applyHighlight(map: MapLibreMap, feature: org.maplibre.geojson.Feature) {
-        val filterConditions = mutableListOf<Expression>()
-        
-        // Construimos un filtro que coincida exactamente con la geometría seleccionada (Prov, Mun, Pol, Parc, Rec)
+        val style = map.style ?: return
+
+        // 1. FILTRO BASE (RECINTO) - Se aplica a la capa de resaltado Naranja (Fondo)
+        // Utiliza solo las claves geográficas del Recinto (Prov, Mun, Pol, Parc, Rec)
+        val recintoConditions = mutableListOf<Expression>()
         SIGPAC_KEYS.forEach { key ->
             if (feature.hasProperty(key)) {
                 val prop = feature.getProperty(key).asJsonPrimitive
@@ -96,19 +103,46 @@ object MapLogic {
                     prop.isBoolean -> prop.asBoolean
                     else -> prop.asString
                 }
-                filterConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
+                recintoConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
             }
         }
 
-        if (filterConditions.isNotEmpty()) {
-            val finalFilter = Expression.all(*filterConditions.toTypedArray())
-            map.style?.let { style ->
-                // Aplicar a Recintos (Capa base catastral) - SOLO FILL
-                (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
-                
-                // Aplicar a Cultivos (Capa agronómica interna) - SOLO FILL
-                (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
+        if (recintoConditions.isNotEmpty()) {
+            val recintoFilter = Expression.all(*recintoConditions.toTypedArray())
+            (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(recintoFilter)
+        }
+
+        // 2. FILTRO ESPECÍFICO (CULTIVO) - Se aplica a la capa de resaltado Cian (Superior)
+        // Si el feature clickado tiene propiedades de cultivo (producto, etc.), usamos un filtro MÁS estricto.
+        // Si es solo un recinto base (sin datos de cultivo), limpiamos esta capa superior.
+        
+        val isCultivoFeature = feature.hasProperty("parc_producto") || feature.hasProperty("parc_sistexp")
+        
+        if (isCultivoFeature) {
+            val cultivoConditions = mutableListOf<Expression>()
+            
+            // Añadimos las condiciones base del recinto (obligatorias para localizar la zona)
+            cultivoConditions.addAll(recintoConditions)
+            
+            // Añadimos las condiciones específicas del cultivo (obligatorias para distinguir la subdivisión)
+            CULTIVO_KEYS.forEach { key ->
+                if (feature.hasProperty(key)) {
+                    val prop = feature.getProperty(key).asJsonPrimitive
+                    val value: Any = when {
+                        prop.isNumber -> prop.asNumber
+                        prop.isBoolean -> prop.asBoolean
+                        else -> prop.asString
+                    }
+                    cultivoConditions.add(Expression.eq(Expression.get(key), Expression.literal(value)))
+                }
             }
+            
+            val cultivoFilter = Expression.all(*cultivoConditions.toTypedArray())
+            (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(cultivoFilter)
+            
+        } else {
+            // Si estamos sobre un recinto genérico o fuera de un cultivo definido, ocultamos el highlight específico
+            (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(Expression.literal(false))
         }
     }
 
@@ -122,6 +156,7 @@ object MapLogic {
             (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(emptyFilter)
         }
         lastSelectedRef = ""
+        lastSelectedCultivoHash = ""
     }
 
     /**
