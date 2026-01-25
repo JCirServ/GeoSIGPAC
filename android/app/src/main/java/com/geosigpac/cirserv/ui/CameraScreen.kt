@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -58,6 +59,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 @Composable
 fun CameraScreen(
@@ -96,6 +98,10 @@ fun CameraScreen(
     var showGallery by remember { mutableStateOf(false) }
     var showManualInput by remember { mutableStateOf(false) }
     var showManualCaptureConfirmation by remember { mutableStateOf(false) }
+    
+    // --- NEAREST PARCEL ALERT STATE ---
+    var showNearestDialog by remember { mutableStateOf(false) }
+    var nearestCandidate by remember { mutableStateOf<Pair<NativeParcela, Float>?>(null) }
 
     // --- CAMERA X ---
     var camera by remember { mutableStateOf<Camera?>(null) }
@@ -144,8 +150,20 @@ fun CameraScreen(
     val activeRef = manualSigpacRef ?: geoMatchedParcel?.second?.referencia ?: sigpacRef
 
     // --- MATCHING PRIORITY ---
-    val matchedParcelInfo = remember(manualSigpacRef, geoMatchedParcel, sigpacRef, expedientes) {
-        if (manualSigpacRef != null) {
+    // Prioridad absoluta al projectId pasado por parámetro (modo "Forzar Parcela")
+    val matchedParcelInfo = remember(projectId, manualSigpacRef, geoMatchedParcel, sigpacRef, expedientes) {
+        if (projectId != null) {
+            var foundExp: NativeExpediente? = null
+            val foundParcel = expedientes.flatMap { exp ->
+                exp.parcelas.map { p -> if (p.id == projectId) { foundExp = exp; p } else null }
+            }.filterNotNull().firstOrNull()
+            
+            if (foundParcel != null && foundExp != null) {
+                Pair(foundExp!!, foundParcel)
+            } else {
+                null
+            }
+        } else if (manualSigpacRef != null) {
             var foundExp: NativeExpediente? = null
             val foundParcel = expedientes.flatMap { exp ->
                 exp.parcelas.map { p -> if (p.referencia == manualSigpacRef) { foundExp = exp; p } else null }
@@ -238,7 +256,7 @@ fun CameraScreen(
         while (true) {
             val loc = currentLocation
             val now = System.currentTimeMillis()
-            if (manualSigpacRef == null && loc != null) {
+            if (projectId == null && manualSigpacRef == null && loc != null) {
                 val distance = if (lastApiLocation != null) loc.distanceTo(lastApiLocation!!) else Float.MAX_VALUE
                 if ((lastApiLocation == null || distance > 5.0f || (now - lastApiTimestamp) > 5000) && !isLoadingSigpac) {
                     isLoadingSigpac = true
@@ -297,7 +315,7 @@ fun CameraScreen(
     }
 
     // --- CAPTURE HANDLER ---
-    fun performCapture() {
+    fun performCapture(forcedParcelOverride: NativeParcela? = null) {
         if (isProcessingImage) return
         scope.launch {
             isProcessingImage = true
@@ -306,8 +324,17 @@ fun CameraScreen(
             val jpegQuality = when(cameraQuality) {
                 CameraQuality.MAX -> 100; CameraQuality.HIGH -> 90; CameraQuality.MEDIUM -> 80; CameraQuality.LOW -> 60
             }
-            val targetRef = matchedParcelInfo?.second?.referencia ?: activeRef
-            val matchedExpedientes = if (targetRef != null) expedientes.filter { exp -> exp.parcelas.any { it.referencia == targetRef } } else emptyList()
+            
+            // Si nos pasan un override (del diálogo de cercanía), lo usamos. Si no, la lógica estándar.
+            val targetRef = forcedParcelOverride?.referencia 
+                ?: matchedParcelInfo?.second?.referencia 
+                ?: activeRef
+            
+            // Buscamos expedientes asociados a la referencia destino
+            val matchedExpedientes = if (targetRef != null) {
+                expedientes.filter { exp -> exp.parcelas.any { it.referencia == targetRef } }
+            } else emptyList()
+            
             val projectNames = matchedExpedientes.map { it.titular }
 
             CameraCaptureLogic.takePhoto(
@@ -336,6 +363,30 @@ fun CameraScreen(
                 onError = { isProcessingImage = false; onError(it) }
             )
         }
+    }
+
+    // --- NEAREST PARCEL LOGIC ---
+    fun findNearestParcel(): Pair<NativeParcela, Float>? {
+        val currentLoc = currentLocation ?: return null
+        var minDistance = Float.MAX_VALUE
+        var nearest: NativeParcela? = null
+
+        expedientes.forEach { exp ->
+            exp.parcelas.forEach { p ->
+                val pLat = p.centroidLat
+                val pLng = p.centroidLng
+                if (pLat != null && pLng != null && pLat != 0.0) {
+                    val results = FloatArray(1)
+                    Location.distanceBetween(currentLoc.latitude, currentLoc.longitude, pLat, pLng, results)
+                    val dist = results[0]
+                    if (dist < minDistance) {
+                        minDistance = dist
+                        nearest = p
+                    }
+                }
+            }
+        }
+        return if (nearest != null) Pair(nearest!!, minDistance) else null
     }
 
     // --- UI COMPOSITION ---
@@ -388,7 +439,24 @@ fun CameraScreen(
             onProjectsClick = onGoToProjects,
             onManualClick = { showManualInput = true },
             onInfoClick = { showParcelSheet = true },
-            onShutterClick = { if (manualSigpacRef != null) showManualCaptureConfirmation = true else performCapture() },
+            onShutterClick = { 
+                if (manualSigpacRef != null) {
+                    showManualCaptureConfirmation = true 
+                } else if (matchedParcelInfo == null) {
+                    // Si NO estamos dentro de una parcela (ni forzada, ni gps), buscar la más cercana
+                    val nearest = findNearestParcel()
+                    if (nearest != null) {
+                        nearestCandidate = nearest
+                        showNearestDialog = true
+                    } else {
+                        // Si no hay ninguna parcela cargada, captura normal
+                        performCapture()
+                    }
+                } else {
+                    // Si ya tenemos parcela asignada (GPS o ID forzado), captura normal
+                    performCapture() 
+                }
+            },
             onPreviewClick = { if (matchedParcelInfo != null && matchedParcelInfo!!.second.photos.isNotEmpty()) showGallery = true else onClose() },
             onMapClick = onGoToMap,
             onZoomChange = { camera?.cameraControl?.setLinearZoom(it) }
@@ -418,6 +486,45 @@ fun CameraScreen(
             )
         }
 
+        // --- DIÁLOGO PROXIMIDAD ---
+        if (showNearestDialog && nearestCandidate != null) {
+            val (parcel, dist) = nearestCandidate!!
+            AlertDialog(
+                containerColor = Color.Black.copy(0.9f),
+                titleContentColor = NeonGreen, textContentColor = Color.White,
+                onDismissRequest = { showNearestDialog = false },
+                icon = { Icon(Icons.Default.NearMe, null, tint = Color.Cyan) },
+                title = { Text("Fuera de Recinto") },
+                text = { 
+                    Column { 
+                        Text("No estás ubicado dentro de ningún recinto del proyecto.")
+                        Spacer(Modifier.height(12.dp))
+                        Text("Más cercano encontrado:", fontSize = 12.sp, color = Color.Gray)
+                        Text(parcel.referencia, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White, fontFamily = FontFamily.Monospace)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Distancia: ${dist.roundToInt()} metros", color = Color.Cyan, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(12.dp))
+                        Text("¿Quieres asignar la foto a este recinto cercano?") 
+                    } 
+                },
+                confirmButton = { 
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonGreen), 
+                        onClick = { 
+                            showNearestDialog = false
+                            performCapture(forcedParcelOverride = parcel) // Pasamos la parcela cercana como override
+                        }
+                    ) { Text("Sí, Asignar", color = Color.Black) } 
+                },
+                dismissButton = { 
+                    TextButton(onClick = { 
+                        showNearestDialog = false
+                        performCapture() // Captura genérica sin asignar (Sin Proyecto)
+                    }) { Text("Guardar en 'Sin Proyecto'", color = Color.White) }
+                }
+            )
+        }
+
         AnimatedVisibility(visible = showManualInput, enter = slideInVertically { it }, exit = slideOutVertically { it }, modifier = Modifier.align(Alignment.BottomCenter)) {
             CameraSigpacKeyboard(currentValue = manualSigpacRef ?: "", onValueChange = { manualSigpacRef = it }, onConfirm = { showManualInput = false }, onClose = { if (manualSigpacRef.isNullOrEmpty()) manualSigpacRef = null; showManualInput = false })
         }
@@ -430,7 +537,7 @@ fun CameraScreen(
                     Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
                         Box(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) { Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.Gray.copy(0.4f))) }
                         NativeRecintoCard(parcela = parc, onLocate = { onGoToMap() }, onCamera = { showParcelSheet = false }, onUpdateParcela = { updatedParcela ->
-                            val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcela.id) updatedParcela else it })
+                            val updatedExp = exp.copy(parcelas = exp.parcelas.map { if (it.id == updatedParcel.id) updatedParcel else it })
                             onUpdateExpedientes(expedientes.map { if (it.id == updatedExp.id) updatedExp else it })
                         }, initiallyExpanded = true, initiallyTechExpanded = true)
                         Spacer(Modifier.height(32.dp))
