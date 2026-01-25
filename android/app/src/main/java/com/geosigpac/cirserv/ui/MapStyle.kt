@@ -6,7 +6,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
 import org.maplibre.android.location.LocationComponentActivationOptions
 import org.maplibre.android.location.modes.CameraMode
@@ -62,7 +61,7 @@ fun loadMapStyle(
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
-                    PropertyFactory.fillAntialias(false) // Previene lineas en cultivos también
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -78,29 +77,27 @@ fun loadMapStyle(
                 style.addSource(recintoSource)
 
                 // CAPA 1: RELLENO (TINT)
-                // Color distinto al borde, semitransparente
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
-                    PropertyFactory.fillOpacity(0.15f), // Opacidad suficiente para ver el color pero ver el fondo
+                    PropertyFactory.fillOpacity(0.15f),
                     PropertyFactory.fillOutlineColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula estática
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(tintLayer)
 
-                // CAPA 2: BORDE (OUTLINE)
-                // Borde de otro color, sólido. Usamos FillLayer para líneas nítidas sin grid.
+                // CAPA 2: BORDE (OUTLINE) - Solución Robusta "Thick Outline"
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
-                val borderLayer = FillLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
-                borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                borderLayer.setProperties(
-                    PropertyFactory.fillColor(Color.Transparent.toArgb()),
-                    PropertyFactory.fillOutlineColor(borderColor.toArgb()),
-                    PropertyFactory.fillAntialias(true) // En bordes finos queremos antialias para que no se vean sierra
+                
+                addThickOutline(
+                    style = style,
+                    sourceId = SOURCE_RECINTO,
+                    sourceLayer = SOURCE_LAYER_ID_RECINTO,
+                    baseLayerId = LAYER_RECINTO_LINE,
+                    color = borderColor.toArgb()
                 )
-                style.addLayer(borderLayer)
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
                 val initialFilter = Expression.literal(false)
@@ -112,11 +109,11 @@ fun loadMapStyle(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
                     PropertyFactory.fillOpacity(0.5f), 
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(false) // CRUCIAL: Elimina la cuadrícula al resaltar
+                    PropertyFactory.fillAntialias(false)
                 )
                 style.addLayer(highlightFill)
 
-                // Cambio solicitado: Usar FillLayer para el borde del resaltado (igual que el borde normal)
+                // Resaltado de Borde
                 val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
@@ -133,6 +130,53 @@ fun loadMapStyle(
 
         if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
+        }
+    }
+}
+
+/**
+ * Función Helper para simular bordes gruesos usando múltiples capas FillLayer con offsets.
+ * Esto evita el uso de LineLayer que genera artifacts de malla en vectores de polígonos (MVT).
+ */
+private fun addThickOutline(
+    style: Style,
+    sourceId: String,
+    sourceLayer: String,
+    baseLayerId: String,
+    color: Int
+) {
+    // 1. Capa Central (Referencia)
+    val base = FillLayer(baseLayerId, sourceId)
+    base.sourceLayer = sourceLayer
+    base.setProperties(
+        PropertyFactory.fillColor(Color.Transparent.toArgb()),
+        PropertyFactory.fillOutlineColor(color),
+        PropertyFactory.fillAntialias(true)
+    )
+    style.addLayer(base)
+
+    // 2. Capas de Offset para simular grosor (~2-3px visuales)
+    // Se dibujan DEBAJO de la línea principal para mantener nitidez central
+    val offsets = listOf(
+        arrayOf(1f, 0f),
+        arrayOf(0f, 1f),
+        arrayOf(-1f, 0f),
+        arrayOf(0f, -1f)
+    )
+
+    offsets.forEachIndexed { i, offset ->
+        val layerName = "${baseLayerId}_thick_$i"
+        // Aseguramos no duplicar si por alguna razón se llama dos veces
+        if (style.getLayer(layerName) == null) {
+            val layer = FillLayer(layerName, sourceId)
+            layer.sourceLayer = sourceLayer
+            layer.setProperties(
+                PropertyFactory.fillColor(Color.Transparent.toArgb()),
+                PropertyFactory.fillOutlineColor(color),
+                PropertyFactory.fillAntialias(true),
+                PropertyFactory.fillTranslate(offset)
+            )
+            style.addLayerBelow(layer, baseLayerId)
         }
     }
 }
