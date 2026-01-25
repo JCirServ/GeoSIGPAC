@@ -54,8 +54,7 @@ fun loadMapStyle(
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
                 tileSetCultivo.minZoom = 5f
-                // IMPORTANTE: maxZoom 15f para activar overzoom nativo hasta nivel 22
-                tileSetCultivo.maxZoom = 15f 
+                tileSetCultivo.maxZoom = 15f
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -64,7 +63,8 @@ fun loadMapStyle(
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
-                    PropertyFactory.fillAntialias(false)
+                    PropertyFactory.fillAntialias(true),
+                    PropertyFactory.fillTranslate(arrayOf(0f, 0f))
                 )
                 style.addLayer(fillLayer)
             } catch (e: Exception) { e.printStackTrace() }
@@ -75,7 +75,6 @@ fun loadMapStyle(
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
                 tileSetRecinto.minZoom = 5f
-                // IMPORTANTE: maxZoom 15f para activar overzoom nativo hasta nivel 22
                 tileSetRecinto.maxZoom = 15f
                 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
@@ -88,20 +87,20 @@ fun loadMapStyle(
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
                     PropertyFactory.fillOpacity(0.15f),
-                    PropertyFactory.fillAntialias(false) // Desactivamos antialias en relleno para que no choque con la línea
+                    PropertyFactory.fillAntialias(true),
+                    PropertyFactory.fillTranslate(arrayOf(0f, 0f))
                 )
                 style.addLayer(tintLayer)
 
                 // CAPA 2: BORDE (LINE LAYER)
-                // Usamos LineLayer explícito para controlar el grosor (lineWidth)
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 val borderLayer = LineLayer(LAYER_RECINTO_LINE, SOURCE_RECINTO)
                 borderLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 borderLayer.setProperties(
                     PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineOpacity(0.9f),
+                    PropertyFactory.lineOpacity(0.85f),
                     PropertyFactory.lineWidth(
-                         Expression.interpolate(
+                        Expression.interpolate(
                             Expression.exponential(1.5f),
                             Expression.zoom(),
                             Expression.stop(10f, 1.0f),
@@ -111,7 +110,9 @@ fun loadMapStyle(
                         )
                     ),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND)
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineTranslate(arrayOf(0f, 0f)),
+                    PropertyFactory.lineOffset(-0.5f)
                 )
                 style.addLayer(borderLayer)
 
@@ -125,11 +126,11 @@ fun loadMapStyle(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
                     PropertyFactory.fillOpacity(0.5f), 
                     PropertyFactory.visibility(Property.VISIBLE),
-                    PropertyFactory.fillAntialias(false)
+                    PropertyFactory.fillAntialias(true),
+                    PropertyFactory.fillTranslate(arrayOf(0f, 0f))
                 )
                 style.addLayer(highlightFill)
 
-                // Highlight Line
                 val highlightLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 highlightLine.setFilter(initialFilter)
@@ -139,7 +140,8 @@ fun loadMapStyle(
                     PropertyFactory.lineOpacity(1.0f),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.visibility(Property.VISIBLE)
+                    PropertyFactory.visibility(Property.VISIBLE),
+                    PropertyFactory.lineTranslate(arrayOf(0f, 0f))
                 )
                 style.addLayer(highlightLine)
                 
