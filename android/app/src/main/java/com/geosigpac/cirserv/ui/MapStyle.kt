@@ -47,8 +47,6 @@ fun loadMapStyle(
     val rasterSource = RasterSource(SOURCE_BASE, tileSet, 256)
     styleBuilder.withSource(rasterSource)
     
-    // IMPORTANTE: Añadir antialias al raster base para suavizar la imagen de fondo
-    // Nota: rasterAntialias no es soportado en esta versión de SDK, se usa rasterResampling implícito (linear)
     val rasterLayer = RasterLayer(LAYER_BASE, SOURCE_BASE).apply {
         setProperties(
             PropertyFactory.rasterOpacity(1.0f)
@@ -63,7 +61,7 @@ fun loadMapStyle(
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
                 tileSetCultivo.minZoom = 5f
-                tileSetCultivo.maxZoom = 18f // Aumentar para mejor overzoom
+                tileSetCultivo.maxZoom = 18f
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -74,7 +72,6 @@ fun loadMapStyle(
                     PropertyFactory.fillOpacity(0.35f),
                     PropertyFactory.fillAntialias(true),
                     PropertyFactory.fillTranslate(arrayOf(0f, 0f)),
-                    // Evitar gaps en los bordes del cultivo
                     PropertyFactory.fillOutlineColor(Color.Transparent.toArgb())
                 )
                 style.addLayer(fillLayer)
@@ -86,13 +83,11 @@ fun loadMapStyle(
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
                 tileSetRecinto.minZoom = 5f
-                tileSetRecinto.maxZoom = 18f // Aumentar para overzoom
+                tileSetRecinto.maxZoom = 18f
                 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
                 style.addSource(recintoSource)
 
-                // SOLUCIÓN GAPS: Usar LineLayer con configuración especial para los bordes
-                
                 val borderColor = if (baseMap == BaseMap.PNOA) BorderColorPNOA else BorderColorOSM
                 
                 // CAPA 1: LÍNEA PRINCIPAL (borde visible)
@@ -101,7 +96,6 @@ fun loadMapStyle(
                 lineLayer.setProperties(
                     PropertyFactory.lineColor(borderColor.toArgb()),
                     PropertyFactory.lineOpacity(0.95f),
-                    // GROSOR DINÁMICO
                     PropertyFactory.lineWidth(
                         Expression.interpolate(
                             Expression.exponential(1.5f),
@@ -115,7 +109,6 @@ fun loadMapStyle(
                             Expression.stop(22f, 12.0f)
                         )
                     ),
-                    // CONFIGURACIÓN ANTI-GAPS
                     PropertyFactory.lineTranslate(arrayOf(0f, 0f)),
                     PropertyFactory.lineOffset(0f),
                     PropertyFactory.lineBlur(0.2f),
@@ -127,12 +120,12 @@ fun loadMapStyle(
                 )
                 style.addLayer(lineLayer)
                 
-                // CAPA 2: LÍNEA DE REFUERZO (Overlay para cubrir gaps residuales)
+                // CAPA 2: LÍNEA DE REFUERZO (Overlay para cubrir gaps)
                 val lineLayerOverlay = LineLayer("${LAYER_RECINTO_LINE}_overlay", SOURCE_RECINTO)
                 lineLayerOverlay.sourceLayer = SOURCE_LAYER_ID_RECINTO
                 lineLayerOverlay.setProperties(
                     PropertyFactory.lineColor(borderColor.toArgb()),
-                    PropertyFactory.lineOpacity(0.3f), // Transparencia alta
+                    PropertyFactory.lineOpacity(0.3f),
                     PropertyFactory.lineWidth(
                         Expression.interpolate(
                             Expression.linear(),
@@ -142,13 +135,11 @@ fun loadMapStyle(
                             Expression.stop(22f, 2.0f)
                         )
                     ),
-                    // Pequeño offset para cubrir las uniones entre tiles
                     PropertyFactory.lineTranslate(arrayOf(0.3f, 0.3f)),
                     PropertyFactory.lineBlur(0.5f),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND)
                 )
-                // Solo mostrar en zooms altos donde aparecen los gaps
                 lineLayerOverlay.setFilter(Expression.gte(Expression.zoom(), 15f))
                 style.addLayer(lineLayerOverlay)
 
@@ -162,7 +153,6 @@ fun loadMapStyle(
                     PropertyFactory.fillAntialias(true),
                     PropertyFactory.fillTranslate(arrayOf(0f, 0f))
                 )
-                // Colocar el relleno DEBAJO de las líneas
                 style.addLayerBelow(fillLayer, "${LAYER_RECINTO_LINE}_main")
 
                 // CAPAS DE HIGHLIGHT (Selección)
