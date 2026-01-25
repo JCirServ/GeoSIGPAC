@@ -1,3 +1,4 @@
+
 package com.geosigpac.cirserv.ui
 
 import android.Manifest
@@ -53,7 +54,8 @@ fun loadMapStyle(
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
                 tileSetCultivo.minZoom = 5f
-                tileSetCultivo.maxZoom = 22f
+                // IMPORTANTE: maxZoom 15f para activar overzoom nativo hasta nivel 22
+                tileSetCultivo.maxZoom = 15f 
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
                 style.addSource(cultivoSource)
 
@@ -73,13 +75,10 @@ fun loadMapStyle(
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
                 tileSetRecinto.minZoom = 5f
-                tileSetRecinto.maxZoom = 22f
+                // IMPORTANTE: maxZoom 15f para activar overzoom nativo hasta nivel 22
+                tileSetRecinto.maxZoom = 15f
                 
-                // CONFIGURACIÓN NATIVA AVANZADA
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
-                recintoSource.setOption("buffer", 64)
-                recintoSource.setOption("tileSize", 512)
-                
                 style.addSource(recintoSource)
 
                 // CAPA 1: RELLENO (TINT)
