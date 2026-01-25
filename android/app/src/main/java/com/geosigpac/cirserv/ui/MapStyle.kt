@@ -52,8 +52,8 @@ fun loadMapStyle(
             try {
                 val cultivoUrl = "https://sigpac-hubcloud.es/mvt/cultivo_declarado@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetCultivo = TileSet("pbf", cultivoUrl)
-                // AJUSTE SOLICITADO: Zoom 14 y 15
-                tileSetCultivo.minZoom = 14f
+                // AJUSTE SOLICITADO: Solo Zoom 15
+                tileSetCultivo.minZoom = 15f
                 tileSetCultivo.maxZoom = 15f
                 
                 val cultivoSource = VectorSource(SOURCE_CULTIVO, tileSetCultivo)
@@ -62,7 +62,7 @@ fun loadMapStyle(
                 // CAPA 1: RELLENO CULTIVO
                 val fillLayer = FillLayer(LAYER_CULTIVO_FILL, SOURCE_CULTIVO)
                 fillLayer.sourceLayer = SOURCE_LAYER_ID_CULTIVO
-                fillLayer.minZoom = 14f // Evitar renderizado prematuro
+                fillLayer.minZoom = 15f // Restringir visibilidad a Zoom 15
                 fillLayer.setProperties(
                     PropertyFactory.fillColor(Color.Yellow.toArgb()),
                     PropertyFactory.fillOpacity(0.35f),
@@ -81,7 +81,7 @@ fun loadMapStyle(
                     sourceLayer = SOURCE_LAYER_ID_CULTIVO,
                     baseLayerId = "cultivo-layer-line", // ID único para borde cultivo
                     color = cropBorderColor.toArgb(),
-                    minZoom = 14f
+                    minZoom = 15f // Restringir visibilidad a Zoom 15
                 )
 
             } catch (e: Exception) { e.printStackTrace() }
@@ -91,8 +91,8 @@ fun loadMapStyle(
             try {
                 val recintoUrl = "https://sigpac-hubcloud.es/mvt/recinto@3857@pbf/{z}/{x}/{y}.pbf"
                 val tileSetRecinto = TileSet("pbf", recintoUrl)
-                // AJUSTE SOLICITADO: Zoom 14 y 15
-                tileSetRecinto.minZoom = 14f
+                // AJUSTE SOLICITADO: Solo Zoom 15
+                tileSetRecinto.minZoom = 15f
                 tileSetRecinto.maxZoom = 15f
 
                 val recintoSource = VectorSource(SOURCE_RECINTO, tileSetRecinto)
@@ -102,7 +102,7 @@ fun loadMapStyle(
                 val tintColor = if (baseMap == BaseMap.PNOA) FillColorPNOA else FillColorOSM
                 val tintLayer = FillLayer(LAYER_RECINTO_FILL, SOURCE_RECINTO)
                 tintLayer.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                tintLayer.minZoom = 14f // Evitar renderizado prematuro
+                tintLayer.minZoom = 15f // Restringir visibilidad a Zoom 15
                 tintLayer.setProperties(
                     PropertyFactory.fillColor(tintColor.toArgb()),
                     PropertyFactory.fillOpacity(0.15f),
@@ -120,7 +120,7 @@ fun loadMapStyle(
                     sourceLayer = SOURCE_LAYER_ID_RECINTO,
                     baseLayerId = LAYER_RECINTO_LINE,
                     color = borderColor.toArgb(),
-                    minZoom = 14f // Pasamos el zoom mínimo
+                    minZoom = 15f // Pasamos el zoom mínimo 15
                 )
 
                 // CAPAS DE RESALTADO (SELECCIÓN)
@@ -128,7 +128,7 @@ fun loadMapStyle(
 
                 val highlightFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
                 highlightFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightFill.minZoom = 14f
+                highlightFill.minZoom = 15f
                 highlightFill.setFilter(initialFilter)
                 highlightFill.setProperties(
                     PropertyFactory.fillColor(HighlightColor.toArgb()),
@@ -141,7 +141,7 @@ fun loadMapStyle(
                 // Resaltado de Borde
                 val highlightLine = FillLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
                 highlightLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
-                highlightLine.minZoom = 14f
+                highlightLine.minZoom = 15f
                 highlightLine.setFilter(initialFilter)
                 highlightLine.setProperties(
                     PropertyFactory.fillColor(Color.Transparent.toArgb()),
