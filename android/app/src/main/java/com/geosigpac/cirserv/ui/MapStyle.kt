@@ -209,7 +209,6 @@ fun loadMapStyle(
         // CONFIGURACIÓN ADICIONAL 11.5.1
         try {
             // Mejoras de rendimiento y renderizado
-            map.setMaximumFps(30) // Limitar FPS para dar tiempo al renderizado de calidad
             map.setPrefetchZoomDelta(2) // Pre-cargar tiles
             style.styleDefaultCamera = null
         } catch (e: Exception) {
