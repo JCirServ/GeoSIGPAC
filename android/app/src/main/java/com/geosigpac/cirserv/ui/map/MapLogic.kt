@@ -7,7 +7,6 @@ import com.geosigpac.cirserv.utils.SigpacCodeManager
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
-import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.geometry.LatLng
 
 object MapLogic {
@@ -104,14 +103,11 @@ object MapLogic {
         if (filterConditions.isNotEmpty()) {
             val finalFilter = Expression.all(*filterConditions.toTypedArray())
             map.style?.let { style ->
-                // Aplicar a Recintos (Capa base catastral)
+                // Aplicar a Recintos (Capa base catastral) - SOLO FILL
                 (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
-                (style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(finalFilter)
                 
-                // Aplicar a Cultivos (Capa agronómica interna)
-                // CORRECCIÓN CRÍTICA: Cast correcto a FillLayer y LineLayer respectivamente
+                // Aplicar a Cultivos (Capa agronómica interna) - SOLO FILL
                 (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(finalFilter)
-                (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(finalFilter)
             }
         }
     }
@@ -119,13 +115,11 @@ object MapLogic {
     private fun clearHighlight(map: MapLibreMap) {
         val emptyFilter = Expression.literal(false)
         map.style?.let { style ->
-            // Limpiar Recintos
+            // Limpiar Recintos - SOLO FILL
             (style.getLayer(LAYER_RECINTO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(emptyFilter)
-            (style.getLayer(LAYER_RECINTO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(emptyFilter)
             
-            // Limpiar Cultivos
+            // Limpiar Cultivos - SOLO FILL
             (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_FILL) as? FillLayer)?.setFilter(emptyFilter)
-            (style.getLayer(LAYER_CULTIVO_HIGHLIGHT_LINE) as? LineLayer)?.setFilter(emptyFilter)
         }
         lastSelectedRef = ""
     }

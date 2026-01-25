@@ -74,7 +74,7 @@ fun loadMapStyle(
                 )
                 style.addLayer(fillLayer)
 
-                // Borde Cultivo (Amarillo Neón)
+                // Borde Cultivo (Amarillo Neón) - Este sí usa la técnica de "Thick Outline" segura
                 val cropBorderColor = if (baseMap == BaseMap.PNOA) Color(0xFFFFEA00) else Color(0xFFF57F17)
                 addThickOutline(
                     style = style,
@@ -133,7 +133,7 @@ fun loadMapStyle(
         val initialFilter = Expression.literal(false)
 
         // 1. RESALTADO RECINTO (Naranja - Fondo)
-        // Se añade PRIMERO para que quede DEBAJO del resaltado de cultivo.
+        // Se añade PRIMERO.
         if (showRecinto) {
             val hRecintoFill = FillLayer(LAYER_RECINTO_HIGHLIGHT_FILL, SOURCE_RECINTO)
             hRecintoFill.sourceLayer = SOURCE_LAYER_ID_RECINTO
@@ -141,21 +141,11 @@ fun loadMapStyle(
             hRecintoFill.setFilter(initialFilter)
             hRecintoFill.setProperties(
                 PropertyFactory.fillColor(HighlightColorRecinto.toArgb()),
-                PropertyFactory.fillOpacity(0.05f), // Muy sutil, confiamos en el borde
+                PropertyFactory.fillOpacity(0.5f), // Más visible ya que no hay borde grueso
+                PropertyFactory.fillOutlineColor(HighlightColorRecinto.toArgb()), // Borde de 1px
                 PropertyFactory.visibility(Property.VISIBLE)
             )
             style.addLayer(hRecintoFill)
-
-            val hRecintoLine = LineLayer(LAYER_RECINTO_HIGHLIGHT_LINE, SOURCE_RECINTO)
-            hRecintoLine.sourceLayer = SOURCE_LAYER_ID_RECINTO
-            hRecintoLine.minZoom = 15f
-            hRecintoLine.setFilter(initialFilter)
-            hRecintoLine.setProperties(
-                PropertyFactory.lineColor(HighlightColorRecinto.toArgb()),
-                PropertyFactory.lineWidth(4f), // Borde grueso
-                PropertyFactory.visibility(Property.VISIBLE)
-            )
-            style.addLayer(hRecintoLine)
         }
 
         // 2. RESALTADO CULTIVO (Cian - Frente)
@@ -167,21 +157,11 @@ fun loadMapStyle(
             hCultivoFill.setFilter(initialFilter)
             hCultivoFill.setProperties(
                 PropertyFactory.fillColor(HighlightColorCultivo.toArgb()),
-                PropertyFactory.fillOpacity(HighlightOpacity), // Brillante
+                PropertyFactory.fillOpacity(0.5f), // Visible sobre el naranja
+                PropertyFactory.fillOutlineColor(HighlightColorCultivo.toArgb()), // Borde de 1px
                 PropertyFactory.visibility(Property.VISIBLE)
             )
             style.addLayer(hCultivoFill) 
-
-            val hCultivoLine = LineLayer(LAYER_CULTIVO_HIGHLIGHT_LINE, SOURCE_CULTIVO)
-            hCultivoLine.sourceLayer = SOURCE_LAYER_ID_CULTIVO
-            hCultivoLine.minZoom = 15f
-            hCultivoLine.setFilter(initialFilter)
-            hCultivoLine.setProperties(
-                PropertyFactory.lineColor(HighlightColorCultivo.toArgb()),
-                PropertyFactory.lineWidth(2f), // Borde fino
-                PropertyFactory.visibility(Property.VISIBLE)
-            )
-            style.addLayer(hCultivoLine)
         }
 
         if (enableLocation(map, context, shouldCenterUser)) {
