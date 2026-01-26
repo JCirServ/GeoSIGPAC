@@ -78,7 +78,7 @@ fun MiniMapOverlay(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             try {
-                Log.v(TAG, "Lifecycle Event: $event")
+                // Log.v(TAG, "Lifecycle Event: $event") // Demasiado verboso
                 when (event) {
                     Lifecycle.Event.ON_START -> mapView.onStart()
                     Lifecycle.Event.ON_RESUME -> mapView.onResume()
@@ -176,8 +176,10 @@ fun MiniMapOverlay(
 
         try {
             if (map.style != null) {
-                // Asegurar que el componente de localización está activo
-                enableLocation(map, context, shouldCenter = false)
+                // FIX: Eliminada llamada redundante a enableLocation() aquí.
+                // Re-inicializar el LocationComponent repetidamente causa condiciones de carrera
+                // y crashes "newer style is loading" al invalidar estilos.
+                // La activación inicial ya se realiza en loadMapStyle.
                 
                 // Mover cámara suavemente
                 val position = CameraPosition.Builder()
