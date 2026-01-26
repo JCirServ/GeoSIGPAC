@@ -48,6 +48,8 @@ fun MiniMapOverlay(
 
     // Estado del Mapa
     var mapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
+    // Capturamos la instancia actual para usarla en onDispose
+    val currentMap by rememberUpdatedState(mapInstance)
     
     // Lista de IDs visibles (todos por defecto en el minimapa para contexto)
     val visibleIds = remember(expedientes) { expedientes.map { it.id }.toSet() }
@@ -78,15 +80,15 @@ fun MiniMapOverlay(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             try {
-                // Log.v(TAG, "Lifecycle Event: $event") // Demasiado verboso
+                // Log.v(TAG, "Lifecycle Event: $event")
                 when (event) {
                     Lifecycle.Event.ON_START -> mapView.onStart()
                     Lifecycle.Event.ON_RESUME -> mapView.onResume()
                     Lifecycle.Event.ON_PAUSE -> mapView.onPause()
                     Lifecycle.Event.ON_STOP -> mapView.onStop()
                     Lifecycle.Event.ON_DESTROY -> {
-                        Log.d(TAG, "Destroying MapView")
-                        mapView.onDestroy()
+                        // Nota: En Compose, ON_DESTROY del Activity no siempre coincide con el dispose del Composable
+                        // La limpieza principal se hace en onDispose
                     }
                     else -> {}
                 }
@@ -97,16 +99,34 @@ fun MiniMapOverlay(
         lifecycleOwner.lifecycle.addObserver(observer)
         
         try {
-            Log.d(TAG, "Forzando onStart inicial")
-            mapView.onStart() // Forzar inicio inmediato
+            // Forzar estado inicial si el ciclo de vida ya ha pasado (Compose UI vs Activity Lifecycle)
+            mapView.onStart()
+            mapView.onResume()
         } catch (e: Exception) {
-            Log.e(TAG, "Error en onStart inicial: ${e.message}")
+            Log.e(TAG, "Error en inicio manual: ${e.message}")
         }
 
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             try { 
-                Log.d(TAG, "Disposing MapView")
+                Log.d(TAG, "Disposing MiniMap Overlay")
+                
+                // FIX CRÍTICO: Detener explícitamente el componente de ubicación.
+                // Si el mapa se destruye mientras el LocationComponent está animando (bearing/location),
+                // intenta acceder al 'Style' destruido y provoca IllegalStateException.
+                currentMap?.let { map ->
+                    try {
+                        if (map.locationComponent.isLocationComponentActivated) {
+                            map.locationComponent.isLocationComponentEnabled = false
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error desactivando LocationComponent: ${e.message}")
+                    }
+                }
+
+                // Desmontaje manual ordenado
+                mapView.onPause()
+                mapView.onStop()
                 mapView.onDestroy() 
             } catch (e: Exception) {
                 Log.e(TAG, "Error en dispose: ${e.message}")
@@ -176,12 +196,9 @@ fun MiniMapOverlay(
 
         try {
             if (map.style != null) {
-                // FIX: Eliminada llamada redundante a enableLocation() aquí.
-                // Re-inicializar el LocationComponent repetidamente causa condiciones de carrera
-                // y crashes "newer style is loading" al invalidar estilos.
-                // La activación inicial ya se realiza en loadMapStyle.
+                // FIX: No llamamos a enableLocation() aquí repetidamente.
+                // Solo movemos la cámara. La inicialización se hizo en loadMapStyle.
                 
-                // Mover cámara suavemente
                 val position = CameraPosition.Builder()
                     .target(LatLng(loc.latitude, loc.longitude))
                     .zoom(16.0) // Zoom nivel parcela
@@ -205,8 +222,5 @@ fun MiniMapOverlay(
             factory = { mapView },
             modifier = Modifier.fillMaxSize()
         )
-        
-        // Indicador central visual (opcional, ya que LocationComponent tiene su propio punto azul)
-        // Dejamos que LocationComponent de MapLibre maneje el punto azul
     }
 }
