@@ -57,6 +57,7 @@ fun MapOverlay(
     currentBaseMap: BaseMap,
     showRecinto: Boolean,
     showCultivo: Boolean,
+    isInfoSheetEnabled: Boolean,
     expedientes: List<NativeExpediente>,
     visibleProjectIds: Set<String>,
     instantSigpacRef: String,
@@ -66,6 +67,7 @@ fun MapOverlay(
     mapCenterLng: Double? = null,
     userLat: Double? = null,
     userLng: Double? = null,
+    userAccuracy: Float? = null,
     // Actions
     onSearchQueryChange: (String) -> Unit,
     onSearchPerform: () -> Unit,
@@ -73,6 +75,7 @@ fun MapOverlay(
     onChangeBaseMap: (BaseMap) -> Unit,
     onToggleRecinto: (Boolean) -> Unit,
     onToggleCultivo: (Boolean) -> Unit,
+    onToggleInfoSheet: (Boolean) -> Unit,
     onToggleProjectVisibility: (String) -> Unit,
     onNavigateToProjects: () -> Unit,
     onOpenCamera: () -> Unit,
@@ -85,9 +88,6 @@ fun MapOverlay(
     var isPanelExpanded by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
     
-    // Estado para controlar si se muestra la ficha de información automáticamente
-    var isInfoSheetEnabled by remember { mutableStateOf(true) }
-
     // --- SEARCH BAR & CENTER POINTER ---
     if (!isSearching && !showCustomKeyboard) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -140,8 +140,9 @@ fun MapOverlay(
             if (userLat != null && userLng != null && userLat != 0.0) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(modifier = Modifier.background(Color.Black.copy(0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                    val accuracyText = if (userAccuracy != null) " (±${userAccuracy.toInt()}m)" else ""
                     Text(
-                        text = String.format(Locale.US, "GPS: %.6f, %.6f", userLat, userLng),
+                        text = String.format(Locale.US, "GPS: %.6f, %.6f%s", userLat, userLng, accuracyText),
                         color = Color.Cyan,
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
@@ -177,10 +178,10 @@ fun MapOverlay(
                         Divider(modifier = Modifier.padding(vertical = 10.dp))
                         
                         Text("Interfaz", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 14.sp)
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { isInfoSheetEnabled = !isInfoSheetEnabled }) { 
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onToggleInfoSheet(!isInfoSheetEnabled) }) { 
                             Checkbox(
                                 checked = isInfoSheetEnabled, 
-                                onCheckedChange = { isInfoSheetEnabled = it }, 
+                                onCheckedChange = { onToggleInfoSheet(it) }, 
                                 modifier = Modifier.size(36.dp).padding(4.dp), 
                                 colors = CheckboxDefaults.colors(checkedColor = FieldGreen)
                             )

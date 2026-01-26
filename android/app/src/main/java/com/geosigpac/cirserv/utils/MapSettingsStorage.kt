@@ -8,7 +8,8 @@ import com.google.gson.Gson
 data class MapSettings(
     val baseMapName: String = BaseMap.PNOA.name,
     val showRecinto: Boolean = true,
-    val showCultivo: Boolean = true
+    val showCultivo: Boolean = true,
+    val isInfoSheetEnabled: Boolean = true
 ) {
     fun getBaseMapEnum(): BaseMap {
         return try {

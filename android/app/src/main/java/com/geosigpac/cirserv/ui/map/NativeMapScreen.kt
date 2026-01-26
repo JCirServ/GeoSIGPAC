@@ -79,13 +79,14 @@ fun NativeMapScreen(
     var currentBaseMap by remember { mutableStateOf(initialSettings.getBaseMapEnum()) }
     var showRecinto by remember { mutableStateOf(initialSettings.showRecinto) }
     var showCultivo by remember { mutableStateOf(initialSettings.showCultivo) }
+    var isInfoSheetEnabled by remember { mutableStateOf(initialSettings.isInfoSheetEnabled) }
     var initialLocationSet by remember { mutableStateOf(false) }
 
     // --- PERSISTENCIA AUTOMÁTICA ---
-    LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
+    LaunchedEffect(currentBaseMap, showRecinto, showCultivo, isInfoSheetEnabled) {
         MapSettingsStorage.saveSettings(
             context, 
-            MapSettings(currentBaseMap.name, showRecinto, showCultivo)
+            MapSettings(currentBaseMap.name, showRecinto, showCultivo, isInfoSheetEnabled)
         )
     }
 
@@ -115,6 +116,7 @@ fun NativeMapScreen(
     // Coordenadas del USUARIO (GPS)
     var userLat by remember { mutableStateOf<Double?>(null) }
     var userLng by remember { mutableStateOf<Double?>(null) }
+    var userAccuracy by remember { mutableStateOf<Float?>(null) }
 
     // --- OBTENCIÓN DE UBICACIÓN REAL (FUSED LOCATION) ---
     DisposableEffect(Unit) {
@@ -128,6 +130,7 @@ fun NativeMapScreen(
                 result.lastLocation?.let {
                     userLat = it.latitude
                     userLng = it.longitude
+                    userAccuracy = it.accuracy
                 }
             }
         }
@@ -485,6 +488,7 @@ fun NativeMapScreen(
             currentBaseMap = currentBaseMap,
             showRecinto = showRecinto,
             showCultivo = showCultivo,
+            isInfoSheetEnabled = isInfoSheetEnabled,
             expedientes = expedientes,
             visibleProjectIds = visibleProjectIds,
             instantSigpacRef = instantSigpacRef,
@@ -495,12 +499,14 @@ fun NativeMapScreen(
             mapCenterLng = mapCenterLng,
             userLat = userLat,
             userLng = userLng,
+            userAccuracy = userAccuracy,
             onSearchQueryChange = { searchQuery = it },
             onSearchPerform = { performSearch() },
             onClearSearch = { clearSearch() },
             onChangeBaseMap = { currentBaseMap = it },
             onToggleRecinto = { showRecinto = it },
             onToggleCultivo = { showCultivo = it },
+            onToggleInfoSheet = { isInfoSheetEnabled = it },
             onToggleProjectVisibility = { id -> 
                 visibleProjectIds = if (visibleProjectIds.contains(id)) visibleProjectIds - id else visibleProjectIds + id 
             },
