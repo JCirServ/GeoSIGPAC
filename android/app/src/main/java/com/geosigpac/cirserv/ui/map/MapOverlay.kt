@@ -81,6 +81,9 @@ fun MapOverlay(
     var showProjectsMenu by remember { mutableStateOf(false) }
     var isPanelExpanded by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    
+    // Estado para controlar si se muestra la ficha de información automáticamente
+    var isInfoSheetEnabled by remember { mutableStateOf(true) }
 
     // --- SEARCH BAR & CENTER POINTER ---
     if (!isSearching && !showCustomKeyboard) {
@@ -144,10 +147,25 @@ fun MapOverlay(
                         Text("Mapa Base", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(4.dp))
                         BaseMap.values().forEach { base -> Row(modifier = Modifier.fillMaxWidth().clickable { onChangeBaseMap(base) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = (currentBaseMap == base), onClick = { onChangeBaseMap(base) }, modifier = Modifier.size(24.dp), colors = RadioButtonDefaults.colors(selectedColor = FieldGreen)); Spacer(modifier = Modifier.width(10.dp)); Text(base.title, fontSize = 16.sp) } }
+                        
                         Divider(modifier = Modifier.padding(vertical = 10.dp))
+                        
                         Text("Capas SIGPAC", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 14.sp)
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onToggleRecinto(!showRecinto) }) { Checkbox(checked = showRecinto, onCheckedChange = { onToggleRecinto(it) }, modifier = Modifier.size(36.dp).padding(4.dp), colors = CheckboxDefaults.colors(checkedColor = FieldGreen)); Text("Recintos", fontSize = 16.sp) }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onToggleCultivo(!showCultivo) }) { Checkbox(checked = showCultivo, onCheckedChange = { onToggleCultivo(it) }, modifier = Modifier.size(36.dp).padding(4.dp), colors = CheckboxDefaults.colors(checkedColor = FieldGreen)); Text("Cultivos", fontSize = 16.sp) }
+                        
+                        Divider(modifier = Modifier.padding(vertical = 10.dp))
+                        
+                        Text("Interfaz", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 14.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { isInfoSheetEnabled = !isInfoSheetEnabled }) { 
+                            Checkbox(
+                                checked = isInfoSheetEnabled, 
+                                onCheckedChange = { isInfoSheetEnabled = it }, 
+                                modifier = Modifier.size(36.dp).padding(4.dp), 
+                                colors = CheckboxDefaults.colors(checkedColor = FieldGreen)
+                            )
+                            Text("Ficha Info", fontSize = 16.sp) 
+                        }
                     }
                 }
             }
@@ -181,7 +199,8 @@ fun MapOverlay(
 
     // --- INFO SHEET ---
     if (!showCustomKeyboard) {
-        val showSheet = instantSigpacRef.isNotEmpty() || recintoData != null || (cultivoData != null && showCultivo)
+        // La ficha solo se muestra si el toggle está activado Y hay datos relevantes
+        val showSheet = isInfoSheetEnabled && (instantSigpacRef.isNotEmpty() || recintoData != null || (cultivoData != null && showCultivo))
         
         AnimatedVisibility(
             visible = showSheet,
