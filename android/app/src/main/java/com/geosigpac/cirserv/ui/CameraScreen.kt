@@ -9,11 +9,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.media.ExifInterface
 import android.net.Uri
 import android.os.Bundle
+import android.os.Looper
 import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -53,12 +52,15 @@ import com.geosigpac.cirserv.ui.components.recinto.NativeRecintoCard
 import com.geosigpac.cirserv.utils.CameraSettings
 import com.geosigpac.cirserv.utils.CameraSettingsStorage
 import com.geosigpac.cirserv.utils.SpatialIndex
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -280,46 +282,53 @@ fun CameraScreen(
         }
     }
 
-    // --- LOCATION UPDATES ---
+    // --- LOCATION UPDATES (FUSED LOCATION PROVIDER) ---
     DisposableEffect(Unit) {
-        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        fun updateLocationUI(location: Location) {
-            locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}"
-            currentLocation = location
-        }
-        val listener = object : LocationListener {
-            override fun onLocationChanged(newLocation: Location) {
-                val current = currentLocation
-                var accept = false
-                if (current == null) accept = true
-                else {
-                    if (newLocation.provider == LocationManager.GPS_PROVIDER) accept = true
-                    else if (newLocation.provider == LocationManager.NETWORK_PROVIDER) {
-                        if (current.provider == LocationManager.NETWORK_PROVIDER) accept = true
-                        else if ((newLocation.time - current.time) > 120000) accept = true
-                    }
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        
+        // Configuración de Alta Precisión
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000) // 1 seg
+            .setWaitForAccurateLocation(false)
+            .setMinUpdateIntervalMillis(500) // Máxima velocidad de actualización
+            .setMaxUpdateDelayMillis(1000)
+            .build()
+
+        val locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                locationResult.lastLocation?.let { location ->
+                    currentLocation = location
+                    locationText = "Lat: ${String.format("%.6f", location.latitude)}\nLng: ${String.format("%.6f", location.longitude)}\nPrecisión: ${location.accuracy.toInt()}m"
                 }
-                if (accept) updateLocationUI(newLocation)
             }
-            override fun onProviderEnabled(provider: String) {}
-            override fun onProviderDisabled(provider: String) { if (currentLocation == null) locationText = "Sin señal GPS" }
-            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         }
+
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
-                val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                val bestLast = when {
-                    lastGps != null && lastNet != null -> if (lastGps.time > lastNet.time) lastGps else lastNet
-                    lastGps != null -> lastGps
-                    else -> lastNet
+                // Obtener última ubicación conocida inmediatamente para UI rápida
+                fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                    if (loc != null) {
+                        currentLocation = loc
+                        locationText = "Lat: ${String.format("%.6f", loc.latitude)}\nLng: ${String.format("%.6f", loc.longitude)}"
+                    }
                 }
-                if (bestLast != null) updateLocationUI(bestLast)
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener)
-                try { locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 1f, listener) } catch(_:Exception){}
-            } catch (e: Exception) { locationText = "Error GPS" }
+                
+                // Iniciar actualizaciones constantes
+                fusedLocationClient.requestLocationUpdates(
+                    locationRequest,
+                    locationCallback,
+                    Looper.getMainLooper()
+                )
+            } catch (e: Exception) {
+                Log.e("CameraScreen", "Error iniciando FusedLocation: ${e.message}")
+                locationText = "Error GPS"
+            }
+        } else {
+            locationText = "Sin permisos GPS"
         }
-        onDispose { if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) locationManager.removeUpdates(listener) }
+
+        onDispose {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+        }
     }
 
     // --- CAPTURE HANDLER ---
