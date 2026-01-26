@@ -8,8 +8,6 @@ import android.content.pm.PackageManager
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import org.maplibre.android.location.LocationComponentActivationOptions
-import org.maplibre.android.location.engine.LocationEngineProvider
-import org.maplibre.android.location.engine.LocationEngineRequest
 import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
@@ -168,7 +166,7 @@ fun loadMapStyle(
             style.addLayer(hCultivoFill) 
         }
 
-        if (enableLocation(map, context, shouldCenter)) {
+        if (enableLocation(map, context, shouldCenterUser)) {
             onLocationEnabled()
         }
     }
@@ -233,20 +231,10 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
         try {
             val locationComponent = map.locationComponent
             
-            // 1. Configurar Location Engine de Google Play Services explícitamente
-            val locationEngine = LocationEngineProvider.getBestLocationEngine(context)
-            
-            // 2. Configurar Request de Alta Precisión y Baja Latencia (1 segundo)
-            val request = LocationEngineRequest.Builder(1000)
-                .setPriority(LocationEngineRequest.PRIORITY_HIGH_ACCURACY)
-                .setMaxWaitTime(1000) // Forzar actualizaciones rápidas
-                .build()
-
-            // 3. Activar el componente con estas opciones
+            // Usamos configuración por defecto que detectará Google Play Services si está disponible
+            // Eliminamos la construcción manual de LocationEngineRequest para evitar conflictos de compilación
             val options = LocationComponentActivationOptions.builder(context, map.style!!)
-                .locationEngine(locationEngine)
-                .locationEngineRequest(request)
-                .useDefaultLocationEngine(false) // Desactivar el por defecto para usar el nuestro configurado
+                .useDefaultLocationEngine(true)
                 .build()
             
             locationComponent.activateLocationComponent(options)
