@@ -84,10 +84,8 @@ fun CameraScreen(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     
     // --- OPTIMIZACIÓN ESPACIAL ---
-    // Inicializamos el índice espacial. persistente durante el ciclo de vida de la pantalla
     val spatialIndex = remember { SpatialIndex() }
     
-    // Reconstruimos el índice si cambian los datos (en hilo secundario)
     LaunchedEffect(expedientes) {
         spatialIndex.rebuild(expedientes)
     }
@@ -285,11 +283,9 @@ fun CameraScreen(
     // --- LOCATION UPDATES (FUSED LOCATION PROVIDER) ---
     DisposableEffect(Unit) {
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-        
-        // Configuración de Alta Precisión
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000) // 1 seg
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
             .setWaitForAccurateLocation(false)
-            .setMinUpdateIntervalMillis(500) // Máxima velocidad de actualización
+            .setMinUpdateIntervalMillis(500)
             .setMaxUpdateDelayMillis(1000)
             .build()
 
@@ -304,31 +300,19 @@ fun CameraScreen(
 
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
-                // Obtener última ubicación conocida inmediatamente para UI rápida
                 fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
                     if (loc != null) {
                         currentLocation = loc
                         locationText = "Lat: ${String.format("%.6f", loc.latitude)}\nLng: ${String.format("%.6f", loc.longitude)}"
                     }
                 }
-                
-                // Iniciar actualizaciones constantes
-                fusedLocationClient.requestLocationUpdates(
-                    locationRequest,
-                    locationCallback,
-                    Looper.getMainLooper()
-                )
-            } catch (e: Exception) {
-                Log.e("CameraScreen", "Error iniciando FusedLocation: ${e.message}")
-                locationText = "Error GPS"
-            }
+                fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+            } catch (e: Exception) { locationText = "Error GPS" }
         } else {
             locationText = "Sin permisos GPS"
         }
 
-        onDispose {
-            fusedLocationClient.removeLocationUpdates(locationCallback)
-        }
+        onDispose { fusedLocationClient.removeLocationUpdates(locationCallback) }
     }
 
     // --- CAPTURE HANDLER ---
@@ -377,47 +361,17 @@ fun CameraScreen(
                         if (previewUri != null) {
                             val generalExpId = "EXP_GENERAL_NO_PROJECT"
                             val generalParcelId = "PARCEL_GENERAL_NO_PROJECT"
-                            
                             val existingGeneralExp = expedientes.find { it.id == generalExpId }
-                            
                             val updatedExp = if (existingGeneralExp != null) {
-                                val p = existingGeneralExp.parcelas.firstOrNull() ?: NativeParcela(
-                                    id = generalParcelId,
-                                    referencia = "FOTOS SIN PROYECTO",
-                                    uso = "GEN",
-                                    lat = 0.0, lng = 0.0, area = 0.0, metadata = emptyMap()
-                                )
+                                val p = existingGeneralExp.parcelas.firstOrNull() ?: NativeParcela(id = generalParcelId, referencia = "FOTOS SIN PROYECTO", uso = "GEN", lat = 0.0, lng = 0.0, area = 0.0, metadata = emptyMap())
                                 val newPhotos = p.photos + previewUri.toString()
-                                val newLocs = if (captureLocation != null) {
-                                    p.photoLocations + (previewUri.toString() to "${captureLocation.latitude},${captureLocation.longitude}")
-                                } else p.photoLocations
-                                val updatedP = p.copy(photos = newPhotos, photoLocations = newLocs)
-                                existingGeneralExp.copy(parcelas = listOf(updatedP))
+                                val newLocs = if (captureLocation != null) p.photoLocations + (previewUri.toString() to "${captureLocation.latitude},${captureLocation.longitude}") else p.photoLocations
+                                existingGeneralExp.copy(parcelas = listOf(p.copy(photos = newPhotos, photoLocations = newLocs)))
                             } else {
-                                val p = NativeParcela(
-                                    id = generalParcelId,
-                                    referencia = "FOTOS SIN PROYECTO",
-                                    uso = "GEN",
-                                    lat = captureLocation?.latitude ?: 0.0, 
-                                    lng = captureLocation?.longitude ?: 0.0,
-                                    area = 0.0,
-                                    metadata = emptyMap(),
-                                    photos = listOf(previewUri.toString()),
-                                    photoLocations = if (captureLocation != null) mapOf(previewUri.toString() to "${captureLocation.latitude},${captureLocation.longitude}") else emptyMap()
-                                )
-                                NativeExpediente(
-                                    id = generalExpId,
-                                    titular = "Sin Proyecto Asignado",
-                                    fechaImportacion = "General",
-                                    parcelas = listOf(p)
-                                )
+                                val p = NativeParcela(id = generalParcelId, referencia = "FOTOS SIN PROYECTO", uso = "GEN", lat = captureLocation?.latitude ?: 0.0, lng = captureLocation?.longitude ?: 0.0, area = 0.0, metadata = emptyMap(), photos = listOf(previewUri.toString()), photoLocations = if (captureLocation != null) mapOf(previewUri.toString() to "${captureLocation.latitude},${captureLocation.longitude}") else emptyMap())
+                                NativeExpediente(id = generalExpId, titular = "Sin Proyecto Asignado", fechaImportacion = "General", parcelas = listOf(p))
                             }
-                            
-                            val newList = if (existingGeneralExp != null) {
-                                expedientes.map { if (it.id == generalExpId) updatedExp else it }
-                            } else {
-                                expedientes + updatedExp
-                            }
+                            val newList = if (existingGeneralExp != null) expedientes.map { if (it.id == generalExpId) updatedExp else it } else expedientes + updatedExp
                             onUpdateExpedientes(newList)
                         }
                     }
@@ -488,8 +442,38 @@ fun CameraScreen(
             showNoDataMessage = showNoDataMessage,
             onClearManual = if (manualSigpacRef != null) { { manualSigpacRef = null } } else null
         )
+        
+        // 3. MINI MAPA (Nuevo componente)
+        // Posicionado en la esquina superior izquierda (debajo de los controles de configuración si hay conflicto, 
+        // pero vamos a ponerlo arriba y ajustar el padding de los controles)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 40.dp, start = 16.dp) // Alineado con los controles si es portrait, pero lo desplazamos
+        ) {
+            // Nota: En portrait los controles están Top-Start. Si ponemos el mapa aquí, tapará los botones.
+            // Vamos a poner el mapa DEBAJO de los botones en Portrait, o mover los botones.
+            // Mejor opción: Mapa en la parte inferior derecha, encima del Zoom? O Inferior Izquierda.
+            // Vamos a ponerlo en Top-Start pero desplazado hacia abajo si estamos en Portrait.
+            
+            // Layout Decision: 
+            // - Portrait: Mapa Top-Left, debajo de botones Settings/List/Manual.
+            // - Landscape: Mapa Bottom-Left, encima de botones Preview.
+            
+            val mapModifier = if (isLandscape) {
+                Modifier.align(Alignment.BottomStart).padding(bottom = 100.dp) 
+            } else {
+                Modifier.padding(top = 180.dp) // Dejar espacio para los 3 botones de control (aprox 3 * 50dp + spacing)
+            }
+            
+            MiniMapOverlay(
+                modifier = mapModifier,
+                userLocation = currentLocation,
+                expedientes = expedientes
+            )
+        }
 
-        // 3. CONTROLS LAYER
+        // 4. CONTROLS LAYER
         CameraControls(
             isLandscape = isLandscape,
             isProcessingImage = isProcessingImage,
@@ -529,7 +513,7 @@ fun CameraScreen(
             onZoomChange = { camera?.cameraControl?.setLinearZoom(it) }
         )
 
-        // 4. DIALOGS & OVERLAYS
+        // 5. DIALOGS & OVERLAYS
         if (showSettingsDialog) {
             SettingsDialog(
                 photoFormat, flashMode, gridMode, cameraQuality, overlayOptions,
