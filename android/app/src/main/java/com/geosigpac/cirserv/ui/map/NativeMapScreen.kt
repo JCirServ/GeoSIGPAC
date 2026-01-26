@@ -1,8 +1,11 @@
 
 package com.geosigpac.cirserv.ui.map
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
@@ -13,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.geosigpac.cirserv.model.NativeExpediente
@@ -29,6 +33,13 @@ import com.geosigpac.cirserv.ui.computeLocalBoundsAndFeature
 import com.geosigpac.cirserv.ui.enableLocation
 import com.geosigpac.cirserv.ui.loadMapStyle
 import com.geosigpac.cirserv.ui.searchParcelLocation
+import com.geosigpac.cirserv.utils.MapSettings
+import com.geosigpac.cirserv.utils.MapSettingsStorage
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -60,12 +71,23 @@ fun NativeMapScreen(
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     
+    // --- CARGAR CONFIGURACIÓN PERSISTENTE ---
+    val initialSettings = remember { MapSettingsStorage.loadSettings(context) }
+
     // --- ESTADO MAPA ---
     var mapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
-    var currentBaseMap by remember { mutableStateOf(BaseMap.PNOA) }
-    var showRecinto by remember { mutableStateOf(true) }
-    var showCultivo by remember { mutableStateOf(true) }
+    var currentBaseMap by remember { mutableStateOf(initialSettings.getBaseMapEnum()) }
+    var showRecinto by remember { mutableStateOf(initialSettings.showRecinto) }
+    var showCultivo by remember { mutableStateOf(initialSettings.showCultivo) }
     var initialLocationSet by remember { mutableStateOf(false) }
+
+    // --- PERSISTENCIA AUTOMÁTICA ---
+    LaunchedEffect(currentBaseMap, showRecinto, showCultivo) {
+        MapSettingsStorage.saveSettings(
+            context, 
+            MapSettings(currentBaseMap.name, showRecinto, showCultivo)
+        )
+    }
 
     // --- ESTADO DATOS ---
     var visibleProjectIds by remember { mutableStateOf<Set<String>>(expedientes.map { it.id }.toSet()) }
@@ -86,9 +108,38 @@ fun NativeMapScreen(
     var isLoadingData by remember { mutableStateOf(false) }
     var apiJob by remember { mutableStateOf<Job?>(null) }
 
-    // Coordenadas actuales del centro (para Google Maps)
-    var currentMapCenterLat by remember { mutableDoubleStateOf(0.0) }
-    var currentMapCenterLng by remember { mutableDoubleStateOf(0.0) }
+    // Coordenadas del CENTRO del mapa (Retículo)
+    var mapCenterLat by remember { mutableDoubleStateOf(0.0) }
+    var mapCenterLng by remember { mutableDoubleStateOf(0.0) }
+
+    // Coordenadas del USUARIO (GPS)
+    var userLat by remember { mutableStateOf<Double?>(null) }
+    var userLng by remember { mutableStateOf<Double?>(null) }
+
+    // --- OBTENCIÓN DE UBICACIÓN REAL (FUSED LOCATION) ---
+    DisposableEffect(Unit) {
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
+            .setMinUpdateIntervalMillis(1000)
+            .build()
+            
+        val locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let {
+                    userLat = it.latitude
+                    userLng = it.longitude
+                }
+            }
+        }
+        
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+             try {
+                 fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+             } catch (e: Exception) { e.printStackTrace() }
+        }
+        
+        onDispose { fusedLocationClient.removeLocationUpdates(locationCallback) }
+    }
 
     // --- ESTADO GALERÍA (Desde Marcador Mapa) ---
     var selectedParcelForGallery by remember { mutableStateOf<NativeParcela?>(null) }
@@ -297,6 +348,12 @@ fun NativeMapScreen(
 
             // Realtime Info - Actualización fluida durante movimiento
             map.addOnCameraMoveListener { 
+                val target = map.cameraPosition.target
+                if (target != null) {
+                    mapCenterLat = target.latitude
+                    mapCenterLng = target.longitude
+                }
+
                 if (!searchActive) {
                     val currentZoom = map.cameraPosition.zoom
                     
@@ -327,11 +384,11 @@ fun NativeMapScreen(
 
             // Extended Data (Carga de atributos al detenerse)
             map.addOnCameraIdleListener {
-                // Actualizar centro del mapa para botones externos (Google Maps)
+                // Actualizar centro del mapa con precisión al detenerse
                 val target = map.cameraPosition.target
                 if (target != null) {
-                    currentMapCenterLat = target.latitude
-                    currentMapCenterLng = target.longitude
+                    mapCenterLat = target.latitude
+                    mapCenterLng = target.longitude
                 }
 
                 if (!searchActive) {
@@ -433,8 +490,11 @@ fun NativeMapScreen(
             instantSigpacRef = instantSigpacRef,
             recintoData = recintoData,
             cultivoData = cultivoData,
-            currentLat = currentMapCenterLat,
-            currentLng = currentMapCenterLng,
+            // Pasamos ambas: Centro del Mapa (para navegación a punto) y Usuario (para display)
+            mapCenterLat = mapCenterLat,
+            mapCenterLng = mapCenterLng,
+            userLat = userLat,
+            userLng = userLng,
             onSearchQueryChange = { searchQuery = it },
             onSearchPerform = { performSearch() },
             onClearSearch = { clearSearch() },

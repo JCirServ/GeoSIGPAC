@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,8 +62,10 @@ fun MapOverlay(
     instantSigpacRef: String,
     recintoData: Map<String, String>?,
     cultivoData: Map<String, String>?,
-    currentLat: Double? = null,
-    currentLng: Double? = null,
+    mapCenterLat: Double? = null,
+    mapCenterLng: Double? = null,
+    userLat: Double? = null,
+    userLng: Double? = null,
     // Actions
     onSearchQueryChange: (String) -> Unit,
     onSearchPerform: () -> Unit,
@@ -93,43 +96,60 @@ fun MapOverlay(
         }
     }
 
+    // --- CAJETÍN DE BÚSQUEDA Y COORDENADAS ---
     Box(modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp).fillMaxWidth(0.65f)) {
-        val interactionSource = remember { MutableInteractionSource() }
-        LaunchedEffect(interactionSource) {
-            interactionSource.interactions.collect { interaction ->
-                if (interaction is PressInteraction.Release) {
-                    showCustomKeyboard = true
-                    isPanelExpanded = false
+        Column {
+            val interactionSource = remember { MutableInteractionSource() }
+            LaunchedEffect(interactionSource) {
+                interactionSource.interactions.collect { interaction ->
+                    if (interaction is PressInteraction.Release) {
+                        showCustomKeyboard = true
+                        isPanelExpanded = false
+                    }
+                }
+            }
+            TextField(
+                value = searchQuery,
+                onValueChange = { },
+                placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 16.sp) },
+                singleLine = true, maxLines = 1, readOnly = true, interactionSource = interactionSource,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite, fontSize = 16.sp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
+                    unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
+                    focusedIndicatorColor = if(showCustomKeyboard) FieldGreen else Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = FieldGreen
+                ),
+                shape = RoundedCornerShape(8.dp),
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onClearSearch(); showCustomKeyboard = false }) {
+                            Icon(Icons.Default.Close, "Borrar", tint = Color.Gray)
+                        }
+                    } else {
+                        IconButton(onClick = { showCustomKeyboard = true }) {
+                            Icon(Icons.Default.Search, "Buscar", tint = FieldGreen)
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            )
+            
+            // COORDENADAS DEL USUARIO (GPS) DEBAJO DEL BUSCADOR
+            if (userLat != null && userLng != null && userLat != 0.0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.background(Color.Black.copy(0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                    Text(
+                        text = String.format(Locale.US, "GPS: %.6f, %.6f", userLat, userLng),
+                        color = Color.Cyan,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
-        TextField(
-            value = searchQuery,
-            onValueChange = { },
-            placeholder = { Text("Prov:Mun:Pol:Parc", color = Color.Gray, fontSize = 16.sp) },
-            singleLine = true, maxLines = 1, readOnly = true, interactionSource = interactionSource,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = HighContrastWhite, fontSize = 16.sp),
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = FieldBackground.copy(alpha = 0.9f),
-                unfocusedContainerColor = FieldBackground.copy(alpha = 0.7f),
-                focusedIndicatorColor = if(showCustomKeyboard) FieldGreen else Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                cursorColor = FieldGreen
-            ),
-            shape = RoundedCornerShape(8.dp),
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onClearSearch(); showCustomKeyboard = false }) {
-                        Icon(Icons.Default.Close, "Borrar", tint = Color.Gray)
-                    }
-                } else {
-                    IconButton(onClick = { showCustomKeyboard = true }) {
-                        Icon(Icons.Default.Search, "Buscar", tint = FieldGreen)
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp)
-        )
     }
 
     // --- FLOATING ACTION BUTTONS ---
@@ -241,15 +261,13 @@ fun MapOverlay(
                                 }
                                 Spacer(Modifier.width(8.dp))
 
-                                // 2. Abrir Google Maps
-                                if (currentLat != null && currentLng != null && currentLat != 0.0) {
+                                // 2. Abrir Google Maps (Usa el centro del mapa/retículo para la ubicación de destino)
+                                if (mapCenterLat != null && mapCenterLng != null && mapCenterLat != 0.0) {
                                     IconButton(onClick = {
                                         try {
                                             // Geo URI para navegación
-                                            val uri = Uri.parse("geo:0,0?q=$currentLat,$currentLng(Parcela $currentRef)")
+                                            val uri = Uri.parse("geo:0,0?q=$mapCenterLat,$mapCenterLng(Parcela $currentRef)")
                                             val intent = Intent(Intent.ACTION_VIEW, uri)
-                                            // Intentamos forzar Google Maps si está disponible, o dejar que el sistema elija
-                                            // intent.setPackage("com.google.android.apps.maps") 
                                             context.startActivity(intent)
                                         } catch (e: Exception) {
                                             Toast.makeText(context, "No se puede abrir el mapa", Toast.LENGTH_SHORT).show()
