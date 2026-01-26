@@ -68,9 +68,9 @@ fun CameraControls(
                 ShutterButton(isProcessingImage) { onShutterClick() }
             }
 
-            // Bottom Left (Preview & Map)
+            // Bottom Left (Preview & Map) - Desplazados para no tapar el Mini Mapa
             Row(
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 32.dp, bottom = 32.dp),
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 160.dp, bottom = 32.dp),
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
@@ -86,8 +86,9 @@ fun CameraControls(
     } else {
         // --- PORTRAIT LAYOUT ---
         Box(modifier = Modifier.fillMaxSize()) {
-            // Top Left Controls
-            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 40.dp, start = 16.dp)) {
+            // Top Left Controls - Desplazados debajo del Mini Mapa
+            // El mapa mide aprox 130dp + 40dp top padding. Empezamos en 180dp.
+            Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 180.dp, start = 16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     ControlButton(Icons.Default.Settings, "Config") { onSettingsClick() }
                     ControlButton(Icons.Default.List, "Proyectos") { onProjectsClick() }
@@ -104,8 +105,8 @@ fun CameraControls(
                 }
             }
 
-            // Left Center (Zoom)
-            Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
+            // Left Bottom (Zoom) - Desplazado al fondo para no solapar controles ni mapa
+            Box(modifier = Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 120.dp)) {
                 ZoomControl(currentZoom, false, onZoomChange)
             }
 

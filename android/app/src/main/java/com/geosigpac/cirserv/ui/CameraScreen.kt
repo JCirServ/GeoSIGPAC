@@ -443,31 +443,19 @@ fun CameraScreen(
             onClearManual = if (manualSigpacRef != null) { { manualSigpacRef = null } } else null
         )
         
-        // 3. MINI MAPA (Nuevo componente)
-        // Posicionado en la esquina superior izquierda (debajo de los controles de configuración si hay conflicto, 
-        // pero vamos a ponerlo arriba y ajustar el padding de los controles)
+        // 3. MINI MAPA (Nuevo Layout)
         Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 40.dp, start = 16.dp) // Alineado con los controles si es portrait, pero lo desplazamos
-        ) {
-            // Nota: En portrait los controles están Top-Start. Si ponemos el mapa aquí, tapará los botones.
-            // Vamos a poner el mapa DEBAJO de los botones en Portrait, o mover los botones.
-            // Mejor opción: Mapa en la parte inferior derecha, encima del Zoom? O Inferior Izquierda.
-            // Vamos a ponerlo en Top-Start pero desplazado hacia abajo si estamos en Portrait.
-            
-            // Layout Decision: 
-            // - Portrait: Mapa Top-Left, debajo de botones Settings/List/Manual.
-            // - Landscape: Mapa Bottom-Left, encima de botones Preview.
-            
-            val mapModifier = if (isLandscape) {
-                Modifier.align(Alignment.BottomStart).padding(bottom = 100.dp) 
+            modifier = if (isLandscape) {
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(bottom = 24.dp, start = 16.dp) 
             } else {
-                Modifier.padding(top = 180.dp) // Dejar espacio para los 3 botones de control (aprox 3 * 50dp + spacing)
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 40.dp, start = 16.dp) 
             }
-            
+        ) {
             MiniMapOverlay(
-                modifier = mapModifier,
                 userLocation = currentLocation,
                 expedientes = expedientes
             )
