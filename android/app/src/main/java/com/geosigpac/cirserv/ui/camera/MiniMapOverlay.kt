@@ -29,6 +29,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 
 @Composable
@@ -47,9 +48,12 @@ fun MiniMapOverlay(
     // Lista de IDs visibles (todos por defecto en el minimapa para contexto)
     val visibleIds = remember(expedientes) { expedientes.map { it.id }.toSet() }
 
-    // Inicializamos MapView
+    // Inicializamos MapView con textureMode para evitar problemas de transparencia sobre CameraX
     val mapView = remember {
-        MapView(context).apply {
+        val options = MapLibreMapOptions.createFromAttributes(context, null)
+            .textureMode(true)
+            
+        MapView(context, options).apply {
             onCreate(Bundle())
         }
     }
