@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.location.engine.LocationEngineRequest
 import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
@@ -231,10 +232,16 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
         try {
             val locationComponent = map.locationComponent
             
-            // Usamos configuración por defecto que detectará Google Play Services si está disponible
-            // Eliminamos la construcción manual de LocationEngineRequest para evitar conflictos de compilación
+            // CONFIGURACIÓN DE ALTO RENDIMIENTO (Igual que la Cámara)
+            // Intervalo base 1000ms, Rápido 500ms, Alta Precisión
+            val request = LocationEngineRequest.Builder(1000)
+                .setPriority(LocationEngineRequest.PRIORITY_HIGH_ACCURACY)
+                .setFastestInterval(500) // Actualizaciones muy frecuentes
+                .build()
+
             val options = LocationComponentActivationOptions.builder(context, map.style!!)
-                .useDefaultLocationEngine(true)
+                .locationEngineRequest(request) // Aplicamos la config agresiva
+                .useDefaultLocationEngine(true) // Usamos el motor interno (que usará Play Services)
                 .build()
             
             locationComponent.activateLocationComponent(options)
