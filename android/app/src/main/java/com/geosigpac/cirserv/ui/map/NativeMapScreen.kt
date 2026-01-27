@@ -47,6 +47,8 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.location.modes.CameraMode
+import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.OnMapReadyCallback
@@ -168,7 +170,7 @@ fun NativeMapScreen(
                     Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
                     else -> {}
                 }
-            } catch (e: Exception) { Log.e(TAG_MAP, "Map Lifecycle Error: ${e.message}") }
+            } catch (e: Exception) { Log.e("MapScreen", "Map Lifecycle Error: ${e.message}") }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         mapView.onStart()
@@ -363,16 +365,13 @@ fun NativeMapScreen(
                     if (currentZoom > 13.5) { 
                         try {
                             val newRef = MapLogic.updateRealtimeInfo(map)
-                            // SOLO actualizamos si hay dato válido. Si newRef es "" (hueco/carga),
-                            // mantenemos el anterior para evitar parpadeo a negro mientras nos movemos.
                             if (newRef.isNotEmpty()) {
                                 instantSigpacRef = newRef
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG_MAP, "CRASH PREVENTED in MoveListener: ${e.message}")
+                            Log.e("MapScreen", "CRASH PREVENTED in MoveListener: ${e.message}")
                         }
                     } else {
-                         // Si nos alejamos mucho, sí limpiamos explícitamente
                          if (instantSigpacRef.isNotEmpty()) {
                              instantSigpacRef = ""
                              try {
@@ -387,7 +386,6 @@ fun NativeMapScreen(
 
             // Extended Data (Carga de atributos al detenerse)
             map.addOnCameraIdleListener {
-                // Actualizar centro del mapa con precisión al detenerse
                 val target = map.cameraPosition.target
                 if (target != null) {
                     mapCenterLat = target.latitude
@@ -411,17 +409,15 @@ fun NativeMapScreen(
                                         recintoData = r
                                         cultivoData = c
                                         instantSigpacRef = baseId.replace("-", ":")
-                                        Log.d(TAG_MAP, "Data loaded for $uniqueId")
                                     }
                                 } else {
-                                    // Si paramos y REALMENTE no hay datos (mar, zona sin datos), limpiamos.
                                     lastDataId = null
                                     recintoData = null
                                     cultivoData = null
                                     instantSigpacRef = "" 
                                 }
                             } catch (e: Exception) {
-                                Log.e(TAG_MAP, "Error fetching idle data: ${e.message}")
+                                Log.e("MapScreen", "Error fetching idle data: ${e.message}")
                             } finally {
                                 isLoadingData = false
                             }
@@ -461,11 +457,11 @@ fun NativeMapScreen(
         }
     }
 
-    // --- TRIGGER UBICACIÓN USUARIO ---
+    // --- TRIGGER UBICACIÓN USUARIO (Reset) ---
     LaunchedEffect(followUserTrigger) {
         if (followUserTrigger > 0 && mapInstance != null) {
             clearSearch()
-            enableLocation(mapInstance, context, shouldCenter = true)
+            enableLocation(mapInstance, context, shouldCenter = true) {}
         }
     }
 
@@ -512,7 +508,28 @@ fun NativeMapScreen(
             },
             onNavigateToProjects = onNavigateToProjects,
             onOpenCamera = onOpenCamera,
-            onCenterLocation = { enableLocation(mapInstance, context, shouldCenter = true) }
+            onCenterLocation = { 
+                // Lógica de Toggle: Centrado -> Brújula -> Centrado
+                mapInstance?.locationComponent?.let { loc ->
+                    if (!loc.isLocationComponentActivated || !loc.isLocationComponentEnabled) {
+                        enableLocation(mapInstance, context, shouldCenter = true) { }
+                        Toast.makeText(context, "Ubicación activada", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // Alternar modos
+                        if (loc.cameraMode == CameraMode.TRACKING) {
+                            // Cambiar a modo Brújula (Mapa Rota)
+                            loc.cameraMode = CameraMode.TRACKING_COMPASS
+                            loc.renderMode = RenderMode.COMPASS
+                            Toast.makeText(context, "Modo Orientación (Mapa Rota)", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Volver a modo Centrado (Norte Arriba)
+                            loc.cameraMode = CameraMode.TRACKING
+                            loc.renderMode = RenderMode.COMPASS
+                            Toast.makeText(context, "Modo Norte Arriba", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
         )
         
         // --- GALERÍA FOTOGRÁFICA SUPERPUESTA ---
@@ -526,25 +543,21 @@ fun NativeMapScreen(
                     val targetParcel = selectedParcelForGallery!!
                     
                     val updatedPhotos = targetParcel.photos.filter { it != uriToDelete }
-                    // CRÍTICO: También eliminamos la ubicación geográfica de la foto borrada
                     val updatedLocs = targetParcel.photoLocations.toMutableMap().apply { remove(uriToDelete) }
                     
                     val updatedParcel = targetParcel.copy(photos = updatedPhotos, photoLocations = updatedLocs)
                     
-                    // Actualizar el expediente completo
                     val updatedExp = targetExp.copy(
                         parcelas = targetExp.parcelas.map { if (it.id == updatedParcel.id) updatedParcel else it }
                     )
                     
-                    // Actualizar Lista Global -> Esto disparará el LaunchedEffect(expedientes) -> updateProjectsLayer
                     val updatedList = expedientes.map { if (it.id == updatedExp.id) updatedExp else it }
                     onUpdateExpedientes(updatedList)
                     
-                    // Actualizar estado local para que la galería se refresque o cierre
                     if (updatedPhotos.isEmpty()) {
-                        selectedParcelForGallery = null // Cierra galería si no quedan fotos
+                        selectedParcelForGallery = null 
                     } else {
-                        selectedParcelForGallery = updatedParcel // Mantiene galería abierta con lista nueva
+                        selectedParcelForGallery = updatedParcel 
                         selectedExpForGallery = updatedExp
                     }
                 }
