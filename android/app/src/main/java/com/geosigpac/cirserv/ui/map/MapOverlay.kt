@@ -55,9 +55,9 @@ import java.util.Locale
 
 // Enum para controlar el icono visual del botón
 enum class MapLocationState {
-    NONE,           // No centrado -> Icono: GPS Not Fixed (Mira abierta)
-    TRACKING,       // Centrado (Norte Arriba) -> Icono: Explore (Brújula, invita a rotar)
-    COMPASS         // Rotando (Orientación) -> Icono: Navigation (Flecha o GPS Fixed, invita a fijar norte)
+    NONE,           // No centrado -> Icono: Mira (GpsNotFixed)
+    TRACKING,       // Centrado Norte -> Icono: Brújula (Explore) -> Invita a modo orientación
+    COMPASS         // Orientación -> Icono: Flecha (Navigation) -> Invita a resetear norte
 }
 
 @Composable
@@ -221,24 +221,18 @@ fun MapOverlay(
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
             
             // BOTÓN UBICACIÓN / ORIENTACIÓN
-            // Estilo acorde al tema: Fondo oscuro (surface), Icono Verde Neón.
-            // Lógica de Iconos:
-            // - NONE (Sin seguimiento): GpsNotFixed (Mira vacía) -> Click para centrar.
-            // - TRACKING (Centrado Norte): Explore (Brújula) -> Click para modo brújula.
-            // - COMPASS (Mapa rota): Navigation (Flecha o GPS Fijo) -> Click para fijar Norte.
+            // Iconos nativos del tema para indicar el estado de navegación
             SmallFloatingActionButton(
                 onClick = onCenterLocation, 
                 containerColor = MaterialTheme.colorScheme.surface, 
-                contentColor = FieldGreen, // Color del tema (Neon Green)
+                contentColor = FieldGreen, // Color Neon Green del Tema
                 shape = CircleShape
             ) { 
                 val icon = when(locationState) {
                     MapLocationState.NONE -> Icons.Default.GpsNotFixed // Mira abierta
-                    MapLocationState.TRACKING -> Icons.Default.Explore // Brújula (invita a rotar)
-                    MapLocationState.COMPASS -> Icons.Default.Navigation // Flecha navegación (invita a resetear)
+                    MapLocationState.TRACKING -> Icons.Default.Explore // Brújula (Indica "Norte Fijo")
+                    MapLocationState.COMPASS -> Icons.Default.Navigation // Flecha navegación (Indica "Orientado")
                 }
-                // Si estamos en modo brújula, usamos un tinte diferente o rotación visual si se desea, 
-                // pero el usuario pidió "acorde al tema", así que mantenemos FieldGreen.
                 Icon(icon, "Ubicación") 
             }
         }
