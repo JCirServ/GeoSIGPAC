@@ -210,14 +210,14 @@ fun MapOverlay(
             SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
             
-            // BUTTON LOCATION (Custom Icon)
+            // BUTTON LOCATION (Custom Red Arrow Icon)
             SmallFloatingActionButton(
                 onClick = onCenterLocation, 
                 containerColor = MaterialTheme.colorScheme.surface, 
-                contentColor = FieldGreen, 
+                contentColor = Color(0xFFFF1744), // Force Red Content Color
                 shape = CircleShape
             ) { 
-                Icon(TechLocationIcon, "Ubicación") 
+                Icon(TechLocationIcon, "Ubicación", tint = Color(0xFFFF1744)) 
             }
         }
     }
@@ -364,7 +364,7 @@ fun MapOverlay(
     }
 }
 
-// Icono 'Tech' para centrar/brújula
+// Icono 'Tech' para centrar/brújula - FLECHA ROJA DE NAVEGACIÓN
 private val TechLocationIcon = ImageVector.Builder(
     name = "TechLocation",
     defaultWidth = 24.dp,
@@ -372,21 +372,12 @@ private val TechLocationIcon = ImageVector.Builder(
     viewportWidth = 24f,
     viewportHeight = 24f
 ).apply {
-    // Círculo central (Punto de usuario)
-    path(fill = SolidColor(Color.White)) {
-        moveTo(12f, 12f)
-        moveTo(12f, 8f)
-        arcTo(4f, 4f, 0f, isMoreThanHalf = true, isPositiveArc = true, 12f, 16f)
-        arcTo(4f, 4f, 0f, isMoreThanHalf = true, isPositiveArc = true, 12f, 8f)
-    }
-    // Retícula (Lineas Cruzadas sin tocar el centro)
-    path(
-        stroke = SolidColor(Color.White),
-        strokeLineWidth = 2f
-    ) {
-        moveTo(12f, 2f); lineTo(12f, 6f) // Arriba
-        moveTo(12f, 18f); lineTo(12f, 22f) // Abajo
-        moveTo(2f, 12f); lineTo(6f, 12f) // Izquierda
-        moveTo(18f, 12f); lineTo(22f, 12f) // Derecha
+    // Flecha de navegación (Paper Plane style) rellena de rojo
+    path(fill = SolidColor(Color(0xFFFF1744))) { // Red Neon A400
+        moveTo(12f, 2f) // Punta superior
+        lineTo(4f, 21f) // Base izquierda
+        lineTo(12f, 17f) // Indentación central
+        lineTo(20f, 21f) // Base derecha
+        close()
     }
 }.build()

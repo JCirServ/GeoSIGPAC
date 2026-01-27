@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.location.LocationComponentOptions
 import org.maplibre.android.location.engine.LocationEngineRequest
 import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
@@ -239,14 +240,23 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
                 .setFastestInterval(500) // Actualizaciones muy frecuentes
                 .build()
 
+            // PERSONALIZACIÓN ROJA DEL PUNTERO
+            val customLocationOptions = LocationComponentOptions.builder(context)
+                .foregroundTintColor(android.graphics.Color.parseColor("#FF1744")) // Rojo Neón (Puntero/Punto)
+                .bearingTintColor(android.graphics.Color.parseColor("#FF1744")) // Rojo Neón (Flecha de dirección)
+                .backgroundTintColor(android.graphics.Color.WHITE) // Fondo blanco para contraste
+                .accuracyColor(android.graphics.Color.parseColor("#33FF1744")) // Círculo de precisión rojo transparente
+                .build()
+
             val options = LocationComponentActivationOptions.builder(context, map.style!!)
-                .locationEngineRequest(request) // Aplicamos la config agresiva
-                .useDefaultLocationEngine(true) // Usamos el motor interno (que usará Play Services)
+                .locationEngineRequest(request)
+                .useDefaultLocationEngine(true)
+                .locationComponentOptions(customLocationOptions)
                 .build()
             
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
-            locationComponent.renderMode = RenderMode.COMPASS
+            locationComponent.renderMode = RenderMode.COMPASS // Muestra el cono/flecha de dirección
 
             if (shouldCenter) {
                 locationComponent.cameraMode = CameraMode.TRACKING
