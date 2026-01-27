@@ -461,7 +461,8 @@ fun NativeMapScreen(
     LaunchedEffect(followUserTrigger) {
         if (followUserTrigger > 0 && mapInstance != null) {
             clearSearch()
-            enableLocation(mapInstance, context, shouldCenter = true) {}
+            // FIX: Corregido error de argumentos sobrantes
+            enableLocation(mapInstance, context, shouldCenter = true)
         }
     }
 
@@ -512,19 +513,20 @@ fun NativeMapScreen(
                 // Lógica de Toggle: Centrado -> Brújula -> Centrado
                 mapInstance?.locationComponent?.let { loc ->
                     if (!loc.isLocationComponentActivated || !loc.isLocationComponentEnabled) {
-                        enableLocation(mapInstance, context, shouldCenter = true) { }
+                        // FIX: Corregido error de argumentos sobrantes (enableLocation no toma lambda)
+                        enableLocation(mapInstance, context, shouldCenter = true)
                         Toast.makeText(context, "Ubicación activada", Toast.LENGTH_SHORT).show()
                     } else {
                         // Alternar modos
                         if (loc.cameraMode == CameraMode.TRACKING) {
-                            // Cambiar a modo Brújula (Mapa Rota)
+                            // Cambiar a modo Brújula (Mapa Rota según Orientación)
                             loc.cameraMode = CameraMode.TRACKING_COMPASS
                             loc.renderMode = RenderMode.COMPASS
                             Toast.makeText(context, "Modo Orientación (Mapa Rota)", Toast.LENGTH_SHORT).show()
                         } else {
                             // Volver a modo Centrado (Norte Arriba)
                             loc.cameraMode = CameraMode.TRACKING
-                            loc.renderMode = RenderMode.COMPASS
+                            loc.renderMode = RenderMode.COMPASS // Mantiene la brújula en el icono pero el mapa fijo al norte
                             Toast.makeText(context, "Modo Norte Arriba", Toast.LENGTH_SHORT).show()
                         }
                     }
