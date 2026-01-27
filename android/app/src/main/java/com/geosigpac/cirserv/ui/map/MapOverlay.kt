@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -39,6 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -207,7 +209,16 @@ fun MapOverlay(
 
             SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
-            SmallFloatingActionButton(onClick = onCenterLocation, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.MyLocation, "Ubicación") }
+            
+            // BUTTON LOCATION (Custom Icon)
+            SmallFloatingActionButton(
+                onClick = onCenterLocation, 
+                containerColor = MaterialTheme.colorScheme.surface, 
+                contentColor = FieldGreen, 
+                shape = CircleShape
+            ) { 
+                Icon(TechLocationIcon, "Ubicación") 
+            }
         }
     }
 
@@ -352,3 +363,30 @@ fun MapOverlay(
         }
     }
 }
+
+// Icono 'Tech' para centrar/brújula
+private val TechLocationIcon = ImageVector.Builder(
+    name = "TechLocation",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f
+).apply {
+    // Círculo central (Punto de usuario)
+    path(fill = SolidColor(Color.White)) {
+        moveTo(12f, 12f)
+        moveTo(12f, 8f)
+        arcTo(4f, 4f, 0f, isMoreThanHalf = true, isPositiveArc = true, 12f, 16f)
+        arcTo(4f, 4f, 0f, isMoreThanHalf = true, isPositiveArc = true, 12f, 8f)
+    }
+    // Retícula (Lineas Cruzadas sin tocar el centro)
+    path(
+        stroke = SolidColor(Color.White),
+        strokeLineWidth = 2f
+    ) {
+        moveTo(12f, 2f); lineTo(12f, 6f) // Arriba
+        moveTo(12f, 18f); lineTo(12f, 22f) // Abajo
+        moveTo(2f, 12f); lineTo(6f, 12f) // Izquierda
+        moveTo(18f, 12f); lineTo(22f, 12f) // Derecha
+    }
+}.build()
