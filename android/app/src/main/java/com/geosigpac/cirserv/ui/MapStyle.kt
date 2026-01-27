@@ -233,19 +233,20 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
         try {
             val locationComponent = map.locationComponent
             
-            // CONFIGURACIÓN DE ALTO RENDIMIENTO (Igual que la Cámara)
-            // Intervalo base 1000ms, Rápido 500ms, Alta Precisión
+            // CONFIGURACIÓN DE ALTO RENDIMIENTO
             val request = LocationEngineRequest.Builder(1000)
                 .setPriority(LocationEngineRequest.PRIORITY_HIGH_ACCURACY)
-                .setFastestInterval(500) // Actualizaciones muy frecuentes
+                .setFastestInterval(500)
                 .build()
 
-            // PERSONALIZACIÓN ROJA DEL PUNTERO
+            // PERSONALIZACIÓN ESTÉTICA DEL PUNTERO (Tema Neon Green)
             val customLocationOptions = LocationComponentOptions.builder(context)
-                .foregroundTintColor(android.graphics.Color.parseColor("#FF1744")) // Rojo Neón (Puntero/Punto)
-                .bearingTintColor(android.graphics.Color.parseColor("#FF1744")) // Rojo Neón (Flecha de dirección)
+                .foregroundTintColor(FieldGreen.toArgb()) // Punto principal Verde Neon
+                .bearingTintColor(FieldGreen.toArgb()) // Triángulo de dirección Verde Neon
                 .backgroundTintColor(android.graphics.Color.WHITE) // Fondo blanco para contraste
-                .accuracyColor(android.graphics.Color.parseColor("#33FF1744")) // Círculo de precisión rojo transparente
+                .accuracyColor(FieldGreen.copy(alpha = 0.2f).toArgb()) // Círculo de precisión
+                .pulseEnabled(true)
+                .pulseColor(FieldGreen.toArgb())
                 .build()
 
             val options = LocationComponentActivationOptions.builder(context, map.style!!)
@@ -256,7 +257,11 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
             
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
-            locationComponent.renderMode = RenderMode.COMPASS // Muestra el cono/flecha de dirección
+            
+            // IMPORTANTE: RenderMode.COMPASS asegura que el indicador muestre el bearing (dirección).
+            // Si CameraMode es TRACKING (Norte Arriba), el triángulo gira.
+            // Si CameraMode es TRACKING_COMPASS, el mapa gira.
+            locationComponent.renderMode = RenderMode.COMPASS 
 
             if (shouldCenter) {
                 locationComponent.cameraMode = CameraMode.TRACKING

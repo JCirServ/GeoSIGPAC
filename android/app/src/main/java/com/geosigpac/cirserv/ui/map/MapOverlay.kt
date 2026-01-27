@@ -28,8 +28,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.GpsNotFixed
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -38,9 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -50,6 +52,13 @@ import androidx.compose.ui.unit.sp
 import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.ui.*
 import java.util.Locale
+
+// Enum para controlar el icono visual del botón
+enum class MapLocationState {
+    NONE,           // No centrado -> Icono: GPS Not Fixed (Mira abierta)
+    TRACKING,       // Centrado (Norte Arriba) -> Icono: Explore (Brújula, invita a rotar)
+    COMPASS         // Rotando (Orientación) -> Icono: Navigation (Flecha o GPS Fixed, invita a fijar norte)
+}
 
 @Composable
 fun MapOverlay(
@@ -70,6 +79,7 @@ fun MapOverlay(
     userLat: Double? = null,
     userLng: Double? = null,
     userAccuracy: Float? = null,
+    locationState: MapLocationState = MapLocationState.NONE, // Estado visual del botón
     // Actions
     onSearchQueryChange: (String) -> Unit,
     onSearchPerform: () -> Unit,
@@ -210,14 +220,26 @@ fun MapOverlay(
             SmallFloatingActionButton(onClick = onNavigateToProjects, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.List, "Proyectos") }
             SmallFloatingActionButton(onClick = onOpenCamera, containerColor = MaterialTheme.colorScheme.surface, contentColor = FieldGreen, shape = CircleShape) { Icon(Icons.Default.CameraAlt, "Cámara") }
             
-            // BUTTON LOCATION (Custom Red Arrow Icon)
+            // BOTÓN UBICACIÓN / ORIENTACIÓN
+            // Estilo acorde al tema: Fondo oscuro (surface), Icono Verde Neón.
+            // Lógica de Iconos:
+            // - NONE (Sin seguimiento): GpsNotFixed (Mira vacía) -> Click para centrar.
+            // - TRACKING (Centrado Norte): Explore (Brújula) -> Click para modo brújula.
+            // - COMPASS (Mapa rota): Navigation (Flecha o GPS Fijo) -> Click para fijar Norte.
             SmallFloatingActionButton(
                 onClick = onCenterLocation, 
                 containerColor = MaterialTheme.colorScheme.surface, 
-                contentColor = Color(0xFFFF1744), // Force Red Content Color
+                contentColor = FieldGreen, // Color del tema (Neon Green)
                 shape = CircleShape
             ) { 
-                Icon(TechLocationIcon, "Ubicación", tint = Color(0xFFFF1744)) 
+                val icon = when(locationState) {
+                    MapLocationState.NONE -> Icons.Default.GpsNotFixed // Mira abierta
+                    MapLocationState.TRACKING -> Icons.Default.Explore // Brújula (invita a rotar)
+                    MapLocationState.COMPASS -> Icons.Default.Navigation // Flecha navegación (invita a resetear)
+                }
+                // Si estamos en modo brújula, usamos un tinte diferente o rotación visual si se desea, 
+                // pero el usuario pidió "acorde al tema", así que mantenemos FieldGreen.
+                Icon(icon, "Ubicación") 
             }
         }
     }
@@ -363,21 +385,3 @@ fun MapOverlay(
         }
     }
 }
-
-// Icono 'Tech' para centrar/brújula - FLECHA ROJA DE NAVEGACIÓN
-private val TechLocationIcon = ImageVector.Builder(
-    name = "TechLocation",
-    defaultWidth = 24.dp,
-    defaultHeight = 24.dp,
-    viewportWidth = 24f,
-    viewportHeight = 24f
-).apply {
-    // Flecha de navegación (Paper Plane style) rellena de rojo
-    path(fill = SolidColor(Color(0xFFFF1744))) { // Red Neon A400
-        moveTo(12f, 2f) // Punta superior
-        lineTo(4f, 21f) // Base izquierda
-        lineTo(12f, 17f) // Indentación central
-        lineTo(20f, 21f) // Base derecha
-        close()
-    }
-}.build()
