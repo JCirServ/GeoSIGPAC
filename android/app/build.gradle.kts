@@ -18,7 +18,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // SEGURIDAD: Inyección de API Key desde Variable de Entorno
         val geminiApiKey = System.getenv("GEMINI_API_KEY") ?: ""
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
     }
@@ -57,35 +56,25 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     
-    // Mapas (MapLibre)
+    // Mapas
     implementation(libs.maplibre.android.sdk)
     
-    // Cámara (CameraX)
+    // Cámara
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     
-    // Google Location Services (Fused Location)
+    // Servicios
     implementation(libs.play.services.location)
-    
-    // AR - SceneView
     implementation(libs.sceneview.ar)
-    
-    // Exif Expert
     implementation(libs.androidx.exifinterface)
-    
-    // Google AI (Gemini) Nativo
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-    
-    implementation("com.google.code.gson:gson:2.10.1")
-
-    // Coil (Image Loading)
+    implementation(libs.google.generativeai)
+    implementation(libs.google.gson)
     implementation(libs.coil.compose)
+    implementation(libs.github.rtree)
 
-    // Spatial Indexing (R-Tree)
-    implementation("com.github.davidmoten:rtree:0.12")
-
+    // Tests
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
