@@ -43,10 +43,8 @@ android {
     }
 
     packaging {
-        jniLibs {
-            // Revertimos a false para permitir que el sistema optimice las librerías 
-            // de MapLibre y otras una vez eliminadas las conflictivas (ARCore).
-            useLegacyPackaging = false
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
 }
@@ -64,7 +62,7 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     
     // Mapas
-    implementation(libs.maplibre.android.sdk)
+    implementation(libs.maplibre.sdk)
     
     // Cámara
     implementation(libs.androidx.camera.core)
@@ -72,13 +70,13 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     
-    // Servicios
-    implementation(libs.play-services.location)
+    // Servicios y Utilidades
+    implementation(libs.play.services.location)
     implementation(libs.androidx.exifinterface)
     implementation(libs.google.generativeai)
     implementation(libs.google.gson)
     implementation(libs.coil.compose)
-    implementation(libs.github.rtree)
+    implementation(libs.davidmoten.rtree)
 
     // Tests
     testImplementation(libs.junit)
