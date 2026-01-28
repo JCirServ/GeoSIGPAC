@@ -226,7 +226,8 @@ fun drawLineBetweenNodes(sceneView: ArSceneView, nodeA: ArNode, nodeB: ArNode, m
     
     // Actualización dinámica: Los Geospatial Anchors refinan su posición constantemente.
     // La línea debe redibujarse entre las nuevas posiciones A y B.
-    lineNode.onFrame = {
+    // FIX: onFrame en SceneView 2.x tiene firma (FrameTime, Node) -> Unit
+    lineNode.onFrame = { _, _ ->
         val posA = nodeA.worldPosition
         val posB = nodeB.worldPosition
         
