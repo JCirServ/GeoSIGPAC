@@ -69,9 +69,6 @@ dependencies {
     // Google Location Services (Fused Location)
     implementation(libs.play.services.location)
     
-    // AR - SceneView
-    implementation(libs.sceneview.ar)
-    
     // Google AI (Gemini) Nativo
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
     

@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -32,7 +31,6 @@ import com.geosigpac.cirserv.model.NativeExpediente
 import com.geosigpac.cirserv.ui.CameraScreen
 import com.geosigpac.cirserv.ui.map.NativeMapScreen
 import com.geosigpac.cirserv.ui.NativeProjectManager
-import com.geosigpac.cirserv.ui.ar.ArGeoScreen
 import com.geosigpac.cirserv.utils.ProjectStorage
 import com.geosigpac.cirserv.utils.SigpacCodeManager
 
@@ -139,8 +137,7 @@ fun GeoSigpacApp() {
             bottomBar = {
                 // Solo mostramos la barra de navegación en la pantalla de Proyectos (Tab 1)
                 // En el mapa (Tab 2) usamos los botones flotantes propios del mapa.
-                // Tab 3 es AR
-                if (selectedTab != 99) { // 99 reserved for full screen modes if needed
+                if (selectedTab == 1) { 
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp
@@ -168,13 +165,6 @@ fun GeoSigpacApp() {
                             },
                             icon = { Icon(Icons.Default.Map, "Mapa") },
                             label = { Text("Mapa", fontSize = 13.sp) },
-                            colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 3,
-                            onClick = { selectedTab = 3 },
-                            icon = { Icon(Icons.Default.ViewInAr, "AR") },
-                            label = { Text("AR", fontSize = 13.sp) },
                             colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF00FF88), selectedTextColor = Color(0xFF00FF88), indicatorColor = Color.Transparent)
                         )
                     }
@@ -205,14 +195,6 @@ fun GeoSigpacApp() {
                         onOpenCamera = { isCameraOpen = true },
                         onUpdateExpedientes = { newList -> expedientes = newList.toList() }
                     )
-                    3 -> {
-                        // Recogemos todas las parcelas de todos los expedientes para mostrarlas en AR
-                        val allParcelas = remember(expedientes) { expedientes.flatMap { it.parcelas } }
-                        ArGeoScreen(
-                            parcelas = allParcelas,
-                            onBack = { selectedTab = 1 }
-                        )
-                    }
                 }
             }
         }

@@ -10,8 +10,6 @@
     
     <!-- FEATURES: Declara que la app usa cámara, pero no es obligatoria para instalar (required=false) -->
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
-    <!-- ARCore es opcional en la instalación, pero requerido para esta feature -->
-    <uses-feature android:name="android.hardware.camera.ar" android:required="false"/>
 
     <application
         android:allowBackup="true"
@@ -35,9 +33,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        
-        <!-- ARCore Metadata: Required for Geospatial -->
-        <meta-data android:name="com.google.ar.core" android:value="optional" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
