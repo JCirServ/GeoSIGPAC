@@ -1,16 +1,13 @@
 
 package com.geosigpac.cirserv.ui.ar
 
-import android.content.Context
 import android.util.Log
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.GpsFixed
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,15 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.geosigpac.cirserv.model.NativeParcela
 import com.geosigpac.cirserv.ui.camera.NeonGreen
-import com.google.ar.core.Anchor
 import com.google.ar.core.Config
-import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import io.github.sceneview.ar.ArSceneView
 import io.github.sceneview.ar.node.ArNode
@@ -34,13 +28,9 @@ import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
 import io.github.sceneview.math.Scale
 import io.github.sceneview.node.CylinderNode
-import io.github.sceneview.node.Node
-import io.github.sceneview.rememberArCameraNode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.atan2
-import kotlin.math.pow
 import kotlin.math.sqrt
 
 @Composable
@@ -52,14 +42,17 @@ fun ArGeoScreen(
     val scope = rememberCoroutineScope()
     var arSceneView: ArSceneView? by remember { mutableStateOf(null) }
     
-    // Estado de la UI
+    // Estados de UI
     var statusMessage by remember { mutableStateOf("Iniciando AR Geospatial...") }
     var accuracy by remember { mutableStateOf(0.0) }
-    var isGeospatialAvailable by remember { mutableStateOf(false) }
     var areLinesRendered by remember { mutableStateOf(false) }
     
-    // Estructuras de AR
-    val anchorNodes = remember { mutableListOf<ArNode>() }
+    // Función de Reset
+    val onReset = {
+        areLinesRendered = false
+        arSceneView?.childNodes?.forEach { it.destroy() }
+        arSceneView?.childNodes?.clear()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
@@ -68,14 +61,10 @@ fun ArGeoScreen(
                 ArSceneView(ctx).apply {
                     arSceneView = this
                     
-                    // Configuración Geospatial
+                    // Configuración de Sesión AR para Geospatial
                     configureSession { session, config ->
                         config.geospatialMode = Config.GeospatialMode.ENABLED
                         config.focusMode = Config.FocusMode.AUTO
-                    }
-
-                    onSessionResumed = { session ->
-                        // Verificar soporte al reanudar
                     }
 
                     onSessionFailed = { exception ->
@@ -93,11 +82,11 @@ fun ArGeoScreen(
                         val pose = earth.cameraGeospatialPose
                         accuracy = pose.horizontalAccuracy
                         
+                        // Umbral de precisión: 5 metros
                         if (accuracy <= 5.0 && !areLinesRendered) {
                             statusMessage = "Precisión Óptima. Renderizando Lindes..."
                             areLinesRendered = true
                             
-                            // Lanzar renderizado en coroutine para no bloquear el hilo de UI/GL
                             scope.launch {
                                 drawParcelLines(view, parcelas)
                                 withContext(Dispatchers.Main) {
@@ -114,13 +103,12 @@ fun ArGeoScreen(
             }
         )
 
-        // UI Overlay
+        // Panel de Estado Superior
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 48.dp, start = 16.dp, end = 16.dp)
         ) {
-            // Status Card
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -137,7 +125,7 @@ fun ArGeoScreen(
                     )
                     if (accuracy > 0) {
                         LinearProgressIndicator(
-                            progress = { (1.0 - (accuracy / 25.0)).coerceIn(0.0, 1.0).toFloat() },
+                            progress = { (1.0 - (accuracy / 20.0)).coerceIn(0.0, 1.0).toFloat() },
                             modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
                             color = NeonGreen,
                             trackColor = Color.Gray
@@ -159,9 +147,9 @@ fun ArGeoScreen(
             Icon(Icons.Default.ArrowBack, null, tint = Color.White)
         }
         
-        // Botón Reset (Por si el usuario se mueve mucho y quiere redibujar)
+        // Botón Reset (Recalibrar)
         IconButton(
-            onClick = { areLinesRendered = false; anchorNodes.forEach { it.detachAnchor() }; anchorNodes.clear(); arSceneView?.childNodes?.clear() },
+            onClick = onReset,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(32.dp)
@@ -174,14 +162,13 @@ fun ArGeoScreen(
 }
 
 /**
- * Función compleja para dibujar líneas entre coordenadas Lat/Lng en AR.
+ * Dibuja las líneas de las parcelas conectando Anchors Geoespaciales.
  */
 suspend fun drawParcelLines(sceneView: ArSceneView, parcelas: List<NativeParcela>) = withContext(Dispatchers.Main) {
     val earth = sceneView.session?.earth ?: return@withContext
-    
-    // Material de línea (Neon Green)
     val materialLoader = sceneView.materialLoader
-    val colorMaterial = materialLoader.createColorInstance(io.github.sceneview.math.Color(0.0f, 1.0f, 0.53f, 1.0f)) // #00FF88
+    // Color Verde Neón (#00FF88) con ligera transparencia
+    val colorMaterial = materialLoader.createColorInstance(io.github.sceneview.math.Color(0.0f, 1.0f, 0.53f, 0.9f))
 
     parcelas.forEach { parcela ->
         val rawCoords = parcela.geometryRaw ?: return@forEach
@@ -189,25 +176,26 @@ suspend fun drawParcelLines(sceneView: ArSceneView, parcelas: List<NativeParcela
         
         if (points.size < 2) return@forEach
 
-        // Convertimos cada punto geográfico en un Anchor de ARCore
+        // 1. Crear Anchors para cada vértice
         val anchors = points.mapNotNull { (lat, lng) ->
-            // Usamos altitud relativa al WGS84 o altitud del dispositivo - 1.5m (suelo aprox)
-            // Para mayor precisión, earth.resolveAnchorOnTerrainAsync es ideal, pero asíncrono.
-            // Aquí usamos una aproximación rápida: altitud de cámara - 1.5m para pegarlo al "suelo" relativo.
-            val cameraAlt = earth.cameraGeospatialPose.altitude
-            
-            // Creamos el anchor. rotation (0,0,0,1) identity
+            // Usamos la altitud del dispositivo - 1.5m como aproximación rápida al suelo.
+            // Para mayor precisión en terreno irregular, se usaría earth.resolveAnchorOnTerrainAsync
+            val alt = earth.cameraGeospatialPose.altitude - 1.5
             try {
-                earth.createAnchor(lat, lng, cameraAlt - 1.5, 0f, 0f, 0f, 1f)
-            } catch (e: Exception) {
-                null
-            }
+                earth.createAnchor(lat, lng, alt, 0f, 0f, 0f, 1f)
+            } catch (e: Exception) { null }
         }
 
-        // Dibujar líneas entre anclajes consecutivos
+        // 2. Conectar Anchors con Cilindros
         for (i in 0 until anchors.size) {
+            // Cerramos el polígono si es necesario
+            val nextIndex = (i + 1) % anchors.size
+            
+            // Evitar cerrar si la lista de puntos ya repite el inicio al final (común en KML/GeoJSON)
+            if (i == anchors.size - 1 && points[0] != points[points.lastIndex]) continue
+
             val startAnchor = anchors[i]
-            val endAnchor = anchors[(i + 1) % anchors.size] // Cerrar polígono
+            val endAnchor = anchors[nextIndex]
 
             val startNode = ArNode(sceneView.engine).apply {
                 anchor = startAnchor
@@ -219,76 +207,61 @@ suspend fun drawParcelLines(sceneView: ArSceneView, parcelas: List<NativeParcela
                 parent = sceneView
             }
 
-            // Calculamos vector dirección y distancia en espacio de mundo AR
-            // Nota: Los anchors tardan unos frames en resolverse correctamente.
-            // Para dibujar la línea, creamos un nodo hijo en startNode que se estira hacia endNode.
-            // Como SceneView maneja jerarquías, es más fácil calcular la línea en espacio local si ambos tienen mundo.
-            // Simplificación: Dibujar cilindros en cada vértice no es suficiente, necesitamos conectar.
-            
-            // TÉCNICA: "Line between two nodes"
             drawLineBetweenNodes(sceneView, startNode, endNode, colorMaterial)
         }
     }
 }
 
+/**
+ * Crea un cilindro que se actualiza en cada frame para conectar dos nodos que pueden moverse (Anchors).
+ */
 fun drawLineBetweenNodes(sceneView: ArSceneView, nodeA: ArNode, nodeB: ArNode, material: com.google.android.filament.MaterialInstance) {
-    // Esta función debe ejecutarse en frame update para que las líneas sigan a los anclajes si estos se corrigen
-    // Pero SceneView nodes son estáticos relativos a su padre.
-    // Creamos un nodo intermedio que se actualiza.
-    
     val lineNode = CylinderNode(
         engine = sceneView.engine,
         radius = 0.05f, // 5cm de grosor
         height = 1.0f,
         materialInstance = material
     )
-    
-    // Añadimos un listener para actualizar la posición/rotación/escala de la línea
-    // cada vez que el frame se actualiza, ya que los Geospatial Anchors "flotan" hasta estabilizarse.
     sceneView.addChild(lineNode)
     
-    lineNode.onFrame = { _ ->
+    // Actualización dinámica: Los Geospatial Anchors refinan su posición constantemente.
+    // La línea debe redibujarse entre las nuevas posiciones A y B.
+    lineNode.onFrame = {
         val posA = nodeA.worldPosition
         val posB = nodeB.worldPosition
         
         val direction = posB - posA
-        val distance = java.lang.Math.sqrt((direction.x * direction.x + direction.y * direction.y + direction.z * direction.z).toDouble()).toFloat()
+        val length = sqrt((direction.x * direction.x + direction.y * direction.y + direction.z * direction.z).toDouble()).toFloat()
         
-        if (distance > 0) {
+        if (length > 0) {
             // Posicionar en el punto medio
-            lineNode.worldPosition = (posA + posB) / 2.0f
-            
-            // Escalar la altura del cilindro (eje Y local por defecto en CylinderNode, o Z según config)
-            // SceneView Cylinder suele estar en Y.
-            lineNode.worldScale = Scale(1f, distance, 1f)
-            
-            // Rotar para mirar hacia B desde A
-            // LookAt configura el eje -Z hacia el target. El cilindro está en Y. Necesitamos ajustar.
+            lineNode.worldPosition = (posA + posB) * 0.5f
+            // Escalar longitud (Y)
+            lineNode.worldScale = Scale(1f, length, 1f)
+            // Apuntar al destino
             lineNode.lookAt(posB, Position(0f, 1f, 0f))
-            // Rotar 90 grados en X para alinear el cilindro Y con el vector Z de lookAt
-            val currentRot = lineNode.worldQuaternion
+            
+            // Corrección de rotación: El cilindro crece en Y, lookAt orienta -Z.
+            // Rotamos 90 grados en X para alinear el cilindro con el vector de dirección.
             val correction = io.github.sceneview.math.Quaternion.fromAxisAngle(io.github.sceneview.math.Float3(1f, 0f, 0f), 90f)
-            lineNode.worldQuaternion = currentRot * correction
+            lineNode.worldQuaternion = lineNode.worldQuaternion * correction
         }
     }
 }
 
-// Helper rápido para parsear la geometría cruda (copiado simplificado de KmlParser)
+/**
+ * Parsea coordenadas crudas (GeoJSON o KML string) a lista de Pares (Lat, Lng).
+ */
 fun parseGeometryToPoints(raw: String): List<Pair<Double, Double>> {
     val points = mutableListOf<Pair<Double, Double>>()
     try {
-        // Asumiendo formato simple "lng,lat lng,lat" o GeoJSON básico
-        // Limpiamos caracteres JSON si los hay
         val clean = raw.replace("[", "").replace("]", "").replace("{", "").replace("}", "")
             .replace("type", "").replace("Polygon", "").replace("coordinates", "").replace(":", "").replace("\"", "")
         
         val parts = clean.split(",").filter { it.isNotBlank() }
         
-        // GeoJSON suele ser [lng, lat], [lng, lat]
-        // Si viene del KML raw string: "lng,lat lng,lat"
-        
         if (raw.contains("coordinates")) {
-            // GeoJSON flatten logic
+            // Formato GeoJSON: [lng, lat]
             for (i in 0 until parts.size step 2) {
                 if (i+1 < parts.size) {
                     val lng = parts[i].trim().toDoubleOrNull()
@@ -297,7 +270,7 @@ fun parseGeometryToPoints(raw: String): List<Pair<Double, Double>> {
                 }
             }
         } else {
-            // Space separated tuples
+            // Formato String simple KML: "lng,lat lng,lat"
             val tuples = raw.trim().split("\\s+".toRegex())
             tuples.forEach { t ->
                 val coords = t.split(",")
@@ -308,8 +281,6 @@ fun parseGeometryToPoints(raw: String): List<Pair<Double, Double>> {
                 }
             }
         }
-    } catch (e: Exception) {
-        Log.e("ArGeo", "Error parsing geometry", e)
-    }
+    } catch (e: Exception) { Log.e("ArGeo", "Parse error", e) }
     return points
 }
