@@ -1,4 +1,3 @@
-
 [versions]
 agp = "8.13.2"
 kotlin = "2.0.21"
@@ -14,7 +13,6 @@ junitVersion = "1.2.1"
 espressoCore = "3.6.1"
 coil = "2.7.0"
 playServicesLocation = "21.3.0"
-sceneview = "2.0.3"
 exifinterface = "1.3.7"
 googleAi = "0.9.0"
 gson = "2.10.1"
@@ -48,9 +46,6 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 
 # Google Play Services
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
-
-# SceneView (AR)
-sceneview-ar = { group = "io.github.sceneview", name = "arsceneview", version.ref = "sceneview" }
 
 # Exif Interface (Peritaje)
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }

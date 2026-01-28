@@ -1,4 +1,3 @@
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -42,6 +41,14 @@ android {
         compose = true
         buildConfig = true 
     }
+
+    packaging {
+        jniLibs {
+            // Revertimos a false para permitir que el sistema optimice las librerías 
+            // de MapLibre y otras una vez eliminadas las conflictivas (ARCore).
+            useLegacyPackaging = false
+        }
+    }
 }
 
 dependencies {
@@ -66,8 +73,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     
     // Servicios
-    implementation(libs.play.services.location)
-    implementation(libs.sceneview.ar)
+    implementation(libs.play-services.location)
     implementation(libs.androidx.exifinterface)
     implementation(libs.google.generativeai)
     implementation(libs.google.gson)
