@@ -11,7 +11,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.location.Location
-import androidx.exifinterface.media.ExifInterface
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -29,13 +29,12 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 import kotlin.math.max
 import kotlin.math.min
 
 object CameraCaptureLogic {
 
-    private const val UPLOAD_TIMEOUT_MS = 120000L 
+    private const val UPLOAD_TIMEOUT_MS = 120000L // 120s Timeout
 
     fun takePhoto(
         context: Context,
@@ -49,16 +48,16 @@ object CameraCaptureLogic {
         onImageCaptured: (Map<String, Uri>) -> Unit, 
         onError: (ImageCaptureException) -> Unit
     ) {
-        val captureUseCase = imageCapture ?: return
+        val imageCapture = imageCapture ?: return
         
         val tempFile = File.createTempFile("temp_capture", ".jpg", context.cacheDir)
         val outputOptions = ImageCapture.OutputFileOptions.Builder(tempFile).build()
 
         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         val rotation = windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
-        captureUseCase.targetRotation = rotation
+        imageCapture.targetRotation = rotation
 
-        captureUseCase.takePicture(
+        imageCapture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
@@ -68,6 +67,7 @@ object CameraCaptureLogic {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
+                            // Timeout de seguridad de 120s para el procesado/guardado (o futura subida)
                             withTimeout(UPLOAD_TIMEOUT_MS) {
                                 val targetFolders = if (projectNames.isNotEmpty()) projectNames else listOf("SIN PROYECTO")
                                 
@@ -112,6 +112,7 @@ object CameraCaptureLogic {
         jpegQuality: Int,
         overlayOptions: Set<OverlayOption>
     ): Map<String, Uri> {
+        // 1. Cargar y Corregir Orientación (Solo una vez)
         val exifOriginal = ExifInterface(sourceFile.absolutePath)
         val orientation = exifOriginal.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         
@@ -125,9 +126,15 @@ object CameraCaptureLogic {
         
         var rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         
+        // 2. Recorte 1:1 (Si aplica)
         if (cropToSquare) {
-            val side = min(rotatedBitmap.width, rotatedBitmap.height)
-            val squared = Bitmap.createBitmap(rotatedBitmap, (rotatedBitmap.width - side) / 2, (rotatedBitmap.height - side) / 2, side, side)
+            val w = rotatedBitmap.width
+            val h = rotatedBitmap.height
+            val side = min(w, h)
+            val xOffset = (w - side) / 2
+            val yOffset = (h - side) / 2
+            
+            val squared = Bitmap.createBitmap(rotatedBitmap, xOffset, yOffset, side, side)
             if (rotatedBitmap != squared) {
                 rotatedBitmap.recycle()
                 rotatedBitmap = squared
@@ -136,8 +143,11 @@ object CameraCaptureLogic {
 
         val mutableBitmap = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, true)
         
-        // MARCA DE AGUA VISUAL PERICIAL
-        drawOverlay(mutableBitmap, location, sigpacRef, targetFolders.firstOrNull(), overlayOptions)
+        // 3. Dibujar Overlay Configurable (Solo una vez en el bitmap final)
+        if (overlayOptions.isNotEmpty()) {
+            val displayProject = if (targetFolders.contains("SIN PROYECTO")) null else targetFolders.firstOrNull()
+            drawOverlay(mutableBitmap, location, sigpacRef, displayProject, overlayOptions)
+        }
 
         val safeSigpacRef = sigpacRef?.replace(":", "_") ?: "SIN_REFERENCIA"
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
@@ -146,8 +156,10 @@ object CameraCaptureLogic {
         val resultMap = mutableMapOf<String, Uri>()
         val resolver = context.contentResolver
 
+        // 4. Guardar una copia por cada Proyecto destino
         for (folderName in targetFolders) {
             val relativePath = "DCIM/GeoSIGPAC/$folderName/$safeSigpacRef"
+
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
@@ -158,16 +170,18 @@ object CameraCaptureLogic {
             }
 
             val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues) 
+            
             if (uri != null) {
                 try {
                     resolver.openOutputStream(uri)?.use { out ->
                         mutableBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out)
                     }
                     
-                    // SELLADO EXIF DE ALTA FIABILIDAD
+                    // 5. Inyectar Metadatos EXIF
                     resolver.openFileDescriptor(uri, "rw")?.use { fd ->
                         val exifFinal = ExifInterface(fd.fileDescriptor)
                         writeExifData(exifFinal, location, sigpacRef, folderName)
+                        exifFinal.saveAttributes()
                     }
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -175,76 +189,63 @@ object CameraCaptureLogic {
                         contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
                         resolver.update(uri, contentValues, null, null)
                     }
+                    
                     resultMap[folderName] = uri
-                } catch (e: Exception) { Log.e("Camera", "Save failed", e) }
+                } catch (e: Exception) {
+                    Log.e("Camera", "Failed to save for project $folderName", e)
+                }
             }
         }
 
         mutableBitmap.recycle()
         rotatedBitmap.recycle()
         bitmap.recycle()
+        
         return resultMap
     }
 
-    /**
-     * Inyecta metadatos EXIF con validez pericial (Doble certificación horaria y precisión técnica).
-     */
-    private fun writeExifData(exif: ExifInterface, location: Location?, sigpacRef: String?, projectName: String): Boolean {
-        try {
-            val now = Date()
-            val localFormat = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
+    private fun writeExifData(exif: ExifInterface, location: Location?, sigpacRef: String?, projectName: String) {
+        val dateFormat = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
+        val now = Date()
 
-            // 1. HORA LOCAL (Reloj Sistema)
-            val timeLocal = localFormat.format(now)
-            exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, timeLocal)
-            exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, timeLocal)
-
-            // 2. DATOS GPS Y CERTIFICACIÓN SATELITAL
-            if (location != null) {
-                // Coordenadas DMS Racionales
-                exif.setAttribute(ExifInterface.TAG_GPS_LATITUDE, toDMS(location.latitude))
-                exif.setAttribute(ExifInterface.TAG_GPS_LATITUDE_REF, if (location.latitude >= 0) "N" else "S")
-                exif.setAttribute(ExifInterface.TAG_GPS_LONGITUDE, toDMS(location.longitude))
-                exif.setAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF, if (location.longitude >= 0) "E" else "W")
-
-                // Altitud
-                val alt = Math.abs(location.altitude)
-                exif.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${(alt * 100).toInt()}/100")
-                exif.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, if (location.altitude >= 0) "0" else "1")
-
-                // CALIDAD TÉCNICA (Certificación SIGPAC)
-                exif.setAttribute(ExifInterface.TAG_GPS_H_POSITIONING_ERROR, "${(location.accuracy * 100).toInt()}/100")
-                exif.setAttribute(ExifInterface.TAG_GPS_PROCESSING_METHOD, "GPS_HARDWARE_FIX")
-                
-                if (location.hasBearing()) {
-                    exif.setAttribute(ExifInterface.TAG_GPS_IMG_DIRECTION, "${(location.bearing * 100).toInt()}/100")
-                    exif.setAttribute(ExifInterface.TAG_GPS_IMG_DIRECTION_REF, "M") // Magnetic North
-                }
-
-                // HORA SATELITAL (Inviolable - UTC)
-                val satelliteTime = Date(location.time)
-                val gpsDateFmt = SimpleDateFormat("yyyy:MM:dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-                val gpsTimeFmt = SimpleDateFormat("HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-                
-                exif.setAttribute(ExifInterface.TAG_GPS_DATESTAMP, gpsDateFmt.format(satelliteTime))
-                exif.setAttribute(ExifInterface.TAG_GPS_TIMESTAMP, gpsTimeFmt.format(satelliteTime))
-            }
-
-            // 3. DATOS DISPOSITIVO E INSPECCIÓN
-            exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER)
-            exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL)
-            exif.setAttribute(ExifInterface.TAG_SOFTWARE, "GeoSIGPAC Pericial Engine v1.0")
+        // A. GPS
+        if (location != null) {
+            val lat = location.latitude
+            val latRef = if (lat > 0) "N" else "S"
+            exif.setAttribute(ExifInterface.TAG_GPS_LATITUDE, toDMS(lat))
+            exif.setAttribute(ExifInterface.TAG_GPS_LATITUDE_REF, latRef)
             
-            val cleanRef = sigpacRef ?: "N/D"
-            val comment = "REF:$cleanRef|PROJ:$projectName|ACC:${location?.accuracy ?: 0f}m"
-            exif.setAttribute(ExifInterface.TAG_USER_COMMENT, comment)
+            val lon = location.longitude
+            val lonRef = if (lon > 0) "E" else "W"
+            exif.setAttribute(ExifInterface.TAG_GPS_LONGITUDE, toDMS(lon))
+            exif.setAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF, lonRef)
+            
+            val alt = location.altitude
+            val altRef = if (alt < 0) "1" else "0"
+            val altNum = Math.abs(alt) * 1000
+            exif.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, "${altNum.toInt()}/1000")
+            exif.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, altRef)
 
-            exif.saveAttributes()
-            return true
-        } catch (e: Exception) {
-            Log.e("EXIF", "Error sealing metadata", e)
-            return false
+            val gpsDateFmt = SimpleDateFormat("yyyy:MM:dd", Locale.getDefault())
+            val gpsTimeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            exif.setAttribute(ExifInterface.TAG_GPS_DATESTAMP, gpsDateFmt.format(now))
+            exif.setAttribute(ExifInterface.TAG_GPS_TIMESTAMP, gpsTimeFmt.format(now))
         }
+
+        // B. Fechas y Dispositivo
+        val dateStr = dateFormat.format(now)
+        exif.setAttribute(ExifInterface.TAG_DATETIME, dateStr)
+        exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, dateStr)
+        exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, dateStr)
+        exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER)
+        exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL)
+        exif.setAttribute(ExifInterface.TAG_SOFTWARE, "GeoSIGPAC App")
+
+        // C. Datos SIGPAC
+        val cleanRef = sigpacRef ?: "N/D"
+        val userComment = "REF:$cleanRef|PROJ:$projectName"
+        exif.setAttribute(ExifInterface.TAG_USER_COMMENT, userComment)
+        exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, "Inspección SIGPAC Ref: $cleanRef Proyecto: $projectName")
     }
 
     private fun drawOverlay(
@@ -255,8 +256,17 @@ object CameraCaptureLogic {
         options: Set<OverlayOption>
     ) {
         val canvas = Canvas(bitmap)
-        val minDim = min(bitmap.width, bitmap.height).toFloat()
-        val baseTextSize = minDim * 0.026f
+        val w = bitmap.width
+        val h = bitmap.height
+        
+        // --- CÁLCULO DE PROPORCIONES ---
+        // Usamos la dimensión más pequeña (minDimension) como base.
+        // Esto garantiza que el texto se vea del mismo tamaño relativo en Vertical (Portrait) y Horizontal (Landscape).
+        val minDimension = min(w, h).toFloat()
+        
+        // Tamaño base del texto: 2.8% del lado más corto.
+        // Ej: En una foto de 3000x4000, min=3000 -> text=84px.
+        val baseTextSize = minDimension * 0.028f
         
         val paintText = Paint().apply {
             color = AndroidColor.WHITE
@@ -268,62 +278,72 @@ object CameraCaptureLogic {
         
         val paintBg = Paint().apply {
             color = AndroidColor.BLACK
-            alpha = 160
+            alpha = 140
+            style = Paint.Style.FILL
         }
         
         val lines = mutableListOf<Pair<String, Int>>()
         
-        // 1. FECHA LOCAL CON SEGUNDOS
-        val timeLocal = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date())
-        lines.add(timeLocal to AndroidColor.WHITE)
-
-        // 2. DISPOSITIVO
-        lines.add("DEVICE: ${Build.MODEL}" to AndroidColor.LTGRAY)
-
-        // 3. PRECISIÓN Y GPS
-        if (location != null) {
-            val accStr = String.format(Locale.US, "ERROR: ±%.1f m", location.accuracy)
-            lines.add(accStr to if (location.accuracy < 5) AndroidColor.GREEN else AndroidColor.YELLOW)
-            
-            val coords = String.format(Locale.US, "LAT:%.6f LNG:%.6f", location.latitude, location.longitude)
-            lines.add(coords to AndroidColor.CYAN)
-        } else {
-            lines.add("GPS: SIN SEÑAL SATÉLITE" to AndroidColor.RED)
+        if (options.contains(OverlayOption.DATE)) {
+            val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date())
+            lines.add("FECHA: $dateStr" to AndroidColor.GREEN)
         }
-
-        // 4. DATOS SIGPAC
-        if (sigpacRef != null) {
-            lines.add("REF: $sigpacRef" to AndroidColor.YELLOW)
-        }
-
-        if (projectName != null && projectName != "SIN PROYECTO") {
-            lines.add("PROJ: $projectName" to AndroidColor.GREEN)
-        }
-
-        val lineHeight = baseTextSize * 1.4f
-        val padding = baseTextSize * 0.7f
-        val boxH = (lineHeight * lines.size) + (padding * 2)
-        var maxW = 0f
-        lines.forEach { maxW = max(maxW, paintText.measureText(it.first)) }
-        val boxW = maxW + (padding * 2)
-
-        canvas.drawRect(0f, bitmap.height - boxH, boxW, bitmap.height.toFloat(), paintBg)
         
-        var currentY = bitmap.height - boxH + padding + baseTextSize
+        if (options.contains(OverlayOption.COORDS)) {
+            val locStr = if (location != null) {
+                "LAT: ${String.format(Locale.US, "%.6f", location.latitude)}  LNG: ${String.format(Locale.US, "%.6f", location.longitude)}"
+            } else {
+                "GPS: SIN SEÑAL"
+            }
+            lines.add(locStr to AndroidColor.WHITE)
+        }
+        
+        if (options.contains(OverlayOption.REF)) {
+            val refStr = sigpacRef ?: "REF: PENDIENTE / SIN DATOS"
+            lines.add("SIGPAC: $refStr" to AndroidColor.YELLOW)
+        }
+
+        if (options.contains(OverlayOption.PROJECT) && projectName != null) {
+            lines.add("PROY: $projectName" to AndroidColor.CYAN)
+        }
+
+        if (lines.isEmpty()) return
+
+        // --- CÁLCULO DE CAJETÍN ---
+        val lineHeight = baseTextSize * 1.45f
+        val padding = baseTextSize * 0.8f // Padding relativo al tamaño de fuente
+        
+        val boxHeight = (lineHeight * lines.size) + (padding * 2)
+        
+        var maxTextWidth = 0f
+        lines.forEach { (text, _) ->
+            val textWidth = paintText.measureText(text)
+            if (textWidth > maxTextWidth) maxTextWidth = textWidth
+        }
+        val boxWidth = maxTextWidth + (padding * 2)
+        
+        // Dibujamos el fondo en la esquina inferior izquierda
+        canvas.drawRect(0f, h - boxHeight, boxWidth, h.toFloat(), paintBg)
+        
+        val startX = padding
+        // Ajuste fino vertical para centrar el texto en sus líneas
+        var startY = h - boxHeight + padding + baseTextSize 
+        
         lines.forEach { (text, color) ->
             paintText.color = color
-            canvas.drawText(text, padding, currentY, paintText)
-            currentY += lineHeight
+            canvas.drawText(text, startX, startY, paintText)
+            startY += lineHeight
         }
     }
 
     private fun toDMS(coordinate: Double): String {
-        var d = Math.abs(coordinate)
-        val degrees = d.toInt()
-        d = (d - degrees) * 60
-        val minutes = d.toInt()
-        d = (d - minutes) * 60
-        val seconds = (d * 1000).toInt()
+        var loc = coordinate
+        if (loc < 0) loc = -loc
+        val degrees = loc.toInt()
+        loc = (loc - degrees) * 60
+        val minutes = loc.toInt()
+        loc = (loc - minutes) * 60
+        val seconds = (loc * 1000).toInt()
         return "$degrees/1,$minutes/1,$seconds/1000"
     }
 }
