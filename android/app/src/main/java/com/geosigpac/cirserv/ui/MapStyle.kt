@@ -240,8 +240,8 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
                 .build()
 
             // PERSONALIZACIÓN ESTÉTICA DEL PUNTERO (Tema Neon Green)
-            // Punto central blanco para máximo contraste sobre mapas satelitales
-            // Triángulo de dirección (Bearing) en Verde Neón sólido para indicar rumbo
+            // Punto central blanco para máximo contraste sobre mapas satelitales.
+            // Triángulo de dirección (Bearing) en Verde Neón sólido para indicar rumbo.
             val customLocationOptions = LocationComponentOptions.builder(context)
                 .foregroundTintColor(android.graphics.Color.WHITE) // Punto Central Blanco
                 .bearingTintColor(FieldGreen.toArgb()) // Cono de Dirección Verde Neón
@@ -260,9 +260,9 @@ fun enableLocation(map: MapLibreMap?, context: Context, shouldCenter: Boolean): 
             locationComponent.activateLocationComponent(options)
             locationComponent.isLocationComponentEnabled = true
             
-            // IMPORTANTE: RenderMode.COMPASS asegura que el indicador muestre el bearing (dirección).
-            // Si CameraMode es TRACKING (Norte Arriba), el triángulo gira indicando rumbo.
-            // Si CameraMode es TRACKING_COMPASS, el mapa gira y el triángulo apunta arriba.
+            // CRÍTICO: RenderMode.COMPASS asegura que el indicador muestre el bearing (dirección del dispositivo).
+            // Si el mapa no rota (CameraMode.TRACKING), el triángulo gira.
+            // Si el mapa rota (CameraMode.TRACKING_COMPASS), el triángulo apunta arriba y el mapa gira.
             locationComponent.renderMode = RenderMode.COMPASS 
 
             if (shouldCenter) {

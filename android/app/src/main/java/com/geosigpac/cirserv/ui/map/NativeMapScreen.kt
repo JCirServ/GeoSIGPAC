@@ -327,9 +327,11 @@ fun NativeMapScreen(
                     // Si el usuario mueve el mapa, salimos del modo seguimiento
                     if (locationState != MapLocationState.NONE) {
                         locationState = MapLocationState.NONE
-                        // No desactivamos el componente por completo para mantener el punto azul, solo el tracking
+                        // No desactivamos el componente por completo para mantener el punto azul
                         try {
                             map.locationComponent.cameraMode = CameraMode.NONE
+                            // MANTENEMOS RenderMode.COMPASS para que la flecha siga indicando el norte/rumbo
+                            map.locationComponent.renderMode = RenderMode.COMPASS 
                         } catch (e: Exception) {}
                     }
                     
@@ -491,13 +493,14 @@ fun NativeMapScreen(
                         Toast.makeText(context, "Ubicación activada", Toast.LENGTH_SHORT).show()
                     } else {
                         // CICLO DE ESTADOS:
-                        // TRACKING (Norte) -> COMPASS (Rotación) -> TRACKING (Norte)
-                        // Si se perdió el tracking (NONE), volver a TRACKING.
+                        // 1. NONE -> TRACKING (Centrado al Norte)
+                        // 2. TRACKING -> COMPASS (Centrado + Mapa Rota)
+                        // 3. COMPASS -> TRACKING (Resetea al Norte)
                         
                         when (locationState) {
                             MapLocationState.NONE -> {
                                 loc.cameraMode = CameraMode.TRACKING
-                                loc.renderMode = RenderMode.COMPASS 
+                                loc.renderMode = RenderMode.COMPASS // Siempre COMPASS para que la flecha gire
                                 locationState = MapLocationState.TRACKING
                                 Toast.makeText(context, "Centrado en ubicación", Toast.LENGTH_SHORT).show()
                             }
