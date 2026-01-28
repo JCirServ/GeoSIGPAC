@@ -14,6 +14,7 @@ junitVersion = "1.2.1"
 espressoCore = "3.6.1"
 coil = "2.7.0"
 playServicesLocation = "21.3.0"
+sceneview = "2.0.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -44,6 +45,9 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 
 # Google Play Services
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+
+# SceneView (AR)
+sceneview-ar = { group = "io.github.sceneview", name = "arsceneview", version.ref = "sceneview" }
 
 # Test
 junit = { group = "junit", name = "junit", version.ref = "junit" }
