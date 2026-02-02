@@ -3,50 +3,40 @@ package com.geosigpac.cirserv.utils
 
 import android.content.Context
 import android.util.Log
+import com.geosigpac.cirserv.database.AppDatabase
 import com.geosigpac.cirserv.model.NativeExpediente
-import com.google.gson.Gson
-import com.google.gson.GsonBuilder
-import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 object ProjectStorage {
-    private const val PREFS_NAME = "geosigpac_native_storage"
-    private const val KEY_EXPEDIENTES = "expedientes_json"
     private const val TAG = "ProjectStorage"
 
-    // FIX CRÍTICO: Habilitar serialización de valores flotantes especiales (NaN, Infinity).
-    // Esto evita el crash "NaN is not a valid double value" si algún cálculo geométrico falla.
-    private val gson: Gson = GsonBuilder()
-        .serializeSpecialFloatingPointValues()
-        .create()
-
     /**
-     * Guarda la lista completa de expedientes en SharedPreferences como JSON.
+     * Guarda la lista completa de expedientes de forma asíncrona.
      */
-    fun saveExpedientes(context: Context, expedientes: List<NativeExpediente>) {
+    suspend fun saveExpedientes(context: Context, expedientes: List<NativeExpediente>) {
         try {
-            val json = gson.toJson(expedientes)
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_EXPEDIENTES, json)
-                .apply()
+            val dao = AppDatabase.getDatabase(context).projectDao()
+            dao.clearAndSaveAll(expedientes)
         } catch (e: Exception) {
-            Log.e(TAG, "FATAL: Error guardando expedientes en disco: ${e.message}", e)
+            Log.e(TAG, "Error guardando en Room: ${e.message}", e)
         }
     }
 
     /**
-     * Recupera la lista de expedientes del almacenamiento persistente.
+     * Devuelve un Flow reactivo que emite la lista de expedientes mapeada.
      */
-    fun loadExpedientes(context: Context): List<NativeExpediente> {
-        val json = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_EXPEDIENTES, null) ?: return emptyList()
-        
-        return try {
-            val type = object : TypeToken<List<NativeExpediente>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
-        } catch (e: Exception) {
-            Log.e(TAG, "FATAL: Error cargando/parseando expedientes: ${e.message}", e)
-            emptyList()
+    fun getExpedientesFlow(context: Context): Flow<List<NativeExpediente>> {
+        val dao = AppDatabase.getDatabase(context).projectDao()
+        return dao.getAllExpedientesFlow().map { list ->
+            list.map { item ->
+                NativeExpediente(
+                    id = item.expediente.id,
+                    titular = item.expediente.titular,
+                    fechaImportacion = item.expediente.fechaImportacion,
+                    parcelas = item.parcelas
+                )
+            }
         }
     }
 }

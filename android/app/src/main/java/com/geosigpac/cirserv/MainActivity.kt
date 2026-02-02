@@ -33,6 +33,7 @@ import com.geosigpac.cirserv.ui.map.NativeMapScreen
 import com.geosigpac.cirserv.ui.NativeProjectManager
 import com.geosigpac.cirserv.utils.ProjectStorage
 import com.geosigpac.cirserv.utils.SigpacCodeManager
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,35 +64,30 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun GeoSigpacApp() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     
-    // FIX: Inicializar directamente desde storage para evitar el wipe de la lista vacía al arrancar
-    var expedientes by remember { 
-        mutableStateOf(ProjectStorage.loadExpedientes(context)) 
-    }
+    // CARGA ASÍNCRONA REACTIVA DESDE FLOW
+    // La UI se recompondrá automáticamente cuando Room detecte cambios en las tablas.
+    val expedientes by ProjectStorage.getExpedientesFlow(context).collectAsState(initial = emptyList())
     
     var isCameraOpen by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(1) }
     var currentParcelaId by remember { mutableStateOf<String?>(null) }
     
-    // Estados de navegación del mapa
     var mapSearchTarget by remember { mutableStateOf<String?>(null) }
-    var followUserTrigger by remember { mutableLongStateOf(0L) } // Trigger para centrar en usuario
-    var activeProjectId by remember { mutableStateOf<String?>(expedientes.firstOrNull()?.id) }
+    var followUserTrigger by remember { mutableLongStateOf(0L) } 
+    var activeProjectId by remember { mutableStateOf<String?>(null) }
 
-    // Inicialización de diccionarios (solo una vez)
     LaunchedEffect(Unit) {
         SigpacCodeManager.initialize(context)
     }
 
-    // Persistencia reactiva: Guarda cada vez que la lista cambie
+    // El proyecto activo se ajusta cuando los expedientes cargan por primera vez o cambian
     LaunchedEffect(expedientes) {
-        ProjectStorage.saveExpedientes(context, expedientes)
-        
-        // Mantener coherencia del proyecto activo
-        if (activeProjectId != null && expedientes.none { it.id == activeProjectId }) {
-            activeProjectId = expedientes.firstOrNull()?.id
-        } else if (activeProjectId == null && expedientes.isNotEmpty()) {
+        if (activeProjectId == null && expedientes.isNotEmpty()) {
             activeProjectId = expedientes.first().id
+        } else if (activeProjectId != null && expedientes.none { it.id == activeProjectId }) {
+            activeProjectId = expedientes.firstOrNull()?.id
         }
     }
 
@@ -118,7 +114,10 @@ fun GeoSigpacApp() {
             projectId = currentParcelaId,
             lastCapturedUri = null,
             photoCount = 0,
-            onUpdateExpedientes = { newList -> expedientes = newList },
+            onUpdateExpedientes = { newList -> 
+                // Actualización persistente asíncrona
+                scope.launch { ProjectStorage.saveExpedientes(context, newList) } 
+            },
             onImageCaptured = { /* Local handling */ },
             onError = { /* Error handling */ },
             onClose = { isCameraOpen = false },
@@ -126,7 +125,7 @@ fun GeoSigpacApp() {
                 isCameraOpen = false
                 selectedTab = 2
                 mapSearchTarget = null
-                followUserTrigger = System.currentTimeMillis() // Forzar centrado en usuario
+                followUserTrigger = System.currentTimeMillis()
             },
             onGoToProjects = { isCameraOpen = false; selectedTab = 1 }
         )
@@ -135,8 +134,6 @@ fun GeoSigpacApp() {
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                // Solo mostramos la barra de navegación en la pantalla de Proyectos (Tab 1)
-                // En el mapa (Tab 2) usamos los botones flotantes propios del mapa.
                 if (selectedTab == 1) { 
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -161,7 +158,7 @@ fun GeoSigpacApp() {
                             onClick = { 
                                 selectedTab = 2
                                 mapSearchTarget = null
-                                followUserTrigger = System.currentTimeMillis() // Forzar centrado en usuario
+                                followUserTrigger = System.currentTimeMillis()
                             },
                             icon = { Icon(Icons.Default.Map, "Mapa") },
                             label = { Text("Mapa", fontSize = 13.sp) },
@@ -177,13 +174,12 @@ fun GeoSigpacApp() {
                         expedientes = expedientes,
                         activeProjectId = activeProjectId,
                         onUpdateExpedientes = { newList -> 
-                            expedientes = newList.toList() 
+                            scope.launch { ProjectStorage.saveExpedientes(context, newList) } 
                         },
                         onActivateProject = { id -> activeProjectId = id },
                         onNavigateToMap = { query -> 
                             mapSearchTarget = query
                             selectedTab = 2 
-                            // Aquí NO actualizamos followUserTrigger porque queremos ir a una parcela específica
                         },
                         onOpenCamera = { id -> currentParcelaId = id; isCameraOpen = true }
                     )
@@ -193,7 +189,9 @@ fun GeoSigpacApp() {
                         followUserTrigger = followUserTrigger,
                         onNavigateToProjects = { selectedTab = 1 },
                         onOpenCamera = { isCameraOpen = true },
-                        onUpdateExpedientes = { newList -> expedientes = newList.toList() }
+                        onUpdateExpedientes = { newList -> 
+                            scope.launch { ProjectStorage.saveExpedientes(context, newList) } 
+                        }
                     )
                 }
             }
