@@ -1,12 +1,6 @@
 
 package com.geosigpac.cirserv.model
 
-import androidx.room.Entity
-import androidx.room.ForeignKey
-import androidx.room.Index
-import androidx.room.PrimaryKey
-import androidx.room.Ignore
-
 data class SigpacData(
     val superficie: Double? = null,
     val pendienteMedia: Double? = null,
@@ -31,50 +25,33 @@ data class CultivoData(
     val tipoAprovecha: String? = null
 )
 
-@Entity(
-    tableName = "parcelas",
-    foreignKeys = [
-        ForeignKey(
-            entity = NativeExpediente::class,
-            parentColumns = ["id"],
-            childColumns = ["parentExpedienteId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
-    indices = [Index(value = ["parentExpedienteId"])]
-)
 data class NativeParcela(
-    @PrimaryKey val id: String,
-    val parentExpedienteId: String,
+    val id: String,
     val referencia: String, 
     val uso: String,
     val lat: Double,
     val lng: Double,
     val area: Double,
     val metadata: Map<String, String>,
-    val geometryRaw: String? = null,
+    val geometryRaw: String? = null, // Raw KML coordinates string
     val sigpacInfo: SigpacData? = null,
     val cultivoInfo: CultivoData? = null,
     val informeIA: String? = null,
     val isHydrated: Boolean = false,
     val centroidLat: Double? = null,
     val centroidLng: Double? = null,
+    // Nuevos campos para el Checklist
     val verifiedUso: String? = null,
-    val verifiedProductoCode: Int? = null,
+    val verifiedProductoCode: Int? = null, // NUEVO: Producto verificado manualmente
     val completedChecks: List<String> = emptyList(),
-    val finalVerdict: String? = null,
-    val photos: List<String> = emptyList(),
-    val photoLocations: Map<String, String> = emptyMap()
+    val finalVerdict: String? = null, // "CUMPLE" | "NO_CUMPLE"
+    val photos: List<String> = emptyList(), // Lista de URIs de fotos
+    val photoLocations: Map<String, String> = emptyMap() // Mapa URI -> "lat,lng"
 )
 
-@Entity(tableName = "expedientes")
 data class NativeExpediente(
-    @PrimaryKey val id: String,
+    val id: String,
     val titular: String,
     val fechaImportacion: String,
-    // Room ignorará este campo, lo llenamos nosotros al mapear desde la relación
-    @Ignore val parcelas: List<NativeParcela> = emptyList()
-) {
-    // Constructor necesario para Room ya que ignoramos campos en el principal
-    constructor(id: String, titular: String, fechaImportacion: String) : this(id, titular, fechaImportacion, emptyList())
-}
+    val parcelas: List<NativeParcela>
+)

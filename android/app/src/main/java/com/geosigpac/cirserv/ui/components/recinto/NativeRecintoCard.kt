@@ -1,29 +1,28 @@
 
 package com.geosigpac.cirserv.ui.components.recinto
 
-import android.net.Uri
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.geosigpac.cirserv.model.NativeParcela
-import com.geosigpac.cirserv.services.GeminiService
 import com.geosigpac.cirserv.utils.AnalysisSeverity
 import com.geosigpac.cirserv.utils.SigpacCodeManager
 import com.geosigpac.cirserv.ui.FullScreenPhotoGallery
-import kotlinx.coroutines.launch
 
 @Composable
 fun NativeRecintoCard(
@@ -34,23 +33,20 @@ fun NativeRecintoCard(
     initiallyExpanded: Boolean = false,
     initiallyTechExpanded: Boolean = false
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    // Estado Expansión
     var expanded by remember(initiallyExpanded) { mutableStateOf(initiallyExpanded || parcela.photos.isNotEmpty()) } 
     var inspectionExpanded by remember { mutableStateOf(true) } 
     var dataExpanded by remember { mutableStateOf(initiallyTechExpanded) }
     
+    // Galería
     var showGallery by remember { mutableStateOf(false) }
     var galleryInitialIndex by remember { mutableIntStateOf(0) }
     
-    // IA Vision State
-    var isAnalyzingPhoto by remember { mutableStateOf(false) }
-    var visionReport by remember { mutableStateOf<String?>(null) }
-
     val isLoading = !parcela.isHydrated
     val photosEnough = parcela.photos.size >= 2
     val isFullyCompleted = parcela.finalVerdict != null && photosEnough
 
+    // --- CÁLCULO DE ANÁLISIS ---
     val agroAnalysis = remember(parcela.sigpacInfo, parcela.cultivoInfo, parcela.isHydrated) {
         if (parcela.isHydrated) {
             val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString())
@@ -67,24 +63,103 @@ fun NativeRecintoCard(
         } else null
     }
 
-    val statusColor = remember(agroAnalysis, isLoading, isFullyCompleted, photosEnough) {
-        when {
-            isLoading -> Color.Gray
-            isFullyCompleted -> Color(0xFF00FF88)
-            agroAnalysis?.severity == AnalysisSeverity.CRITICAL -> Color(0xFFFF5252)
-            agroAnalysis?.severity == AnalysisSeverity.WARNING -> Color(0xFFFF9800)
-            !photosEnough -> Color(0xFF62D2FF)
-            else -> Color(0xFF00FF88)
+    // Auto-corrección y Pre-llenado de datos
+    LaunchedEffect(agroAnalysis, parcela.isHydrated) {
+        if (parcela.isHydrated) {
+             val sigpacUsoRaw = parcela.sigpacInfo?.usoSigpac?.split(" ")?.firstOrNull() 
+             val declaredProd = parcela.cultivoInfo?.parcProducto
+             
+             var newParcela = parcela
+             var changed = false
+
+             // 1. AUTO-RELLENAR PRODUCTO (Prioridad UX)
+             // Se rellena siempre si existe el dato y no está verificado aún, 
+             // para ahorrar al usuario buscar en la lista extensa.
+             if (parcela.verifiedProductoCode == null && declaredProd != null) {
+                 newParcela = newParcela.copy(verifiedProductoCode = declaredProd)
+                 changed = true
+             }
+
+             // 2. AUTO-RELLENAR USO (Solo si es Compatible)
+             // El uso se marca verificado solo si la IA no detecta conflictos.
+             if (agroAnalysis != null && agroAnalysis.isCompatible) {
+                 if (parcela.verifiedUso == null && sigpacUsoRaw != null) {
+                     newParcela = newParcela.copy(verifiedUso = sigpacUsoRaw)
+                     changed = true
+                 }
+             }
+
+             if (changed) {
+                 onUpdateParcela(newParcela)
+             }
         }
     }
 
+    // --- ESTILOS DINÁMICOS BASADOS EN SEVERIDAD ---
+    // Color del borde e iconos
+    val statusColor = remember(agroAnalysis, isLoading, isFullyCompleted, photosEnough) {
+        when {
+            isLoading -> Color.Gray
+            isFullyCompleted -> Color(0xFF00FF88) // Completado = Verde SIEMPRE
+            agroAnalysis?.severity == AnalysisSeverity.CRITICAL -> Color(0xFFFF5252) // Crítico = Rojo
+            agroAnalysis?.severity == AnalysisSeverity.WARNING -> Color(0xFFFF9800) // Warning = Naranja
+            !photosEnough -> Color(0xFF62D2FF) // Falta foto = Azul
+            else -> Color(0xFF00FF88) // Todo OK = Verde
+        }
+    }
+
+    // Icono de Estado (Izquierda)
+    val statusIcon = remember(agroAnalysis, isLoading, isFullyCompleted, photosEnough) {
+         when {
+            isLoading -> null
+            isFullyCompleted -> Icons.Default.Verified // 1. Completado
+            agroAnalysis?.severity == AnalysisSeverity.CRITICAL -> Icons.Default.Report // 2. Discrepancia Grave
+            agroAnalysis?.severity == AnalysisSeverity.WARNING -> Icons.Default.Warning // 3. Advertencia
+            !photosEnough -> Icons.Default.AddPhotoAlternate // 4. Faltan Fotos
+            else -> null
+        }
+    }
+
+    // Capturamos el color surface fuera de remember porque MaterialTheme.colorScheme es @Composable
+    val surfaceColor = MaterialTheme.colorScheme.surface
+
+    // El fondo de la tarjeta ahora refleja la severidad del problema
+    val cardBackgroundColor = remember(isFullyCompleted, agroAnalysis, isLoading, surfaceColor) {
+        if (isFullyCompleted) {
+            Color(0xFF00FF88).copy(alpha = 0.15f)
+        } else if (!isLoading && agroAnalysis != null) {
+            when (agroAnalysis.severity) {
+                AnalysisSeverity.CRITICAL -> Color(0xFFFF5252).copy(alpha = 0.15f)
+                AnalysisSeverity.WARNING -> Color(0xFFFF9800).copy(alpha = 0.15f)
+                else -> surfaceColor.copy(alpha = 0.5f)
+            }
+        } else {
+            surfaceColor.copy(alpha = 0.5f)
+        }
+    }
+
+    // --- GALERÍA FULLSCREEN ---
+    if (showGallery) {
+        FullScreenPhotoGallery(
+            photos = parcela.photos,
+            initialIndex = galleryInitialIndex,
+            onDismiss = { showGallery = false },
+            onDeletePhoto = { photoUriToDelete ->
+                val updatedPhotos = parcela.photos.filter { it != photoUriToDelete }
+                onUpdateParcela(parcela.copy(photos = updatedPhotos))
+            }
+        )
+    }
+
+    // --- CARD CONTAINER ---
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.3f))
+        colors = CardDefaults.cardColors(containerColor = cardBackgroundColor),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(if(isFullyCompleted || agroAnalysis?.severity == AnalysisSeverity.CRITICAL) 2.dp else 1.dp, statusColor.copy(alpha = if(parcela.isHydrated) 0.8f else 0.1f))
     ) {
         Column {
+            // 1. Header
             RecintoHeader(
                 parcela = parcela,
                 isLoading = isLoading,
@@ -92,78 +167,67 @@ fun NativeRecintoCard(
                 photosEnough = photosEnough,
                 agroAnalysis = agroAnalysis,
                 statusColor = statusColor,
-                statusIcon = if(isFullyCompleted) Icons.Default.Verified else null,
+                statusIcon = statusIcon,
                 onExpand = { expanded = !expanded },
                 onCamera = { onCamera(parcela.id) }
             )
 
+            // 2. Contenido Expandido
             if (expanded) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    
-                    // --- SECCIÓN DE EVIDENCIA CON IA ---
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        CollapsibleHeader("FOTOS DE CAMPO (${parcela.photos.size})", true) { }
-                        if (parcela.photos.isNotEmpty()) {
-                            TextButton(
-                                onClick = {
-                                    scope.launch {
-                                        isAnalyzingPhoto = true
-                                        val lastPhoto = Uri.parse(parcela.photos.last())
-                                        val prodDesc = SigpacCodeManager.getProductoDescription(parcela.cultivoInfo?.parcProducto?.toString()) ?: "Desconocido"
-                                        visionReport = GeminiService.analyzePhotoConsistency(
-                                            context, lastPhoto, prodDesc, parcela.sigpacInfo?.usoSigpac ?: "N/D"
-                                        )
-                                        isAnalyzingPhoto = false
-                                    }
-                                },
-                                enabled = !isAnalyzingPhoto
-                            ) {
-                                if (isAnalyzingPhoto) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.AutoAwesome, null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("ANALIZAR FOTO", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                if (parcela.isHydrated && agroAnalysis != null) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        
+                        // A. Fotos
+                        CollapsibleHeader("EVIDENCIA FOTOGRÁFICA (${parcela.photos.size}/2)", true) { }
+                        RecintoPhotos(
+                            photos = parcela.photos,
+                            onCamera = { onCamera(parcela.id) },
+                            onGalleryOpen = { idx -> 
+                                galleryInitialIndex = idx
+                                showGallery = true
                             }
-                        }
-                    }
+                        )
 
-                    if (visionReport != null) {
-                        Surface(
-                            modifier = Modifier.padding(bottom = 12.dp).fillMaxWidth(),
-                            color = Color(0xFF62D2FF).copy(0.1f),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFF62D2FF).copy(0.3f))
+                        // B. Inspección Visual
+                        CollapsibleHeader("INSPECCIÓN VISUAL & REQUISITOS", inspectionExpanded) { inspectionExpanded = !inspectionExpanded }
+                        if (inspectionExpanded) {
+                            RecintoInspection(
+                                parcela = parcela,
+                                agroAnalysis = agroAnalysis,
+                                photosEnough = photosEnough,
+                                onUpdateParcela = onUpdateParcela
+                            )
+                        }
+
+                        Spacer(Modifier.height(20.dp))
+                        Divider(color = Color.White.copy(0.1f))
+                        Spacer(Modifier.height(20.dp))
+
+                        // C. Datos Técnicos
+                        CollapsibleHeader("DATOS TÉCNICOS & GEOMÉTRICOS", dataExpanded) { dataExpanded = !dataExpanded }
+                        if (dataExpanded) {
+                            RecintoTechnicalData(
+                                parcela = parcela
+                            )
+                        }
+
+                        // D. Botón Localizar (Siempre Visible al desplegar)
+                        Spacer(Modifier.height(20.dp))
+                        Button(
+                            onClick = { 
+                                // Usamos el ID interno para localizar usando geometría local, evitando la API externa
+                                onLocate("LOC:${parcela.id}")
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Psychology, null, tint = Color(0xFF62D2FF), modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(12.dp))
-                                Text(visionReport!!, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Medium)
-                            }
+                            Text("LOCALIZAR EN MAPA", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         }
+                        Spacer(Modifier.height(8.dp))
                     }
-
-                    RecintoPhotos(
-                        photos = parcela.photos,
-                        onCamera = { onCamera(parcela.id) },
-                        onGalleryOpen = { idx -> 
-                            galleryInitialIndex = idx
-                            showGallery = true
-                        }
-                    )
-
-                    // ... Inspección Visual y Datos Técnicos (Resto igual)
                 }
             }
         }
-    }
-    
-    if (showGallery) {
-        FullScreenPhotoGallery(
-            photos = parcela.photos,
-            initialIndex = galleryInitialIndex,
-            onDismiss = { showGallery = false },
-            onDeletePhoto = { uri ->
-                onUpdateParcela(parcela.copy(photos = parcela.photos.filter { it != uri }))
-            }
-        )
     }
 }

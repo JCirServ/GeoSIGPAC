@@ -1,99 +1,69 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { Parcela, Expediente, Project } from "../types";
+import { Parcela } from "../types";
+
+const SYSTEM_AGRONOMIST = `Eres un inspector técnico de la PAC (Política Agraria Común) en España. 
+Tu trabajo es validar la coherencia de los datos declarados.
+Analiza la referencia SIGPAC y el uso declarado.
+Si el uso es coherente con una parcela agrícola estándar, responde "CONFORME: [Breve explicación]".
+Si detectas algo raro (ej: cultivo tropical en zona de montaña, o uso desconocido), responde "INCIDENCIA: [Explicación]".
+Sé extremadamente conciso. Máximo 20 palabras.`;
 
 /**
- * Auditoría completa de un expediente.
- * Gemini analiza la coherencia de todas las parcelas en conjunto.
+ * Analiza una parcela específica para validar su declaración.
  */
-export const auditFullExpediente = async (expediente: Expediente): Promise<string> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
-    const summary = expediente.parcelas.map(p => 
-      `- Ref: ${p.referencia}, Uso: ${p.uso}, Area: ${p.area}ha, Status: ${p.status}`
-    ).join('\n');
-
-    const prompt = `Como auditor senior de la PAC, analiza la coherencia de este expediente:
-    Titular: ${expediente.titular}
-    Parcelas declaradas:
-    ${summary}
-    
-    Busca:
-    1. Fragmentación excesiva.
-    2. Usos sospechosos (ej: mucho barbecho).
-    3. Incoherencias de superficie.
-    Responde con un diagnóstico técnico breve (máx 40 palabras).`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        systemInstruction: "Eres un auditor antifraude de ayudas agrícolas europeas. Tu tono es crítico, técnico y extremadamente directo.",
-        temperature: 0.2,
-      }
-    });
-    
-    // Accessing .text property directly as per guidelines
-    return response.text?.trim() || "Auditoría no disponible.";
-  } catch (error) {
-    return "Error en el motor de auditoría.";
-  }
-};
-
-/**
- * Analiza un proyecto individual y proporciona una recomendación técnica.
- */
-// Fix: Added missing analyzeProjectWithAI function for ProjectCard component
-export const analyzeProjectWithAI = async (project: Project): Promise<string> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Analiza este proyecto agrícola: Nombre: ${project.name}, Descripción: ${project.description}, Status: ${project.status}.`;
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        systemInstruction: "Eres un experto en gestión de proyectos agrícolas. Proporciona una recomendación breve y profesional basada en los datos del proyecto.",
-      }
-    });
-    // Accessing .text property directly as per guidelines
-    return response.text?.trim() || "Análisis no disponible.";
-  } catch (error) {
-    return "Error al analizar el proyecto.";
-  }
-};
-
 export const analyzeParcelaCompliance = async (parcela: Parcela): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Analiza esta parcela: Ref: ${parcela.referencia}, Uso: ${parcela.uso}, Area: ${parcela.area} ha.`;
+    
+    const prompt = `Analiza esta parcela:
+    Ref: ${parcela.referencia}
+    Uso Declarado: ${parcela.uso}
+    Superficie: ${parcela.area} ha.
+    ¿Es un uso agrícola válido y coherente?`;
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        systemInstruction: "Valida la coherencia técnica del uso agrícola. Sé conciso.",
+        systemInstruction: SYSTEM_AGRONOMIST,
+        temperature: 0.3, // Baja temperatura para respuestas más deterministas y técnicas
       }
     });
-    // Accessing .text property directly as per guidelines
-    return response.text?.trim() || "Informe pendiente.";
+    
+    return response.text?.trim() || "No se pudo generar el informe.";
   } catch (error) {
-    return "Error de análisis.";
+    console.error("Error AI Analysis:", error);
+    return "Error de conexión con el servicio de análisis.";
   }
 };
 
+/**
+ * Chat interactivo con el asistente agrónomo.
+ */
 export const askGeminiAssistant = async (prompt: string): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        systemInstruction: "Asistente inteligente GeoSIGPAC. Responde dudas sobre normativa PAC.",
+        systemInstruction: "Eres el asistente inteligente de GeoSIGPAC. Ayudas a agricultores con dudas sobre el visor SIGPAC, fotos georreferenciadas y normativa PAC de España. Responde de forma concisa y amable.",
       }
     });
-    // Accessing .text property directly as per guidelines
-    return response.text || "No disponible.";
+    
+    return response.text || "No tengo una respuesta para eso en este momento.";
   } catch (error) {
-    return "Error de comunicación.";
+    console.error("Error Chat AI Studio:", error);
+    return "Servicio de asistencia temporalmente no disponible.";
   }
+};
+
+// Legacy functions kept for compatibility if needed, but analyzeParcelaCompliance is preferred.
+export const analyzeProjectWithAI = async (project: any): Promise<string> => {
+    return "Función deprecada. Use análisis por parcela.";
+};
+export const analyzeProjectPhoto = async (photoBase64: string, projectName: string): Promise<string> => {
+    return "Función pendiente de migración a Parcela.";
 };
